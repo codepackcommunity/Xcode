@@ -2250,7 +2250,7 @@ export default function SuperAdminDashboard() {
 
               {/* Stocks Table */}
               <div className={'overflow-x-auto'}>
-                <table className={'w-full text-white sm:hidden'}>
+                <table className={'w-full text-white md:hidden'}>
                   <thead>
                     <tr className={'border-b border-white/20'}>
                       <th className={'text-left py-2'}>Location</th>
