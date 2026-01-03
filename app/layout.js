@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "KM Electonics",
+  title: "KM Electronix",
   description: "Your Ultimate Phone Plug | Developed By Codepack",
 };
 
