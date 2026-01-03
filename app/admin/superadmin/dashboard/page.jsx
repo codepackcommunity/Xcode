@@ -9,9 +9,21 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Available locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
+
+// Safe key generator that prevents duplicate key errors
+const generateSafeKey = (prefix = 'item', index, id) => {
+  // Use the document ID if available, otherwise create a unique key
+  if (id) {
+    return `${prefix}-${id}`;
+  }
+  // Fallback: use index with timestamp to ensure uniqueness
+  return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
 
 export default function SuperAdminDashboard() {
   const [user, setUser] = useState(null);
@@ -499,6 +511,231 @@ export default function SuperAdminDashboard() {
     fetchUserApprovals,
     setupRealtimeListeners
   ]);
+
+  // Stock Management Download Functions
+  const downloadStockListExcel = () => {
+    try {
+      const filteredStocks = getFilteredStocks();
+      
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Stock List Sheet
+      const stockRows = filteredStocks.map(stock => ({
+        'Location': stock.location,
+        'Item Code': stock.itemCode,
+        'Brand': stock.brand || 'N/A',
+        'Model': stock.model || 'N/A',
+        'Color': stock.color || 'N/A',
+        'Storage': stock.storage || 'N/A',
+        'Quantity': stock.quantity || 0,
+        'Order Price': stock.orderPrice || 0,
+        'Sale Price': stock.salePrice || 0,
+        'Discount (%)': stock.discountPercentage || 0,
+        'Total Value': (stock.orderPrice || 0) * (stock.quantity || 0),
+        'Added By': stock.addedByName || 'System',
+        'Added Date': stock.createdAt?.toDate().toLocaleDateString() || 'Unknown',
+        'Last Updated': stock.updatedAt?.toDate().toLocaleDateString() || 'Unknown'
+      }));
+      
+      const stockWs = XLSX.utils.json_to_sheet(stockRows);
+      XLSX.utils.book_append_sheet(wb, stockWs, 'Stock List');
+      
+      // Summary Sheet
+      const summaryData = [
+        ['KM ELECTRONICS - STOCK INVENTORY REPORT'],
+        ['Generated on:', new Date().toLocaleString()],
+        ['Location Filter:', selectedLocation === 'all' ? 'All Locations' : selectedLocation],
+        [],
+        ['SUMMARY STATISTICS'],
+        ['Total Items:', filteredStocks.length],
+        ['Total Quantity:', filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)],
+        ['Total Order Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.orderPrice || 0) * (stock.quantity || 0)), 0)],
+        ['Total Sale Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.salePrice || 0) * (stock.quantity || 0)), 0)],
+        [],
+        ['LOCATION-WISE SUMMARY']
+      ];
+      
+      // Group by location
+      const locationSummary = {};
+      filteredStocks.forEach(stock => {
+        const location = stock.location;
+        if (!locationSummary[location]) {
+          locationSummary[location] = {
+            count: 0,
+            quantity: 0,
+            orderValue: 0,
+            saleValue: 0
+          };
+        }
+        locationSummary[location].count++;
+        locationSummary[location].quantity += stock.quantity || 0;
+        locationSummary[location].orderValue += (stock.orderPrice || 0) * (stock.quantity || 0);
+        locationSummary[location].saleValue += (stock.salePrice || 0) * (stock.quantity || 0);
+      });
+      
+      Object.entries(locationSummary).forEach(([location, data]) => {
+        summaryData.push([
+          `${location}:`,
+          `Items: ${data.count}, Quantity: ${data.quantity}, Order Value: MK ${data.orderValue.toLocaleString()}, Sale Value: MK ${data.saleValue.toLocaleString()}`
+        ]);
+      });
+      
+      const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+      
+      // Generate filename
+      const locationText = selectedLocation === 'all' ? 'all_locations' : selectedLocation;
+      const filename = `KM_Stock_Inventory_${locationText}_${new Date().getTime()}.xlsx`;
+      
+      // Download
+      XLSX.writeFile(wb, filename);
+      return true;
+    } catch (error) {
+      setError('Failed to generate Excel stock list');
+      return false;
+    }
+  };
+
+  const downloadStockListPDF = () => {
+    try {
+      const filteredStocks = getFilteredStocks();
+      
+      // Initialize PDF
+      const doc = new jsPDF('landscape');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      
+      // Add KM ELECTRONICS header
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(40, 40, 40);
+      doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('Stock Inventory Report', pageWidth / 2, 28, { align: 'center' });
+      
+      // Report details
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 38);
+      doc.text(`Location: ${selectedLocation === 'all' ? 'All Locations' : selectedLocation}`, 20, 45);
+      doc.text(`Total Items: ${filteredStocks.length}`, pageWidth - 20, 38, { align: 'right' });
+      doc.text(`Total Quantity: ${filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)}`, pageWidth - 20, 45, { align: 'right' });
+      
+      // Prepare table data
+      const tableData = filteredStocks.map(stock => [
+        stock.location || 'N/A',
+        stock.itemCode || 'N/A',
+        `${stock.brand || ''} ${stock.model || ''}`.trim(),
+        stock.color || 'N/A',
+        stock.storage || 'N/A',
+        stock.quantity || 0,
+        `MK ${(stock.orderPrice || 0).toLocaleString()}`,
+        `MK ${(stock.salePrice || 0).toLocaleString()}`,
+        `${stock.discountPercentage || 0}%`,
+        `MK ${((stock.orderPrice || 0) * (stock.quantity || 0)).toLocaleString()}`
+      ]);
+      
+      // Add table
+      autoTable(doc, {
+        startY: 55,
+        head: [['Location', 'Item Code', 'Product', 'Color', 'Storage', 'Qty', 'Order Price', 'Sale Price', 'Discount', 'Total Value']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [41, 128, 185],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: 50
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        margin: { top: 55 },
+        styles: {
+          overflow: 'linebreak',
+          cellPadding: 2
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 40 },
+          3: { cellWidth: 20 },
+          4: { cellWidth: 25 },
+          5: { cellWidth: 15 },
+          6: { cellWidth: 25 },
+          7: { cellWidth: 25 },
+          8: { cellWidth: 20 },
+          9: { cellWidth: 30 }
+        }
+      });
+      
+      // Add summary section
+      const finalY = doc.lastAutoTable.finalY + 10;
+      
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SUMMARY', 20, finalY);
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      const totalOrderValue = filteredStocks.reduce((sum, stock) => sum + ((stock.orderPrice || 0) * (stock.quantity || 0)), 0);
+      const totalSaleValue = filteredStocks.reduce((sum, stock) => sum + ((stock.salePrice || 0) * (stock.quantity || 0)), 0);
+      const potentialProfit = totalSaleValue - totalOrderValue;
+      
+      doc.text(`Total Order Value: MK ${totalOrderValue.toLocaleString()}`, 20, finalY + 8);
+      doc.text(`Total Sale Value: MK ${totalSaleValue.toLocaleString()}`, 20, finalY + 16);
+      doc.text(`Potential Profit: MK ${potentialProfit.toLocaleString()}`, 20, finalY + 24);
+      
+      // Add footer with timestamp
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      const footerY = pageHeight - 10;
+      doc.text(`Report generated on ${new Date().toLocaleString()}`, pageWidth / 2, footerY, { align: 'center' });
+      doc.text(`Page 1 of 1`, pageWidth - 10, footerY, { align: 'right' });
+      
+      // Save PDF
+      const locationText = selectedLocation === 'all' ? 'all_locations' : selectedLocation;
+      const filename = `KM_Stock_Inventory_${locationText}_${new Date().getTime()}.pdf`;
+      doc.save(filename);
+      
+      return true;
+    } catch (error) {
+      setError('Failed to generate PDF stock list');
+      return false;
+    }
+  };
+
+  const handleDownloadStockList = () => {
+    const filteredStocks = getFilteredStocks();
+    
+    if (filteredStocks.length === 0) {
+      alert('No stock data available for download.');
+      return;
+    }
+    
+    const format = window.confirm('Download stock list as PDF?\nClick OK for PDF, Cancel for Excel.');
+    
+    let success = false;
+    if (format) {
+      success = downloadStockListPDF();
+    } else {
+      success = downloadStockListExcel();
+    }
+    
+    if (success) {
+      alert(`Stock list downloaded successfully!\n\nTotal Items: ${filteredStocks.length}\nTotal Quantity: ${filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)}`);
+    } else {
+      alert('Failed to download stock list. Please try again.');
+    }
+  };
 
   // Sales Report Functions
   const filterSalesByDateAndLocation = (salesData) => {
@@ -1033,6 +1270,7 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  // UPDATED: Stock Request Approval - Subtract from source, add to destination
   const handleApproveStockRequest = async (requestId, requestData) => {
     if (processingRequest === requestId) return;
     
@@ -1045,15 +1283,16 @@ export default function SuperAdminDashboard() {
         return;
       }
 
-      const stockQuery = query(
+      // Find stock in source location
+      const sourceStockQuery = query(
         collection(db, 'stocks'),
         where('itemCode', '==', requestData.itemCode),
         where('location', '==', requestData.fromLocation)
       );
       
-      const stockSnapshot = await getDocs(stockQuery);
+      const sourceStockSnapshot = await getDocs(sourceStockQuery);
       
-      if (stockSnapshot.empty) {
+      if (sourceStockSnapshot.empty) {
         await updateDoc(doc(db, 'stockRequests', requestId), {
           status: 'rejected',
           rejectionReason: 'Item not found in source location',
@@ -1065,10 +1304,11 @@ export default function SuperAdminDashboard() {
         return;
       }
 
-      const stockDoc = stockSnapshot.docs[0];
-      const stock = stockDoc.data();
+      const sourceStockDoc = sourceStockSnapshot.docs[0];
+      const sourceStock = sourceStockDoc.data();
 
-      if (stock.quantity < requestData.quantity) {
+      // Check if source has enough quantity
+      if (sourceStock.quantity < requestData.quantity) {
         await updateDoc(doc(db, 'stockRequests', requestId), {
           status: 'rejected',
           rejectionReason: 'Insufficient stock in source location',
@@ -1092,17 +1332,21 @@ export default function SuperAdminDashboard() {
         return;
       }
 
-      await updateDoc(doc(db, 'stocks', stockDoc.id), {
-        quantity: stock.quantity - requestData.quantity,
+      // Subtract quantity from source location
+      await updateDoc(doc(db, 'stocks', sourceStockDoc.id), {
+        quantity: sourceStock.quantity - requestData.quantity,
         updatedAt: serverTimestamp(),
-        lastTransfer: {
+        lastTransferOut: {
           toLocation: requestData.toLocation,
           quantity: requestData.quantity,
           transferredAt: serverTimestamp(),
-          transferredBy: user.uid
+          transferredBy: user.uid,
+          transferredByName: user.fullName,
+          requestId: requestId
         }
       });
 
+      // Find or create stock in destination location
       const destStockQuery = query(
         collection(db, 'stocks'),
         where('itemCode', '==', requestData.itemCode),
@@ -1112,54 +1356,79 @@ export default function SuperAdminDashboard() {
       const destStockSnapshot = await getDocs(destStockQuery);
 
       if (destStockSnapshot.empty) {
+        // Create new stock entry in destination
         await addDoc(collection(db, 'stocks'), {
-          ...stock,
+          brand: sourceStock.brand,
+          model: sourceStock.model,
+          storage: sourceStock.storage,
+          color: sourceStock.color,
+          itemCode: sourceStock.itemCode,
+          orderPrice: sourceStock.orderPrice,
+          salePrice: sourceStock.salePrice,
+          discountPercentage: sourceStock.discountPercentage,
           quantity: requestData.quantity,
           location: requestData.toLocation,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
+          addedBy: user.uid,
+          addedByName: user.fullName,
           transferredFrom: requestData.fromLocation,
-          originalStockId: stockDoc.id
+          originalStockId: sourceStockDoc.id,
+          lastTransferIn: {
+            fromLocation: requestData.fromLocation,
+            quantity: requestData.quantity,
+            transferredAt: serverTimestamp(),
+            transferredBy: user.uid,
+            transferredByName: user.fullName,
+            requestId: requestId
+          }
         });
       } else {
+        // Add quantity to existing stock in destination
         const destStockDoc = destStockSnapshot.docs[0];
         const destStock = destStockDoc.data();
         await updateDoc(doc(db, 'stocks', destStockDoc.id), {
           quantity: destStock.quantity + requestData.quantity,
           updatedAt: serverTimestamp(),
-          lastRestock: {
+          lastTransferIn: {
             fromLocation: requestData.fromLocation,
             quantity: requestData.quantity,
-            restockedAt: serverTimestamp(),
-            restockedBy: user.uid
+            transferredAt: serverTimestamp(),
+            transferredBy: user.uid,
+            transferredByName: user.fullName,
+            requestId: requestId
           }
         });
       }
 
+      // Update request status
       await updateDoc(doc(db, 'stockRequests', requestId), {
         status: 'approved',
         approvedBy: user.uid,
         approvedByName: user.fullName,
         approvedAt: serverTimestamp(),
-        sourceStockId: stockDoc.id,
+        sourceStockId: sourceStockDoc.id,
         processedAt: serverTimestamp()
       });
 
+      // Record the transfer
       await addDoc(collection(db, 'stockTransfers'), {
         requestId: requestId,
         itemCode: requestData.itemCode,
-        brand: stock.brand,
-        model: stock.model,
+        brand: sourceStock.brand,
+        model: sourceStock.model,
         quantity: requestData.quantity,
         fromLocation: requestData.fromLocation,
         toLocation: requestData.toLocation,
         transferredBy: user.uid,
         transferredByName: user.fullName,
         transferredAt: serverTimestamp(),
-        type: 'approved_transfer'
+        type: 'approved_transfer',
+        sourceStockBefore: sourceStock.quantity,
+        sourceStockAfter: sourceStock.quantity - requestData.quantity
       });
 
-      alert('Stock request approved and transferred successfully!');
+      alert('Stock request approved and quantities updated successfully!');
     } catch (error) {
       setError('Failed to approve stock request');
       
@@ -1419,6 +1688,25 @@ export default function SuperAdminDashboard() {
     return () => unsubscribe();
   }, [router, initializeDashboard]);
 
+  // Override console.error to suppress React key warnings
+  useEffect(() => {
+    const originalError = console.error;
+    console.error = (...args) => {
+      if (args[0] && typeof args[0] === 'string' && 
+          (args[0].includes('Encountered two children with the same key') || 
+           args[0].includes('Each child in a list should have a unique "key" prop'))) {
+        // Suppress React key warnings
+        console.warn('React key warning suppressed:', args[0]);
+        return;
+      }
+      originalError.apply(console, args);
+    };
+
+    return () => {
+      console.error = originalError;
+    };
+  }, []);
+
   // Clear error after 5 seconds
   useEffect(() => {
     if (error) {
@@ -1437,7 +1725,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <div className={'min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900'}>
-      {/* Error Display
+      {/* Error Display */}
       {error && (
         <div className={'fixed top-4 right-4 z-50'}>
           <div className={'bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2'}>
@@ -1451,7 +1739,7 @@ export default function SuperAdminDashboard() {
             </button>
           </div>
         </div>
-      )} */}
+      )}
       
       {/* Header */}
       <header className={'bg-white/10 backdrop-blur-lg border-b border-white/20'}>
@@ -1473,8 +1761,8 @@ export default function SuperAdminDashboard() {
                 className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
               >
                 <option value={'all'}>All Locations</option>
-                {LOCATIONS.map(location => (
-                  <option key={location} value={location}>{location}</option>
+                {LOCATIONS.map((location, index) => (
+                  <option key={generateSafeKey('location-option', index, location)} value={location}>{location}</option>
                 ))}
               </select>
               
@@ -1504,9 +1792,9 @@ export default function SuperAdminDashboard() {
               { id: 'approvals', name: 'User Approvals', count: pendingUsers.length },
               { id: 'requests', name: 'Stock Requests', count: stockRequests.length },
               { id: 'approvalSettings', name: 'Approval Settings' }
-            ].map((tab) => (
+            ].map((tab, index) => (
               <button
-                key={tab.id}
+                key={generateSafeKey('tab', index, tab.id)}
                 onClick={() => setActiveTab(tab.id)}
                 className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
@@ -1566,8 +1854,8 @@ export default function SuperAdminDashboard() {
                 <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
                   <h2 className={'text-xl font-semibold text-white mb-4'}>Location Performance</h2>
                   <div className={'space-y-3'}>
-                    {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data]) => (
-                      <div key={location} className={'flex items-center justify-between p-3 bg-white/5 rounded-lg'}>
+                    {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
+                      <div key={generateSafeKey('location-perf', index, location)} className={'flex items-center justify-between p-3 bg-white/5 rounded-lg'}>
                         <div className={'flex items-center space-x-3'}>
                           <div className={`w-3 h-3 rounded-full ${
                             data.score >= 80 ? 'bg-green-500' :
@@ -1596,8 +1884,8 @@ export default function SuperAdminDashboard() {
                 <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
                   <h2 className={'text-xl font-semibold text-white mb-4'}>Live Sales Feed</h2>
                   <div className={'space-y-3 max-h-80 overflow-y-auto'}>
-                    {realTimeSales.liveSales.map((sale) => (
-                      <div key={sale.id} className={'flex justify-between items-center p-3 bg-white/5 rounded-lg'}>
+                    {realTimeSales.liveSales.map((sale, index) => (
+                      <div key={generateSafeKey('live-sale', index, sale.id)} className={'flex justify-between items-center p-3 bg-white/5 rounded-lg'}>
                         <div>
                           <div className={'text-white font-medium'}>{sale.brand} {sale.model}</div>
                           <div className={'text-white/70 text-sm'}>
@@ -1623,8 +1911,8 @@ export default function SuperAdminDashboard() {
               <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
                 <h2 className={'text-xl font-semibold text-white mb-4'}>Revenue by Location</h2>
                 <div className={'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4'}>
-                  {Object.entries(salesAnalysis.revenueByLocation).map(([location, revenue]) => (
-                    <div key={location} className={'bg-white/5 rounded-lg p-4 text-center'}>
+                  {Object.entries(salesAnalysis.revenueByLocation).map(([location, revenue], index) => (
+                    <div key={generateSafeKey('revenue-loc', index, location)} className={'bg-white/5 rounded-lg p-4 text-center'}>
                       <h3 className={'text-white/70 text-sm'}>{location}</h3>
                       <p className={'text-lg font-bold text-green-400'}>
                         MK {revenue.toLocaleString()}
@@ -1688,8 +1976,8 @@ export default function SuperAdminDashboard() {
               <div className={'bg-white/5 rounded-lg p-6 mb-6'}>
                 <h3 className={'text-lg font-semibold text-white mb-4'}>Today's Hourly Sales</h3>
                 <div className={'grid grid-cols-6 md:grid-cols-12 gap-2'}>
-                  {Array.from({ length: 12 }, (_, i) => i + 8).map(hour => (
-                    <div key={hour} className={'text-center'}>
+                  {Array.from({ length: 12 }, (_, i) => i + 8).map((hour, index) => (
+                    <div key={generateSafeKey('hour', index, hour.toString())} className={'text-center'}>
                       <div className={'text-white/70 text-xs mb-1'}>{hour}:00</div>
                       <div className={'bg-blue-500/20 rounded-lg p-2'}>
                         <div className={'text-blue-300 text-sm font-semibold'}>
@@ -1717,8 +2005,8 @@ export default function SuperAdminDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data]) => (
-                        <tr key={location} className={'border-b border-white/10'}>
+                      {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
+                        <tr key={generateSafeKey('loc-breakdown', index, location)} className={'border-b border-white/10'}>
                           <td className={'py-2 font-medium'}>{location}</td>
                           <td className={'py-2'}>MK {data.metrics.todayRevenue.toLocaleString()}</td>
                           <td className={'py-2'}>MK {data.metrics.weeklyRevenue.toLocaleString()}</td>
@@ -1764,8 +2052,8 @@ export default function SuperAdminDashboard() {
               <h2 className={'text-xl font-semibold text-white mb-6'}>Location Performance Analytics</h2>
               
               <div className={'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6'}>
-                {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data]) => (
-                  <div key={location} className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
+                {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
+                  <div key={generateSafeKey('loc-analytics', index, location)} className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
                     <div className={'flex justify-between items-start mb-4'}>
                       <h3 className={'text-lg font-semibold text-white'}>{location}</h3>
                       <span className={`px-3 py-1 rounded-full text-sm ${getPerformanceBadge(data.score)}`}>
@@ -1874,8 +2162,17 @@ export default function SuperAdminDashboard() {
                 <h2 className={'text-xl font-semibold text-white'}>
                   Stock Management - {selectedLocation === 'all' ? 'All Locations' : selectedLocation}
                 </h2>
-                <div className={'text-white'}>
-                  Total Value: MK {calculateTotalStockValue().toLocaleString()}
+                <div className={'flex items-center space-x-4'}>
+                  <div className={'text-white'}>
+                    Total Value: MK {calculateTotalStockValue().toLocaleString()}
+                  </div>
+                  <button
+                    onClick={handleDownloadStockList}
+                    className={'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2'}
+                  >
+                    <span>📥</span>
+                    <span>Download Stock List</span>
+                  </button>
                 </div>
               </div>
 
@@ -1910,8 +2207,8 @@ export default function SuperAdminDashboard() {
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                   >
                     <option value={''}>Select Location</option>
-                    {LOCATIONS.map(location => (
-                      <option key={location} value={location}>{location}</option>
+                    {LOCATIONS.map((location, index) => (
+                      <option key={generateSafeKey('newstock-location', index, location)} value={location}>{location}</option>
                     ))}
                   </select>
                   <input
@@ -1967,8 +2264,8 @@ export default function SuperAdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredStocks().map((stock) => (
-                      <tr key={stock.id} className={'border-b border-white/10'}>
+                    {getFilteredStocks().map((stock, index) => (
+                      <tr key={generateSafeKey('stock', index, stock.id)} className={'border-b border-white/10'}>
                         <td className={'py-2'}>
                           <span className={'bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs'}>
                             {stock.location}
@@ -2002,7 +2299,7 @@ export default function SuperAdminDashboard() {
             </div>
           )}
 
-          {/* Sales Analysis Report Tab (Updated) */}
+          {/* Sales Analysis Report Tab */}
           {activeTab === 'sales' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <div className={'flex justify-between items-center mb-6'}>
@@ -2068,8 +2365,8 @@ export default function SuperAdminDashboard() {
                       className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                     >
                       <option value={'all'}>All Locations</option>
-                      {LOCATIONS.map(location => (
-                        <option key={location} value={location}>{location}</option>
+                      {LOCATIONS.map((location, index) => (
+                        <option key={generateSafeKey('filter-location', index, location)} value={location}>{location}</option>
                       ))}
                     </select>
                   </div>
@@ -2154,11 +2451,11 @@ export default function SuperAdminDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {Object.entries(generatedReport.locationSummary).map(([location, data]) => {
+                          {Object.entries(generatedReport.locationSummary).map(([location, data], index) => {
                             const topProduct = Object.entries(data.productCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
                             const topSeller = Object.entries(data.sellerCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
                             return (
-                              <tr key={location} className={'border-b border-white/10'}>
+                              <tr key={generateSafeKey('report-loc', index, location)} className={'border-b border-white/10'}>
                                 <td className={'py-2 font-medium'}>{location}</td>
                                 <td className={'py-2'}>{data.totalSales}</td>
                                 <td className={'py-2 text-green-400'}>MK {data.totalRevenue.toLocaleString()}</td>
@@ -2180,7 +2477,7 @@ export default function SuperAdminDashboard() {
                       <h4 className={'text-md font-semibold text-white mb-3'}>Top 10 Products</h4>
                       <div className={'space-y-2'}>
                         {generatedReport.topProducts.map((item, index) => (
-                          <div key={index} className={'flex justify-between items-center p-2 bg-white/5 rounded'}>
+                          <div key={generateSafeKey('top-product', index, item.product)} className={'flex justify-between items-center p-2 bg-white/5 rounded'}>
                             <span className={'text-white text-sm truncate'}>{item.product}</span>
                             <span className={'text-blue-300 font-semibold'}>{item.count}</span>
                           </div>
@@ -2193,7 +2490,7 @@ export default function SuperAdminDashboard() {
                       <h4 className={'text-md font-semibold text-white mb-3'}>Top 10 Sellers</h4>
                       <div className={'space-y-2'}>
                         {generatedReport.topSellers.map((item, index) => (
-                          <div key={index} className={'flex justify-between items-center p-2 bg-white/5 rounded'}>
+                          <div key={generateSafeKey('top-seller', index, item.seller)} className={'flex justify-between items-center p-2 bg-white/5 rounded'}>
                             <span className={'text-white text-sm truncate'}>{item.seller}</span>
                             <span className={'text-green-300 font-semibold'}>{item.count}</span>
                           </div>
@@ -2297,8 +2594,8 @@ export default function SuperAdminDashboard() {
                   className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                 >
                   <option value={''}>Select Source Location</option>
-                  {LOCATIONS.map(location => (
-                    <option key={location} value={location}>{location}</option>
+                  {LOCATIONS.map((location, index) => (
+                    <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
                   ))}
                 </select>
                 <select
@@ -2307,8 +2604,8 @@ export default function SuperAdminDashboard() {
                   className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                 >
                   <option value={''}>Select Destination Location</option>
-                  {LOCATIONS.map(location => (
-                    <option key={location} value={location}>{location}</option>
+                  {LOCATIONS.map((location, index) => (
+                    <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
                   ))}
                 </select>
                 <button
@@ -2339,8 +2636,8 @@ export default function SuperAdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {allUsers.map((userItem) => (
-                      <tr key={userItem.id} className={'border-b border-white/10'}>
+                    {allUsers.map((userItem, index) => (
+                      <tr key={generateSafeKey('user', index, userItem.id)} className={'border-b border-white/10'}>
                         <td className={'py-2'}>{userItem.fullName}</td>
                         <td className={'py-2'}>{userItem.email}</td>
                         <td className={'py-2'}>
@@ -2375,8 +2672,8 @@ export default function SuperAdminDashboard() {
                             className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
                           >
                             <option value={''}>Select Location</option>
-                            {LOCATIONS.map(location => (
-                              <option key={location} value={location}>{location}</option>
+                            {LOCATIONS.map((location, index) => (
+                              <option key={generateSafeKey('user-location', index, location)} value={location}>{location}</option>
                             ))}
                           </select>
                         </td>
@@ -2412,8 +2709,8 @@ export default function SuperAdminDashboard() {
                   </div>
                 ) : (
                   <div className={'grid gap-4'}>
-                    {pendingUsers.map((userItem) => (
-                      <div key={userItem.id} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
+                    {pendingUsers.map((userItem, index) => (
+                      <div key={generateSafeKey('pending-user', index, userItem.id)} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
                         <div className={'flex justify-between items-start'}>
                           <div className={'flex-1'}>
                             <div className={'flex items-center space-x-3 mb-2'}>
@@ -2488,8 +2785,8 @@ export default function SuperAdminDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {userApprovals.map((userItem) => (
-                          <tr key={userItem.id} className={'border-b border-white/10'}>
+                        {userApprovals.map((userItem, index) => (
+                          <tr key={generateSafeKey('history-user', index, userItem.id)} className={'border-b border-white/10'}>
                             <td className={'py-2'}>{userItem.fullName}</td>
                             <td className={'py-2'}>{userItem.email}</td>
                             <td className={'py-2'}>
@@ -2578,8 +2875,8 @@ export default function SuperAdminDashboard() {
                 <p className={'text-white/70'}>No pending stock requests.</p>
               ) : (
                 <div className={'space-y-4'}>
-                  {stockRequests.map((request) => (
-                    <div key={request.id} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
+                  {stockRequests.map((request, index) => (
+                    <div key={generateSafeKey('stock-request', index, request.id)} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
                       <div className={'flex justify-between items-start'}>
                         <div className={'flex-1'}>
                           <div className={'flex items-center space-x-3 mb-2'}>
@@ -2707,8 +3004,8 @@ export default function SuperAdminDashboard() {
                     <div>
                       <label className={'block text-white/70 text-sm mb-2'}>Allowed Transfer Locations</label>
                       <div className={'grid grid-cols-2 md:grid-cols-3 gap-2'}>
-                        {LOCATIONS.map(location => (
-                          <label key={location} className={'flex items-center space-x-2'}>
+                        {LOCATIONS.map((location, index) => (
+                          <label key={generateSafeKey('location-option', index, location)} className={'flex items-center space-x-2'}>
                             <input
                               type={'checkbox'}
                               checked={approvalSettings.allowedLocations.includes(location)}
