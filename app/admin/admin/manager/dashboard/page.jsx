@@ -1511,7 +1511,7 @@ export default function ManagerDashboard() {
 
               {/* Stocks Table - FIXED */}
               <div className={'overflow-x-auto'}>
-                <table className={'w-full text-white md:hidden'}>
+                <table className={'w-full text-white'}>
                   <thead>
                     <tr className={'border-b border-white/20'}>
                       {selectedLocation === 'all' && <th className={'text-left py-2'}>Location</th>}

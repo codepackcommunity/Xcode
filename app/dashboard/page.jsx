@@ -675,7 +675,7 @@ export default function UserDashboard() {
 
               {/* Stocks Table */}
               <div className='overflow-x-auto'>
-                <table className='w-full text-white md:hidden'>
+                <table className='w-full text-white'>
                   <thead>
                     <tr className='border-b border-white/20'>
                       <th className='text-left py-2'>Item Code</th>
