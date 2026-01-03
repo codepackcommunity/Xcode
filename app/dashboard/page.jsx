@@ -510,7 +510,7 @@ export default function UserDashboard() {
           <div className='flex justify-between items-center py-4'>
             <div>
               <h1 className='text-2xl font-bold text-white'>
-                KM ELECTRONICS <span className='text-blue-500'>User Dashboard</span>
+                KM ELECTRONICS <span className='text-blue-500'></span>
               </h1>
               <p className='text-white/70 text-sm'>
                 Welcome, {user?.fullName} | Location: {currentLocation}
@@ -675,7 +675,7 @@ export default function UserDashboard() {
 
               {/* Stocks Table */}
               <div className='overflow-x-auto'>
-                <table className='w-full text-white'>
+                <table className='w-full text-white overflow-x-auto'>
                   <thead>
                     <tr className='border-b border-white/20'>
                       <th className='text-left py-2'>Item Code</th>
