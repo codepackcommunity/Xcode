@@ -2246,6 +2246,12 @@ export default function SuperAdminDashboard() {
                 >
                   Add Stock
                 </button>
+                <button
+                  onClick={() => router.push("/operations")}
+                  className={'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                >
+                  Operations
+                </button>
               </div>
 
               {/* Stocks Table */}
@@ -2741,12 +2747,7 @@ export default function SuperAdminDashboard() {
                             </div>
                           </div>
                           <div className={'flex space-x-2 ml-4'}>
-                            <button
-                              onClick={() => router.push("/operations")}
-                              className={'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'}
-                            >
-                              Operations
-                            </button>
+                            
                             <button
                               onClick={() => handleApproveUser(userItem.id, userItem)}
                               disabled={processingUser === userItem.id}
