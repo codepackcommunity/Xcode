@@ -11,7 +11,6 @@ import {
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
 // Available locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
 
@@ -2253,9 +2252,10 @@ export default function SuperAdminDashboard() {
                   Operations
                 </button>
               </div>
-              
+
 
               {/* Stocks Table */}
+
               <div className={'overflow-x-auto'}>
                 <table className={'w-full text-white'}>
                   <thead>
