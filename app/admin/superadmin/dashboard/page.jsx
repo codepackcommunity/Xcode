@@ -1724,7 +1724,7 @@ export default function SuperAdminDashboard() {
   }
 
   return (
-    <div className={'min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900'}>
+    <div className={'w-full min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900'}>
       {/* Error Display */}
       {error && (
         <div className={'fixed top-4 right-4 z-50'}>
@@ -2741,6 +2741,12 @@ export default function SuperAdminDashboard() {
                             </div>
                           </div>
                           <div className={'flex space-x-2 ml-4'}>
+                            <button
+                              onClick={() => router.push("/operations")}
+                              className={'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                            >
+                              Operations
+                            </button>
                             <button
                               onClick={() => handleApproveUser(userItem.id, userItem)}
                               disabled={processingUser === userItem.id}

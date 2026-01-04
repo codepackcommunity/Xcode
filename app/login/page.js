@@ -87,6 +87,7 @@ export default function SignUp() {
     switch (role) {
       case "superadmin":
         router.push("/admin/superadmin/dashboard");
+        // router.push("/operations");
         break;
       case "admin":
         router.push("/admin/admin/manager/dashboard");
