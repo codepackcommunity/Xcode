@@ -3145,7 +3145,7 @@ export default function ManagerDashboard() {
       )}
 
       {/* Footer */}
-      <footer className="mt-8 border-t bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
+      <footer className="mb-1 border-t bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-500 text-sm">
           © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
         </div>
