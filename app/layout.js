@@ -14,7 +14,14 @@ const geistMono = Geist_Mono({
 export const metadata = {
   icon: "favicon.ico",
   title: "KM Electronix - Your Ultimate Phone Plug",
-  description: "Your Ultimate Phone Plug | Developed By Codepack",
+  description: "Your Ultimate Phone Plug | Developed By Cod3pack",
+  keywords: ['km', 'company', 'team' , 'electronics', 'brand', 'price'],
+  openGragh:{
+    title: "KM Electronix - Your Ultimate Phone Plug",
+    description: "Your Ultimate Phone Plug | Developed By Cod3pack",
+
+  }
+
 };
 
 export default function RootLayout({ children }) {
