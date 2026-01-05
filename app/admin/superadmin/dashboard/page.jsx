@@ -6,13 +6,168 @@ import { auth, db } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
   serverTimestamp, addDoc, orderBy, onSnapshot, getDoc,
-  Timestamp
+  Timestamp, deleteDoc, setDoc
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// ==================== DATABASE STRUCTURE ====================
+/*
+ALL COLLECTIONS MUST HAVE THESE EXACT STRUCTURES:
+
+1. users (User Management)
+   - id (auto)
+   - uid (Firebase Auth UID)
+   - email
+   - fullName
+   - role: 'superadmin' | 'manager' | 'sales' | 'dataEntry' | 'user'
+   - location: 'Lilongwe' | 'Blantyre' | 'Zomba' | 'Mzuzu' | 'Chitipa' | 'Salima'
+   - status: 'pending' | 'approved' | 'rejected'
+   - phone: string
+   - createdAt: timestamp
+   - updatedAt: timestamp
+   - approvedBy: uid
+   - approvedByName: string
+   - approvedAt: timestamp
+   - rejectedBy: uid
+   - rejectedByName: string
+   - rejectedAt: timestamp
+   - rejectionReason: string
+
+2. stocks (Inventory Management) - COMPATIBLE WITH INSTALLMENT SYSTEM
+   - id (auto)
+   - itemCode: string (unique identifier)
+   - brand: string
+   - model: string
+   - category: 'Smartphone' | 'Tablet' | 'Laptop' | 'Accessory' | 'TV' | 'Audio' | 'Other'
+   - color: string
+   - storage: string
+   - quantity: number
+   - costPrice: number (in MWK)
+   - retailPrice: number (in MWK)
+   - wholesalePrice: number (in MWK)
+   - discountPercentage: number (0-100)
+   - minStockLevel: number
+   - reorderQuantity: number
+   - location: string
+   - supplier: string
+   - warrantyPeriod: number (months)
+   - description: string
+   - createdAt: timestamp
+   - updatedAt: timestamp
+   - addedBy: uid
+   - addedByName: string
+   - isActive: boolean (true)
+
+3. sales (Sales Records)
+   - id (auto)
+   - itemCode: string
+   - brand: string
+   - model: string
+   - category: string
+   - color: string
+   - storage: string
+   - quantity: number
+   - costPrice: number
+   - salePrice: number
+   - discountPercentage: number
+   - finalSalePrice: number (salePrice - discount)
+   - profit: number (finalSalePrice - costPrice)
+   - paymentMethod: 'cash' | 'mobile_money' | 'bank_transfer' | 'installment'
+   - customerName: string
+   - customerPhone: string
+   - customerEmail: string
+   - customerAddress: string
+   - location: string
+   - soldBy: uid
+   - soldByName: string
+   - soldAt: timestamp
+   - receiptNumber: string
+   - notes: string
+
+4. stockRequests (Stock Transfers)
+   - id (auto)
+   - itemCode: string
+   - brand: string
+   - model: string
+   - quantity: number
+   - fromLocation: string
+   - toLocation: string
+   - requestedBy: uid
+   - requestedByName: string
+   - requestedAt: timestamp
+   - status: 'pending' | 'approved' | 'rejected' | 'failed'
+   - approvedBy: uid
+   - approvedByName: string
+   - approvedAt: timestamp
+   - rejectedBy: uid
+   - rejectedByName: string
+   - rejectedAt: timestamp
+   - rejectionReason: string
+   - sourceStockId: string (reference to stocks.id)
+
+5. stockTransfers (Transfer History)
+   - id (auto)
+   - requestId: string (reference to stockRequests.id)
+   - itemCode: string
+   - brand: string
+   - model: string
+   - quantity: number
+   - fromLocation: string
+   - toLocation: string
+   - transferredBy: uid
+   - transferredByName: string
+   - transferredAt: timestamp
+   - type: 'approved_transfer' | 'rejected_transfer'
+   - sourceStockBefore: number
+   - sourceStockAfter: number
+
+6. approvalSettings (System Settings)
+   - id: 'system_settings' (single document)
+   - requireApproval: boolean
+   - autoApproveBelow: number
+   - allowedLocations: array
+   - updatedAt: timestamp
+   - updatedBy: uid
+
+7. userApprovalHistory (Audit Log)
+   - id (auto)
+   - userId: string
+   - userEmail: string
+   - userName: string
+   - action: 'approved' | 'rejected'
+   - previousRole: string
+   - newRole: string
+   - previousLocation: string
+   - newLocation: string
+   - processedBy: uid
+   - processedByName: string
+   - processedAt: timestamp
+   - notes: string
+
+8. installmentPayments (for compatibility with installment system)
+   - id (auto)
+   - installmentId: string (reference to installments collection)
+   - customerName: string
+   - customerPhone: string
+   - amount: number
+   - paymentType: 'initial' | 'installment' | 'full_payment'
+   - paymentDate: timestamp
+   - paymentMethod: 'cash' | 'mobile_money' | 'bank_transfer'
+   - receiptNumber: string
+   - recordedBy: uid
+   - recordedByName: string
+   - notes: string
+   - createdAt: timestamp
+
+9. installments (for compatibility - can be added later)
+   - Will use same structure as installment system
+*/
+
 // Available locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
+const CATEGORIES = ['Smartphone', 'Tablet', 'Laptop', 'Accessory', 'TV', 'Audio', 'Other'];
 
 // Safe key generator that prevents duplicate key errors
 const generateSafeKey = (prefix = 'item', index, id) => {
@@ -22,6 +177,52 @@ const generateSafeKey = (prefix = 'item', index, id) => {
   }
   // Fallback: use index with timestamp to ensure uniqueness
   return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+// Initialize database collections if they don't exist
+const initializeDatabaseCollections = async (user) => {
+  try {
+    // Check and create approval settings if not exists
+    const settingsRef = doc(db, 'approvalSettings', 'system_settings');
+    const settingsDoc = await getDoc(settingsRef);
+    
+    if (!settingsDoc.exists()) {
+      await setDoc(settingsRef, {
+        requireApproval: true,
+        autoApproveBelow: 10,
+        allowedLocations: LOCATIONS,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByName: user.fullName || user.email
+      });
+    }
+
+    // Check and create user if not in users collection
+    const userQuery = query(collection(db, 'users'), where('uid', '==', user.uid));
+    const userDocs = await getDocs(userQuery);
+    
+    if (userDocs.empty) {
+      await addDoc(collection(db, 'users'), {
+        uid: user.uid,
+        email: user.email,
+        fullName: user.displayName || user.email.split('@')[0],
+        role: 'superadmin',
+        location: 'Lilongwe',
+        status: 'approved',
+        phone: '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        approvedBy: user.uid,
+        approvedByName: 'System',
+        approvedAt: serverTimestamp()
+      });
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Database initialization error:', error);
+    return false;
+  }
 };
 
 export default function SuperAdminDashboard() {
@@ -66,18 +267,25 @@ export default function SuperAdminDashboard() {
     liveSales: []
   });
 
-  // New Stock State
+  // New Stock State (updated for compatibility)
   const [newStock, setNewStock] = useState({
     brand: '',
     model: '',
-    storage: '',
+    category: 'Smartphone',
     color: '',
-    orderPrice: '',
-    salePrice: '',
-    discountPercentage: '',
-    quantity: '',
+    storage: '',
     itemCode: '',
-    location: ''
+    quantity: '',
+    costPrice: '',
+    retailPrice: '',
+    wholesalePrice: '',
+    discountPercentage: '',
+    minStockLevel: '5',
+    reorderQuantity: '10',
+    location: '',
+    supplier: '',
+    warrantyPeriod: '12',
+    description: ''
   });
 
   // Approval System State
@@ -108,6 +316,16 @@ export default function SuperAdminDashboard() {
 
   // Error State
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  // Format currency for consistency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-MW', {
+      style: 'currency',
+      currency: 'MWK',
+      minimumFractionDigits: 0
+    }).format(amount || 0);
+  };
 
   // Performance Helpers (moved outside to prevent dependency issues)
   const getPerformanceGrade = (score) => {
@@ -310,6 +528,7 @@ export default function SuperAdminDashboard() {
     }
   }, [salesAnalysis.locationPerformance]);
 
+  // Fetch all data functions
   const fetchAllUsers = useCallback(async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'users'));
@@ -369,9 +588,11 @@ export default function SuperAdminDashboard() {
 
   const fetchApprovalSettings = useCallback(async () => {
     try {
-      const settingsDoc = await getDocs(collection(db, 'approvalSettings'));
-      if (!settingsDoc.empty) {
-        const settings = settingsDoc.docs[0].data();
+      const settingsRef = doc(db, 'approvalSettings', 'system_settings');
+      const settingsDoc = await getDoc(settingsRef);
+      
+      if (settingsDoc.exists()) {
+        const settings = settingsDoc.data();
         setApprovalSettings(settings);
       }
     } catch (error) {
@@ -412,6 +633,7 @@ export default function SuperAdminDashboard() {
     }
   }, [router]);
 
+  // Setup realtime listeners
   const setupRealtimeListeners = useCallback(() => {
     if (!user) return;
 
@@ -525,13 +747,15 @@ export default function SuperAdminDashboard() {
         'Item Code': stock.itemCode,
         'Brand': stock.brand || 'N/A',
         'Model': stock.model || 'N/A',
+        'Category': stock.category || 'N/A',
         'Color': stock.color || 'N/A',
         'Storage': stock.storage || 'N/A',
         'Quantity': stock.quantity || 0,
-        'Order Price': stock.orderPrice || 0,
-        'Sale Price': stock.salePrice || 0,
+        'Cost Price': stock.costPrice || 0,
+        'Retail Price': stock.retailPrice || 0,
+        'Wholesale Price': stock.wholesalePrice || 0,
         'Discount (%)': stock.discountPercentage || 0,
-        'Total Value': (stock.orderPrice || 0) * (stock.quantity || 0),
+        'Total Value': (stock.costPrice || 0) * (stock.quantity || 0),
         'Added By': stock.addedByName || 'System',
         'Added Date': stock.createdAt?.toDate().toLocaleDateString() || 'Unknown',
         'Last Updated': stock.updatedAt?.toDate().toLocaleDateString() || 'Unknown'
@@ -549,8 +773,8 @@ export default function SuperAdminDashboard() {
         ['SUMMARY STATISTICS'],
         ['Total Items:', filteredStocks.length],
         ['Total Quantity:', filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)],
-        ['Total Order Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.orderPrice || 0) * (stock.quantity || 0)), 0)],
-        ['Total Sale Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.salePrice || 0) * (stock.quantity || 0)), 0)],
+        ['Total Cost Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.costPrice || 0) * (stock.quantity || 0)), 0)],
+        ['Total Retail Value:', filteredStocks.reduce((sum, stock) => sum + ((stock.retailPrice || 0) * (stock.quantity || 0)), 0)],
         [],
         ['LOCATION-WISE SUMMARY']
       ];
@@ -563,20 +787,20 @@ export default function SuperAdminDashboard() {
           locationSummary[location] = {
             count: 0,
             quantity: 0,
-            orderValue: 0,
-            saleValue: 0
+            costValue: 0,
+            retailValue: 0
           };
         }
         locationSummary[location].count++;
         locationSummary[location].quantity += stock.quantity || 0;
-        locationSummary[location].orderValue += (stock.orderPrice || 0) * (stock.quantity || 0);
-        locationSummary[location].saleValue += (stock.salePrice || 0) * (stock.quantity || 0);
+        locationSummary[location].costValue += (stock.costPrice || 0) * (stock.quantity || 0);
+        locationSummary[location].retailValue += (stock.retailPrice || 0) * (stock.quantity || 0);
       });
       
       Object.entries(locationSummary).forEach(([location, data]) => {
         summaryData.push([
           `${location}:`,
-          `Items: ${data.count}, Quantity: ${data.quantity}, Order Value: MK ${data.orderValue.toLocaleString()}, Sale Value: MK ${data.saleValue.toLocaleString()}`
+          `Items: ${data.count}, Quantity: ${data.quantity}, Cost Value: ${formatCurrency(data.costValue)}, Retail Value: ${formatCurrency(data.retailValue)}`
         ]);
       });
       
@@ -628,19 +852,18 @@ export default function SuperAdminDashboard() {
         stock.location || 'N/A',
         stock.itemCode || 'N/A',
         `${stock.brand || ''} ${stock.model || ''}`.trim(),
-        stock.color || 'N/A',
-        stock.storage || 'N/A',
+        stock.category || 'N/A',
         stock.quantity || 0,
-        `MK ${(stock.orderPrice || 0).toLocaleString()}`,
-        `MK ${(stock.salePrice || 0).toLocaleString()}`,
+        formatCurrency(stock.costPrice || 0),
+        formatCurrency(stock.retailPrice || 0),
         `${stock.discountPercentage || 0}%`,
-        `MK ${((stock.orderPrice || 0) * (stock.quantity || 0)).toLocaleString()}`
+        formatCurrency((stock.costPrice || 0) * (stock.quantity || 0))
       ]);
       
       // Add table
       autoTable(doc, {
         startY: 55,
-        head: [['Location', 'Item Code', 'Product', 'Color', 'Storage', 'Qty', 'Order Price', 'Sale Price', 'Discount', 'Total Value']],
+        head: [['Location', 'Item Code', 'Product', 'Category', 'Qty', 'Cost Price', 'Retail Price', 'Discount', 'Total Value']],
         body: tableData,
         theme: 'grid',
         headStyles: {
@@ -665,13 +888,12 @@ export default function SuperAdminDashboard() {
           0: { cellWidth: 25 },
           1: { cellWidth: 30 },
           2: { cellWidth: 40 },
-          3: { cellWidth: 20 },
-          4: { cellWidth: 25 },
-          5: { cellWidth: 15 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 15 },
+          5: { cellWidth: 25 },
           6: { cellWidth: 25 },
-          7: { cellWidth: 25 },
-          8: { cellWidth: 20 },
-          9: { cellWidth: 30 }
+          7: { cellWidth: 20 },
+          8: { cellWidth: 30 }
         }
       });
       
@@ -685,13 +907,13 @@ export default function SuperAdminDashboard() {
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       
-      const totalOrderValue = filteredStocks.reduce((sum, stock) => sum + ((stock.orderPrice || 0) * (stock.quantity || 0)), 0);
-      const totalSaleValue = filteredStocks.reduce((sum, stock) => sum + ((stock.salePrice || 0) * (stock.quantity || 0)), 0);
-      const potentialProfit = totalSaleValue - totalOrderValue;
+      const totalCostValue = filteredStocks.reduce((sum, stock) => sum + ((stock.costPrice || 0) * (stock.quantity || 0)), 0);
+      const totalRetailValue = filteredStocks.reduce((sum, stock) => sum + ((stock.retailPrice || 0) * (stock.quantity || 0)), 0);
+      const potentialProfit = totalRetailValue - totalCostValue;
       
-      doc.text(`Total Order Value: MK ${totalOrderValue.toLocaleString()}`, 20, finalY + 8);
-      doc.text(`Total Sale Value: MK ${totalSaleValue.toLocaleString()}`, 20, finalY + 16);
-      doc.text(`Potential Profit: MK ${potentialProfit.toLocaleString()}`, 20, finalY + 24);
+      doc.text(`Total Cost Value: ${formatCurrency(totalCostValue)}`, 20, finalY + 8);
+      doc.text(`Total Retail Value: ${formatCurrency(totalRetailValue)}`, 20, finalY + 16);
+      doc.text(`Potential Profit: ${formatCurrency(potentialProfit)}`, 20, finalY + 24);
       
       // Add footer with timestamp
       doc.setFontSize(8);
@@ -730,9 +952,9 @@ export default function SuperAdminDashboard() {
     }
     
     if (success) {
-      alert(`Stock list downloaded successfully!\n\nTotal Items: ${filteredStocks.length}\nTotal Quantity: ${filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)}`);
+      setSuccess(`Stock list downloaded successfully!\n\nTotal Items: ${filteredStocks.length}\nTotal Quantity: ${filteredStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0)}`);
     } else {
-      alert('Failed to download stock list. Please try again.');
+      setError('Failed to download stock list. Please try again.');
     }
   };
 
@@ -873,15 +1095,18 @@ export default function SuperAdminDashboard() {
         'Item Code': sale.itemCode || 'N/A',
         'Brand': sale.brand || 'Unknown',
         'Model': sale.model || 'Unknown',
+        'Category': sale.category || 'Unknown',
         'Color': sale.color || 'N/A',
         'Storage': sale.storage || 'N/A',
         'Sold By': sale.soldByName || sale.soldBy || 'Unknown',
+        'Cost Price': sale.costPrice || 0,
         'Sale Price': sale.salePrice || 0,
         'Discount (%)': sale.discountPercentage || 0,
         'Final Price': sale.finalSalePrice || 0,
-        'Profit': (sale.finalSalePrice || 0) - (sale.orderPrice || 0),
+        'Profit': (sale.finalSalePrice || 0) - (sale.costPrice || 0),
         'Payment Method': sale.paymentMethod || 'Cash',
-        'Customer Contact': sale.customerContact || 'N/A'
+        'Customer Name': sale.customerName || 'N/A',
+        'Customer Contact': sale.customerPhone || 'N/A'
       }));
       
       const detailedWs = XLSX.utils.json_to_sheet(detailedRows);
@@ -916,7 +1141,7 @@ export default function SuperAdminDashboard() {
       ];
       
       Object.entries(reportData.locationSummary).forEach(([location, data]) => {
-        analysisRows.push([`${location}:`, `Sales: ${data.totalSales}, Revenue: MK ${data.totalRevenue.toLocaleString()}`]);
+        analysisRows.push([`${location}:`, `Sales: ${data.totalSales}, Revenue: ${formatCurrency(data.totalRevenue)}`]);
       });
       
       analysisRows.push([]);
@@ -961,8 +1186,8 @@ export default function SuperAdminDashboard() {
       // Summary section
       csvContent += 'SUMMARY\n';
       csvContent += `Total Sales:,${reportData.totalSales}\n`;
-      csvContent += `Total Revenue:,MK ${reportData.totalRevenue.toFixed(2)}\n`;
-      csvContent += `Average Sale Value:,MK ${reportData.averageSaleValue.toFixed(2)}\n\n`;
+      csvContent += `Total Revenue:,${formatCurrency(reportData.totalRevenue)}\n`;
+      csvContent += `Average Sale Value:,${formatCurrency(reportData.averageSaleValue)}\n\n`;
       
       // Location Summary
       csvContent += 'LOCATION-WISE SUMMARY\n';
@@ -971,7 +1196,7 @@ export default function SuperAdminDashboard() {
       Object.entries(reportData.locationSummary).forEach(([location, data]) => {
         const topProduct = Object.entries(data.productCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
         const topSeller = Object.entries(data.sellerCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-        csvContent += `${location},${data.totalSales},${data.totalRevenue},${data.averageSaleValue.toFixed(2)},"${topProduct}","${topSeller}"\n`;
+        csvContent += `${location},${data.totalSales},${data.totalRevenue},${data.averageSaleValue},"${topProduct}","${topSeller}"\n`;
       });
       
       csvContent += '\n';
@@ -997,11 +1222,11 @@ export default function SuperAdminDashboard() {
       // Detailed section if needed
       if (reportFilters.reportType === 'detailed') {
         csvContent += 'DETAILED SALES RECORDS\n';
-        csvContent += 'Date,Time,Location,Item Code,Brand,Model,Color,Storage,Sold By,Sale Price,Discount (%),Final Price,Profit,Payment Method,Customer Contact\n';
+        csvContent += 'Date,Time,Location,Item Code,Brand,Model,Category,Color,Storage,Sold By,Cost Price,Sale Price,Discount (%),Final Price,Profit,Payment Method,Customer Name,Customer Contact\n';
         
         reportData.filteredSales.forEach(sale => {
-          const profit = (sale.finalSalePrice || 0) - (sale.orderPrice || 0);
-          csvContent += `"${sale.soldAt?.toDate().toLocaleDateString() || 'Unknown'}","${sale.soldAt?.toDate().toLocaleTimeString() || 'Unknown'}","${sale.location || 'Unknown'}","${sale.itemCode || 'N/A'}","${sale.brand || 'Unknown'}","${sale.model || 'Unknown'}","${sale.color || 'N/A'}","${sale.storage || 'N/A'}","${sale.soldByName || sale.soldBy || 'Unknown'}",${sale.salePrice || 0},${sale.discountPercentage || 0},${sale.finalSalePrice || 0},${profit},"${sale.paymentMethod || 'Cash'}","${sale.customerContact || 'N/A'}"\n`;
+          const profit = (sale.finalSalePrice || 0) - (sale.costPrice || 0);
+          csvContent += `"${sale.soldAt?.toDate().toLocaleDateString() || 'Unknown'}","${sale.soldAt?.toDate().toLocaleTimeString() || 'Unknown'}","${sale.location || 'Unknown'}","${sale.itemCode || 'N/A'}","${sale.brand || 'Unknown'}","${sale.model || 'Unknown'}","${sale.category || 'Unknown'}","${sale.color || 'N/A'}","${sale.storage || 'N/A'}","${sale.soldByName || sale.soldBy || 'Unknown'}",${sale.costPrice || 0},${sale.salePrice || 0},${sale.discountPercentage || 0},${sale.finalSalePrice || 0},${profit},"${sale.paymentMethod || 'Cash'}","${sale.customerName || 'N/A'}","${sale.customerPhone || 'N/A'}"\n`;
         });
       }
       
@@ -1068,13 +1293,12 @@ export default function SuperAdminDashboard() {
       }
       
       if (success) {
-        alert(`Report downloaded successfully!\n\nTotal Records: ${reportData.totalSales}\nTotal Revenue: MK ${reportData.totalRevenue.toLocaleString()}\nLocations: ${Object.keys(reportData.locationSummary).length}`);
+        setSuccess(`Report downloaded successfully!\n\nTotal Records: ${reportData.totalSales}\nTotal Revenue: ${formatCurrency(reportData.totalRevenue)}\nLocations: ${Object.keys(reportData.locationSummary).length}`);
       } else {
-        alert('Failed to generate report. Please try again.');
+        setError('Failed to generate report. Please try again.');
       }
     } catch (error) {
       setError('Error generating report');
-      alert('Error generating report. Please try again.');
     } finally {
       setIsGeneratingReport(false);
     }
@@ -1094,7 +1318,7 @@ export default function SuperAdminDashboard() {
       const reportData = generateReportData();
       
       if (!reportData) {
-        alert('Failed to generate report data');
+        setError('Failed to generate report data');
         return;
       }
       
@@ -1107,11 +1331,10 @@ export default function SuperAdminDashboard() {
       // Store the generated report data
       setGeneratedReport(reportData);
       
-      alert(`Report generated successfully!\n\nTotal Records: ${reportData.totalSales}\nTotal Revenue: MK ${reportData.totalRevenue.toLocaleString()}\nLocations: ${Object.keys(reportData.locationSummary).length}`);
+      setSuccess(`Report generated successfully!\n\nTotal Records: ${reportData.totalSales}\nTotal Revenue: ${formatCurrency(reportData.totalRevenue)}\nLocations: ${Object.keys(reportData.locationSummary).length}`);
       
     } catch (error) {
       setError('Error generating report');
-      alert('Error generating report. Please try again.');
     } finally {
       setIsGeneratingReport(false);
     }
@@ -1120,31 +1343,23 @@ export default function SuperAdminDashboard() {
   // Approval System Functions
   const saveApprovalSettings = async () => {
     try {
-      const settingsDoc = await getDocs(collection(db, 'approvalSettings'));
-      if (settingsDoc.empty) {
-        await addDoc(collection(db, 'approvalSettings'), {
-          ...approvalSettings,
-          updatedAt: serverTimestamp(),
-          updatedBy: user.uid
-        });
-      } else {
-        await updateDoc(doc(db, 'approvalSettings', settingsDoc.docs[0].id), {
-          ...approvalSettings,
-          updatedAt: serverTimestamp(),
-          updatedBy: user.uid
-        });
-      }
-      alert('Approval settings saved successfully!');
+      const settingsRef = doc(db, 'approvalSettings', 'system_settings');
+      await setDoc(settingsRef, {
+        ...approvalSettings,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByName: user.fullName || user.email
+      });
+      setSuccess('Approval settings saved successfully!');
     } catch (error) {
       setError('Failed to save approval settings');
-      alert('Error saving approval settings.');
     }
   };
 
   // User Approval Functions
   const handleApproveUser = async (userId, userData) => {
     if (!userId || !userData) {
-      alert('Invalid user data provided.');
+      setError('Invalid user data provided.');
       return;
     }
 
@@ -1156,47 +1371,43 @@ export default function SuperAdminDashboard() {
       
       const userDoc = await getDoc(userDocRef);
       if (!userDoc.exists()) {
-        alert('User document not found.');
+        setError('User document not found.');
         return;
       }
 
       await updateDoc(userDocRef, {
         status: 'approved',
         approvedBy: user.uid,
-        approvedByName: user.fullName,
+        approvedByName: user.fullName || user.email,
         approvedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
 
+      // Record in history
       try {
         await addDoc(collection(db, 'userApprovalHistory'), {
           userId: userId,
           userEmail: userData.email,
           userName: userData.fullName,
           action: 'approved',
+          previousRole: userData.role,
+          newRole: userData.role,
+          previousLocation: userData.location,
+          newLocation: userData.location,
           processedBy: user.uid,
-          processedByName: user.fullName,
+          processedByName: user.fullName || user.email,
           processedAt: serverTimestamp(),
-          role: userData.role,
-          location: userData.location
+          notes: 'User approved by superadmin'
         });
       } catch (historyError) {
-        // Silently fail for history
+        console.error('Failed to record approval history:', historyError);
       }
 
-      alert('User approved successfully!');
+      setSuccess('User approved successfully!');
       await fetchUserApprovals();
       
     } catch (error) {
       setError('Failed to approve user');
-      
-      if (error.code === 'permission-denied') {
-        alert('Permission denied. Please check your Firestore security rules.');
-      } else if (error.code === 'not-found') {
-        alert('User document not found.');
-      } else {
-        alert(`Error approving user: ${error.message}`);
-      }
     } finally {
       setProcessingUser(null);
     }
@@ -1215,7 +1426,7 @@ export default function SuperAdminDashboard() {
       const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
-        alert('User document not found.');
+        setError('User document not found.');
         return;
       }
 
@@ -1223,38 +1434,35 @@ export default function SuperAdminDashboard() {
         status: 'rejected',
         rejectionReason: reason || 'No reason provided',
         rejectedBy: user.uid,
-        rejectedByName: user.fullName,
+        rejectedByName: user.fullName || user.email,
         rejectedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
 
+      // Record in history
       try {
         await addDoc(collection(db, 'userApprovalHistory'), {
           userId: userId,
           userEmail: userData.email,
           userName: userData.fullName,
           action: 'rejected',
+          previousRole: userData.role,
+          newRole: userData.role,
+          previousLocation: userData.location,
+          newLocation: userData.location,
           rejectionReason: reason,
           processedBy: user.uid,
-          processedByName: user.fullName,
-          processedAt: serverTimestamp(),
-          role: userData.role,
-          location: userData.location
+          processedByName: user.fullName || user.email,
+          processedAt: serverTimestamp()
         });
       } catch (historyError) {
-        // Silently fail for history
+        console.error('Failed to record rejection history:', historyError);
       }
 
-      alert('User rejected successfully!');
+      setSuccess('User rejected successfully!');
       await fetchUserApprovals();
     } catch (error) {
       setError('Failed to reject user');
-      
-      if (error.code === 'permission-denied') {
-        alert('Permission denied. Please check your Firestore security rules.');
-      } else {
-        alert(`Error rejecting user: ${error.message}`);
-      }
     } finally {
       setProcessingUser(null);
     }
@@ -1269,7 +1477,7 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  // UPDATED: Stock Request Approval - Subtract from source, add to destination
+  // Stock Request Approval - Subtract from source, add to destination
   const handleApproveStockRequest = async (requestId, requestData) => {
     if (processingRequest === requestId) return;
     
@@ -1278,7 +1486,7 @@ export default function SuperAdminDashboard() {
     
     try {
       if (!requestData.itemCode || !requestData.quantity || !requestData.fromLocation || !requestData.toLocation) {
-        alert('Invalid request data. Missing required fields.');
+        setError('Invalid request data. Missing required fields.');
         return;
       }
 
@@ -1296,10 +1504,10 @@ export default function SuperAdminDashboard() {
           status: 'rejected',
           rejectionReason: 'Item not found in source location',
           rejectedBy: user.uid,
-          rejectedByName: user.fullName,
+          rejectedByName: user.fullName || user.email,
           rejectedAt: serverTimestamp()
         });
-        alert('Request rejected: Item not found in source location!');
+        setError('Request rejected: Item not found in source location!');
         return;
       }
 
@@ -1312,10 +1520,10 @@ export default function SuperAdminDashboard() {
           status: 'rejected',
           rejectionReason: 'Insufficient stock in source location',
           rejectedBy: user.uid,
-          rejectedByName: user.fullName,
+          rejectedByName: user.fullName || user.email,
           rejectedAt: serverTimestamp()
         });
-        alert('Request rejected: Insufficient stock in source location!');
+        setError('Request rejected: Insufficient stock in source location!');
         return;
       }
 
@@ -1324,10 +1532,10 @@ export default function SuperAdminDashboard() {
           status: 'rejected',
           rejectionReason: 'Destination location not allowed',
           rejectedBy: user.uid,
-          rejectedByName: user.fullName,
+          rejectedByName: user.fullName || user.email,
           rejectedAt: serverTimestamp()
         });
-        alert('Request rejected: Destination location not allowed!');
+        setError('Request rejected: Destination location not allowed!');
         return;
       }
 
@@ -1340,7 +1548,7 @@ export default function SuperAdminDashboard() {
           quantity: requestData.quantity,
           transferredAt: serverTimestamp(),
           transferredBy: user.uid,
-          transferredByName: user.fullName,
+          transferredByName: user.fullName || user.email,
           requestId: requestId
         }
       });
@@ -1359,18 +1567,25 @@ export default function SuperAdminDashboard() {
         await addDoc(collection(db, 'stocks'), {
           brand: sourceStock.brand,
           model: sourceStock.model,
-          storage: sourceStock.storage,
+          category: sourceStock.category || 'Smartphone',
           color: sourceStock.color,
+          storage: sourceStock.storage,
           itemCode: sourceStock.itemCode,
-          orderPrice: sourceStock.orderPrice,
-          salePrice: sourceStock.salePrice,
-          discountPercentage: sourceStock.discountPercentage,
+          costPrice: sourceStock.costPrice,
+          retailPrice: sourceStock.retailPrice,
+          wholesalePrice: sourceStock.wholesalePrice,
+          discountPercentage: sourceStock.discountPercentage || 0,
           quantity: requestData.quantity,
+          minStockLevel: sourceStock.minStockLevel || 5,
+          reorderQuantity: sourceStock.reorderQuantity || 10,
           location: requestData.toLocation,
+          supplier: sourceStock.supplier || '',
+          warrantyPeriod: sourceStock.warrantyPeriod || 12,
+          description: sourceStock.description || '',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           addedBy: user.uid,
-          addedByName: user.fullName,
+          addedByName: user.fullName || user.email,
           transferredFrom: requestData.fromLocation,
           originalStockId: sourceStockDoc.id,
           lastTransferIn: {
@@ -1378,7 +1593,7 @@ export default function SuperAdminDashboard() {
             quantity: requestData.quantity,
             transferredAt: serverTimestamp(),
             transferredBy: user.uid,
-            transferredByName: user.fullName,
+            transferredByName: user.fullName || user.email,
             requestId: requestId
           }
         });
@@ -1394,7 +1609,7 @@ export default function SuperAdminDashboard() {
             quantity: requestData.quantity,
             transferredAt: serverTimestamp(),
             transferredBy: user.uid,
-            transferredByName: user.fullName,
+            transferredByName: user.fullName || user.email,
             requestId: requestId
           }
         });
@@ -1404,7 +1619,7 @@ export default function SuperAdminDashboard() {
       await updateDoc(doc(db, 'stockRequests', requestId), {
         status: 'approved',
         approvedBy: user.uid,
-        approvedByName: user.fullName,
+        approvedByName: user.fullName || user.email,
         approvedAt: serverTimestamp(),
         sourceStockId: sourceStockDoc.id,
         processedAt: serverTimestamp()
@@ -1420,14 +1635,14 @@ export default function SuperAdminDashboard() {
         fromLocation: requestData.fromLocation,
         toLocation: requestData.toLocation,
         transferredBy: user.uid,
-        transferredByName: user.fullName,
+        transferredByName: user.fullName || user.email,
         transferredAt: serverTimestamp(),
         type: 'approved_transfer',
         sourceStockBefore: sourceStock.quantity,
         sourceStockAfter: sourceStock.quantity - requestData.quantity
       });
 
-      alert('Stock request approved and quantities updated successfully!');
+      setSuccess('Stock request approved and quantities updated successfully!');
     } catch (error) {
       setError('Failed to approve stock request');
       
@@ -1438,10 +1653,8 @@ export default function SuperAdminDashboard() {
           failedAt: serverTimestamp()
         });
       } catch (updateError) {
-        // Silently fail for update
+        console.error('Failed to update request status:', updateError);
       }
-      
-      alert('Error approving stock request. Please try again.');
     } finally {
       setProcessingRequest(null);
     }
@@ -1459,7 +1672,7 @@ export default function SuperAdminDashboard() {
         status: 'rejected',
         rejectionReason: reason || 'No reason provided',
         rejectedBy: user.uid,
-        rejectedByName: user.fullName,
+        rejectedByName: user.fullName || user.email,
         rejectedAt: serverTimestamp()
       });
 
@@ -1470,16 +1683,15 @@ export default function SuperAdminDashboard() {
         fromLocation: requestData.fromLocation,
         toLocation: requestData.toLocation,
         rejectedBy: user.uid,
-        rejectedByName: user.fullName,
+        rejectedByName: user.fullName || user.email,
         rejectedAt: serverTimestamp(),
         rejectionReason: reason,
         type: 'rejected_transfer'
       });
 
-      alert('Stock request rejected!');
+      setSuccess('Stock request rejected!');
     } catch (error) {
       setError('Failed to reject stock request');
-      alert('Error rejecting stock request. Please try again.');
     }
   };
 
@@ -1513,38 +1725,79 @@ export default function SuperAdminDashboard() {
   // User Management Functions
   const handleAssignRole = async (userId, role) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
+      const userDocRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      const userData = userDoc.data();
+      
+      await updateDoc(userDocRef, {
         role: role,
         lastRoleUpdate: serverTimestamp(),
-        updatedBy: user.uid
+        updatedBy: user.uid,
+        updatedAt: serverTimestamp()
       });
+
+      // Record role change
+      await addDoc(collection(db, 'userApprovalHistory'), {
+        userId: userId,
+        userEmail: userData.email,
+        userName: userData.fullName,
+        action: 'role_change',
+        previousRole: userData.role,
+        newRole: role,
+        previousLocation: userData.location,
+        newLocation: userData.location,
+        processedBy: user.uid,
+        processedByName: user.fullName || user.email,
+        processedAt: serverTimestamp(),
+        notes: `Role changed from ${userData.role} to ${role}`
+      });
+
       fetchAllUsers();
-      alert(`Role updated to ${role} successfully!`);
+      setSuccess(`Role updated to ${role} successfully!`);
     } catch (error) {
       setError('Failed to assign role');
-      alert('Error updating role. Please try again.');
     }
   };
 
   const handleUpdateUserLocation = async (userId, newLocation) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
+      const userDocRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      const userData = userDoc.data();
+      
+      await updateDoc(userDocRef, {
         location: newLocation,
         updatedAt: serverTimestamp(),
         updatedBy: user.uid
       });
+
+      // Record location change
+      await addDoc(collection(db, 'userApprovalHistory'), {
+        userId: userId,
+        userEmail: userData.email,
+        userName: userData.fullName,
+        action: 'location_change',
+        previousRole: userData.role,
+        newRole: userData.role,
+        previousLocation: userData.location,
+        newLocation: newLocation,
+        processedBy: user.uid,
+        processedByName: user.fullName || user.email,
+        processedAt: serverTimestamp(),
+        notes: `Location changed from ${userData.location} to ${newLocation}`
+      });
+
       fetchAllUsers();
-      alert('User location updated successfully!');
+      setSuccess('User location updated successfully!');
     } catch (error) {
       setError('Failed to update user location');
-      alert('Error updating user location. Please try again.');
     }
   };
 
-  // Stock Management Functions
+  // Stock Management Functions - UPDATED for compatibility
   const handleAddStock = async () => {
     if (!newStock.brand || !newStock.model || !newStock.itemCode || !newStock.quantity || !newStock.location) {
-      alert('Please fill in required fields: Brand, Model, Item Code, Quantity, and Location.');
+      setError('Please fill in required fields: Brand, Model, Item Code, Quantity, and Location.');
       return;
     }
 
@@ -1553,14 +1806,19 @@ export default function SuperAdminDashboard() {
     try {
       const stockData = {
         ...newStock,
-        orderPrice: parseFloat(newStock.orderPrice) || 0,
-        salePrice: parseFloat(newStock.salePrice) || 0,
+        costPrice: parseFloat(newStock.costPrice) || 0,
+        retailPrice: parseFloat(newStock.retailPrice) || 0,
+        wholesalePrice: parseFloat(newStock.wholesalePrice) || (parseFloat(newStock.retailPrice) * 0.8) || 0,
         discountPercentage: parseFloat(newStock.discountPercentage) || 0,
         quantity: parseInt(newStock.quantity) || 0,
+        minStockLevel: parseInt(newStock.minStockLevel) || 5,
+        reorderQuantity: parseInt(newStock.reorderQuantity) || 10,
+        warrantyPeriod: parseInt(newStock.warrantyPeriod) || 12,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         addedBy: user.uid,
-        addedByName: user.fullName
+        addedByName: user.fullName || user.email,
+        isActive: true
       };
 
       await addDoc(collection(db, 'stocks'), stockData);
@@ -1568,20 +1826,26 @@ export default function SuperAdminDashboard() {
       setNewStock({
         brand: '',
         model: '',
-        storage: '',
+        category: 'Smartphone',
         color: '',
-        orderPrice: '',
-        salePrice: '',
-        discountPercentage: '',
-        quantity: '',
+        storage: '',
         itemCode: '',
-        location: ''
+        quantity: '',
+        costPrice: '',
+        retailPrice: '',
+        wholesalePrice: '',
+        discountPercentage: '',
+        minStockLevel: '5',
+        reorderQuantity: '10',
+        location: '',
+        supplier: '',
+        warrantyPeriod: '12',
+        description: ''
       });
       
-      alert('Stock added successfully!');
+      setSuccess('Stock added successfully!');
     } catch (error) {
-      setError('Failed to add stock');
-      alert('Error adding stock. Please try again.');
+      setError('Failed to add stock: ' + error.message);
     }
   };
 
@@ -1592,16 +1856,27 @@ export default function SuperAdminDashboard() {
         updatedAt: serverTimestamp(),
         updatedBy: user.uid
       });
-      alert('Stock updated successfully!');
+      setSuccess('Stock updated successfully!');
     } catch (error) {
       setError('Failed to update stock');
-      alert('Error updating stock. Please try again.');
+    }
+  };
+
+  const handleDeleteStock = async (stockId) => {
+    if (!window.confirm('Are you sure you want to delete this stock item?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'stocks', stockId));
+      setSuccess('Stock deleted successfully!');
+      fetchAllStocks();
+    } catch (error) {
+      setError('Failed to delete stock');
     }
   };
 
   const handleRequestStock = async () => {
     if (!transferStock.itemCode || !transferStock.quantity || !transferStock.fromLocation || !transferStock.toLocation) {
-      alert('Please fill in all required fields.');
+      setError('Please fill in all required fields.');
       return;
     }
 
@@ -1613,7 +1888,7 @@ export default function SuperAdminDashboard() {
         quantity: parseInt(transferStock.quantity),
         status: 'pending',
         requestedBy: user.uid,
-        requestedByName: user.fullName,
+        requestedByName: user.fullName || user.email,
         requestedAt: serverTimestamp()
       };
 
@@ -1626,10 +1901,9 @@ export default function SuperAdminDashboard() {
         toLocation: ''
       });
       
-      alert('Stock request sent successfully!');
+      setSuccess('Stock request sent successfully!');
     } catch (error) {
       setError('Failed to request stock');
-      alert('Error requesting stock. Please try again.');
     }
   };
 
@@ -1651,10 +1925,11 @@ export default function SuperAdminDashboard() {
   const calculateTotalStockValue = () => {
     const filteredStocks = getFilteredStocks();
     return filteredStocks.reduce((total, stock) => {
-      return total + ((stock.orderPrice || 0) * (stock.quantity || 0));
+      return total + ((stock.costPrice || 0) * (stock.quantity || 0));
     }, 0);
   };
 
+  // Authentication and initialization
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
       if (authUser) {
@@ -1667,11 +1942,20 @@ export default function SuperAdminDashboard() {
             const userData = userDoc.docs[0].data();
             if (userData.role === 'superadmin') {
               setUser(userData);
+              // Initialize database collections
+              await initializeDatabaseCollections(userData);
               await initializeDashboard();
             } else {
               router.push('/dashboard');
             }
           } else {
+            // Create user if doesn't exist
+            await initializeDatabaseCollections({
+              uid: authUser.uid,
+              email: authUser.email,
+              displayName: authUser.displayName || authUser.email.split('@')[0],
+              fullName: authUser.displayName || authUser.email.split('@')[0]
+            });
             router.push('/login');
           }
         } catch (error) {
@@ -1687,32 +1971,16 @@ export default function SuperAdminDashboard() {
     return () => unsubscribe();
   }, [router, initializeDashboard]);
 
-  // Override console.error to suppress React key warnings
+  // Clear messages after 5 seconds
   useEffect(() => {
-    const originalError = console.error;
-    console.error = (...args) => {
-      if (args[0] && typeof args[0] === 'string' && 
-          (args[0].includes('Encountered two children with the same key') || 
-           args[0].includes('Each child in a list should have a unique "key" prop'))) {
-        // Suppress React key warnings
-        console.warn('React key warning suppressed:', args[0]);
-        return;
-      }
-      originalError.apply(console, args);
-    };
-
-    return () => {
-      console.error = originalError;
-    };
-  }, []);
-
-  // Clear error after 5 seconds
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError(null);
+        setSuccess(null);
+      }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [error]);
+  }, [error, success]);
 
   if (loading) {
     return (
@@ -1732,6 +2000,22 @@ export default function SuperAdminDashboard() {
             <span>{error}</span>
             <button 
               onClick={() => setError(null)}
+              className={'ml-4 text-white hover:text-gray-200'}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Success Display */}
+      {success && (
+        <div className={'fixed top-4 right-4 z-50'}>
+          <div className={'bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2'}>
+            <span>✅</span>
+            <span>{success}</span>
+            <button 
+              onClick={() => setSuccess(null)}
               className={'ml-4 text-white hover:text-gray-200'}
             >
               ✕
@@ -1825,19 +2109,19 @@ export default function SuperAdminDashboard() {
                     {realTimeSales.todaySales}
                   </p>
                   <p className={'text-white/50 text-sm mt-1'}>
-                    MK {realTimeSales.todayRevenue?.toLocaleString() || 0}
+                    {formatCurrency(realTimeSales.todayRevenue)}
                   </p>
                 </div>
                 <div className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
                   <h3 className={'text-white/70 text-sm'}>Total Revenue</h3>
                   <p className={'text-2xl font-bold text-blue-400'}>
-                    MK {salesAnalysis.totalRevenue?.toLocaleString() || 0}
+                    {formatCurrency(salesAnalysis.totalRevenue)}
                   </p>
                 </div>
                 <div className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
                   <h3 className={'text-white/70 text-sm'}>Monthly Revenue</h3>
                   <p className={'text-2xl font-bold text-purple-400'}>
-                    MK {salesAnalysis.monthlyRevenue?.toLocaleString() || 0}
+                    {formatCurrency(salesAnalysis.monthlyRevenue)}
                   </p>
                 </div>
                 <div className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
@@ -1892,7 +2176,7 @@ export default function SuperAdminDashboard() {
                           </div>
                         </div>
                         <div className={'text-right'}>
-                          <div className={'text-green-400 font-semibold'}>MK {sale.finalSalePrice || 0}</div>
+                          <div className={'text-green-400 font-semibold'}>{formatCurrency(sale.finalSalePrice)}</div>
                           <div className={'text-white/50 text-xs'}>
                             {sale.soldAt?.toDate().toLocaleTimeString() || 'Just now'}
                           </div>
@@ -1914,7 +2198,7 @@ export default function SuperAdminDashboard() {
                     <div key={generateSafeKey('revenue-loc', index, location)} className={'bg-white/5 rounded-lg p-4 text-center'}>
                       <h3 className={'text-white/70 text-sm'}>{location}</h3>
                       <p className={'text-lg font-bold text-green-400'}>
-                        MK {revenue.toLocaleString()}
+                        {formatCurrency(revenue)}
                       </p>
                       {salesAnalysis.locationPerformance?.[location] && (
                         <p className={`text-xs mt-1 ${getPerformanceColor(salesAnalysis.locationPerformance[location].score)}`}>
@@ -1953,7 +2237,7 @@ export default function SuperAdminDashboard() {
                 </div>
                 <div className={'bg-white/5 rounded-lg p-6 text-center'}>
                   <div className={'text-2xl font-bold text-blue-400'}>
-                    MK {realTimeSales.todayRevenue?.toLocaleString() || 0}
+                    {formatCurrency(realTimeSales.todayRevenue)}
                   </div>
                   <div className={'text-white/70 text-sm'}>Today's Revenue</div>
                 </div>
@@ -1965,7 +2249,7 @@ export default function SuperAdminDashboard() {
                 </div>
                 <div className={'bg-white/5 rounded-lg p-6 text-center'}>
                   <div className={'text-2xl font-bold text-orange-400'}>
-                    MK {salesAnalysis.totalRevenue?.toLocaleString() || 0}
+                    {formatCurrency(salesAnalysis.totalRevenue)}
                   </div>
                   <div className={'text-white/70 text-sm'}>Total Revenue</div>
                 </div>
@@ -1980,7 +2264,7 @@ export default function SuperAdminDashboard() {
                       <div className={'text-white/70 text-xs mb-1'}>{hour}:00</div>
                       <div className={'bg-blue-500/20 rounded-lg p-2'}>
                         <div className={'text-blue-300 text-sm font-semibold'}>
-                          MK {((realTimeSales.hourlySales[hour] || 0) / 1000).toFixed(0)}K
+                          {formatCurrency((realTimeSales.hourlySales[hour] || 0) / 1000)}K
                         </div>
                       </div>
                     </div>
@@ -2007,8 +2291,8 @@ export default function SuperAdminDashboard() {
                       {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
                         <tr key={generateSafeKey('loc-breakdown', index, location)} className={'border-b border-white/10'}>
                           <td className={'py-2 font-medium'}>{location}</td>
-                          <td className={'py-2'}>MK {data.metrics.todayRevenue.toLocaleString()}</td>
-                          <td className={'py-2'}>MK {data.metrics.weeklyRevenue.toLocaleString()}</td>
+                          <td className={'py-2'}>{formatCurrency(data.metrics.todayRevenue)}</td>
+                          <td className={'py-2'}>{formatCurrency(data.metrics.weeklyRevenue)}</td>
                           <td className={'py-2'}>
                             <div className={'flex items-center space-x-2'}>
                               <div className={'w-24 bg-gray-700 rounded-full h-2'}>
@@ -2071,14 +2355,14 @@ export default function SuperAdminDashboard() {
                       <div className={'flex justify-between items-center'}>
                         <span className={'text-white/70'}>Today's Revenue</span>
                         <span className={'text-green-400 font-semibold'}>
-                          MK {data.metrics.todayRevenue.toLocaleString()}
+                          {formatCurrency(data.metrics.todayRevenue)}
                         </span>
                       </div>
                       
                       <div className={'flex justify-between items-center'}>
                         <span className={'text-white/70'}>Weekly Revenue</span>
                         <span className={'text-blue-400 font-semibold'}>
-                          MK {data.metrics.weeklyRevenue.toLocaleString()}
+                          {formatCurrency(data.metrics.weeklyRevenue)}
                         </span>
                       </div>
                       
@@ -2092,7 +2376,7 @@ export default function SuperAdminDashboard() {
                       <div className={'flex justify-between items-center'}>
                         <span className={'text-white/70'}>Avg. Sale Value</span>
                         <span className={'text-purple-400 font-semibold'}>
-                          MK {data.metrics.salesCount > 0 ? (data.metrics.totalRevenue / data.metrics.salesCount).toFixed(2) : 0}
+                          {formatCurrency(data.metrics.salesCount > 0 ? data.metrics.totalRevenue / data.metrics.salesCount : 0)}
                         </span>
                       </div>
                       
@@ -2163,7 +2447,7 @@ export default function SuperAdminDashboard() {
                 </h2>
                 <div className={'flex items-center space-x-4'}>
                   <div className={'text-white'}>
-                    Total Value: MK {calculateTotalStockValue().toLocaleString()}
+                    Total Value: {formatCurrency(calculateTotalStockValue())}
                   </div>
                   <button
                     onClick={handleDownloadStockList}
@@ -2181,54 +2465,70 @@ export default function SuperAdminDashboard() {
                 <div className={'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'}>
                   <input
                     type={'text'}
-                    placeholder={'Brand'}
+                    placeholder={'Brand *'}
                     value={newStock.brand}
                     onChange={(e) => setNewStock({...newStock, brand: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <input
                     type={'text'}
-                    placeholder={'Model'}
+                    placeholder={'Model *'}
                     value={newStock.model}
                     onChange={(e) => setNewStock({...newStock, model: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <input
                     type={'text'}
-                    placeholder={'Item Code'}
+                    placeholder={'Item Code *'}
                     value={newStock.itemCode}
                     onChange={(e) => setNewStock({...newStock, itemCode: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <select
+                    value={newStock.category}
+                    onChange={(e) => setNewStock({...newStock, category: e.target.value})}
+                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                  >
+                    {CATEGORIES.map((category, index) => (
+                      <option key={generateSafeKey('category', index, category)} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <select
                     value={newStock.location}
                     onChange={(e) => setNewStock({...newStock, location: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                   >
-                    <option value={''}>Select Location</option>
+                    <option value={''}>Select Location *</option>
                     {LOCATIONS.map((location, index) => (
                       <option key={generateSafeKey('newstock-location', index, location)} value={location}>{location}</option>
                     ))}
                   </select>
                   <input
                     type={'number'}
-                    placeholder={'Quantity'}
+                    placeholder={'Quantity *'}
                     value={newStock.quantity}
                     onChange={(e) => setNewStock({...newStock, quantity: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <input
                     type={'number'}
-                    placeholder={'Order Price'}
-                    value={newStock.orderPrice}
-                    onChange={(e) => setNewStock({...newStock, orderPrice: e.target.value})}
+                    placeholder={'Cost Price (MK) *'}
+                    value={newStock.costPrice}
+                    onChange={(e) => setNewStock({...newStock, costPrice: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <input
                     type={'number'}
-                    placeholder={'Sale Price'}
-                    value={newStock.salePrice}
-                    onChange={(e) => setNewStock({...newStock, salePrice: e.target.value})}
+                    placeholder={'Retail Price (MK) *'}
+                    value={newStock.retailPrice}
+                    onChange={(e) => setNewStock({...newStock, retailPrice: e.target.value})}
+                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                  />
+                  <input
+                    type={'number'}
+                    placeholder={'Wholesale Price (MK)'}
+                    value={newStock.wholesalePrice}
+                    onChange={(e) => setNewStock({...newStock, wholesalePrice: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
                   <input
@@ -2238,6 +2538,13 @@ export default function SuperAdminDashboard() {
                     onChange={(e) => setNewStock({...newStock, discountPercentage: e.target.value})}
                     className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
                   />
+                  <input
+                    type={'number'}
+                    placeholder={'Min Stock Level'}
+                    value={newStock.minStockLevel}
+                    onChange={(e) => setNewStock({...newStock, minStockLevel: e.target.value})}
+                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                  />
                 </div>
                 <button
                   onClick={handleAddStock}
@@ -2245,17 +2552,9 @@ export default function SuperAdminDashboard() {
                 >
                   Add Stock
                 </button>
-                <button
-                  onClick={() => router.push("/operations")}
-                  className={'mt-4 ml-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'}
-                >
-                  Operations
-                </button>
               </div>
 
-
               {/* Stocks Table */}
-
               <div className={'overflow-x-auto'}>
                 <table className={'w-full text-white'}>
                   <thead>
@@ -2263,43 +2562,60 @@ export default function SuperAdminDashboard() {
                       <th className={'text-left py-2'}>Location</th>
                       <th className={'text-left py-2'}>Item Code</th>
                       <th className={'text-left py-2'}>Brand & Model</th>
-                      <th className={'text-left py-2'}>Order Price</th>
-                      <th className={'text-left py-2'}>Sale Price</th>
+                      <th className={'text-left py-2'}>Category</th>
+                      <th className={'text-left py-2'}>Cost Price</th>
+                      <th className={'text-left py-2'}>Retail Price</th>
                       <th className={'text-left py-2'}>Quantity</th>
                       <th className={'text-left py-2'}>Total Value</th>
                       <th className={'text-left py-2'}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredStocks().map((stock, index) => (
-                      <tr key={generateSafeKey('stock', index, stock.id)} className={'border-b border-white/10'}>
-                        <td className={'py-2'}>
-                          <span className={'bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs'}>
-                            {stock.location}
-                          </span>
-                        </td>
-                        <td className={'py-2 font-mono'}>{stock.itemCode}</td>
-                        <td className={'py-2'}>{stock.brand} {stock.model}</td>
-                        <td className={'py-2'}>MK {stock.orderPrice || 0}</td>
-                        <td className={'py-2'}>MK {stock.salePrice || 0}</td>
-                        <td className={'py-2'}>{stock.quantity || 0}</td>
-                        <td className={'py-2'}>MK {((stock.orderPrice || 0) * (stock.quantity || 0)).toLocaleString()}</td>
-                        <td className={'py-2 space-x-2'}>
-                          <button
-                            onClick={() => handleUpdateStock(stock.id, { quantity: (stock.quantity || 0) + 1 })}
-                            className={'bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'}
-                          >
-                            +1
-                          </button>
-                          <button
-                            onClick={() => handleUpdateStock(stock.id, { quantity: Math.max(0, (stock.quantity || 0) - 1)})}
-                            className={'bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors'}
-                          >
-                            -1
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {getFilteredStocks().map((stock, index) => {
+                      const isLowStock = (parseInt(stock.quantity) || 0) <= (parseInt(stock.minStockLevel) || 5) && (parseInt(stock.quantity) || 0) > 0;
+                      
+                      return (
+                        <tr key={generateSafeKey('stock', index, stock.id)} className={`border-b border-white/10 ${isLowStock ? 'bg-orange-900/20' : ''}`}>
+                          <td className={'py-2'}>
+                            <span className={'bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs'}>
+                              {stock.location}
+                            </span>
+                          </td>
+                          <td className={'py-2 font-mono'}>{stock.itemCode}</td>
+                          <td className={'py-2'}>{stock.brand} {stock.model}</td>
+                          <td className={'py-2'}>{stock.category || 'N/A'}</td>
+                          <td className={'py-2'}>{formatCurrency(stock.costPrice || 0)}</td>
+                          <td className={'py-2'}>{formatCurrency(stock.retailPrice || 0)}</td>
+                          <td className={'py-2'}>
+                            <div className={`${isLowStock ? 'text-orange-400 font-semibold' : ''}`}>
+                              {stock.quantity || 0}
+                              {isLowStock && <span className="text-xs text-orange-300 ml-1">Low</span>}
+                            </div>
+                          </td>
+                          <td className={'py-2'}>{formatCurrency((stock.costPrice || 0) * (stock.quantity || 0))}</td>
+                          <td className={'py-2 space-x-2'}>
+                            <button
+                              onClick={() => handleUpdateStock(stock.id, { quantity: (stock.quantity || 0) + 1 })}
+                              className={'bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'}
+                            >
+                              +1
+                            </button>
+                            <button
+                              onClick={() => handleUpdateStock(stock.id, { quantity: Math.max(0, (stock.quantity || 0) - 1)})}
+                              className={'bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors'}
+                            >
+                              -1
+                            </button>
+                            <button
+                              onClick={() => handleDeleteStock(stock.id)}
+                              className={'bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm transition-colors'}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2422,14 +2738,14 @@ export default function SuperAdminDashboard() {
                     
                     <div className={'bg-white/5 rounded-lg p-4 text-center'}>
                       <div className={'text-2xl font-bold text-green-400'}>
-                        MK {generatedReport.totalRevenue.toLocaleString()}
+                        {formatCurrency(generatedReport.totalRevenue)}
                       </div>
                       <div className={'text-white/70 text-sm'}>Total Revenue</div>
                     </div>
                     
                     <div className={'bg-white/5 rounded-lg p-4 text-center'}>
                       <div className={'text-2xl font-bold text-blue-400'}>
-                        MK {generatedReport.averageSaleValue.toFixed(2)}
+                        {formatCurrency(generatedReport.averageSaleValue)}
                       </div>
                       <div className={'text-white/70 text-sm'}>Average Sale Value</div>
                     </div>
@@ -2465,8 +2781,8 @@ export default function SuperAdminDashboard() {
                               <tr key={generateSafeKey('report-loc', index, location)} className={'border-b border-white/10'}>
                                 <td className={'py-2 font-medium'}>{location}</td>
                                 <td className={'py-2'}>{data.totalSales}</td>
-                                <td className={'py-2 text-green-400'}>MK {data.totalRevenue.toLocaleString()}</td>
-                                <td className={'py-2'}>MK {data.averageSaleValue.toFixed(2)}</td>
+                                <td className={'py-2 text-green-400'}>{formatCurrency(data.totalRevenue)}</td>
+                                <td className={'py-2'}>{formatCurrency(data.averageSaleValue)}</td>
                                 <td className={'py-2 text-sm'}>{topProduct}</td>
                                 <td className={'py-2 text-sm'}>{topSeller}</td>
                               </tr>
@@ -2534,7 +2850,7 @@ export default function SuperAdminDashboard() {
                 
                 <div className={'bg-white/5 rounded-lg p-4 text-center'}>
                   <div className={'text-2xl font-bold text-green-400'}>
-                    MK {getFilteredSales().reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0).toLocaleString()}
+                    {formatCurrency(getFilteredSales().reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0))}
                   </div>
                   <div className={'text-white/70 text-sm'}>Total Revenue</div>
                 </div>
