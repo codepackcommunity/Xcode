@@ -2554,7 +2554,7 @@ export default function SuperAdminDashboard() {
                 </button>
                  <button
                   onClick={() => router.push('/operations')}
-                  className={'mt-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'}
+                  className={'mt-4 ml-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'}
                 >
                   Operations
                 </button>
