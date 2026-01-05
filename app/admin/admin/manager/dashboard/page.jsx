@@ -1,12 +1,12 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
   serverTimestamp, addDoc, orderBy, onSnapshot,
-  writeBatch, getDoc
+  writeBatch, getDoc, Timestamp
 } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -19,7 +19,6 @@ const generateSafeKey = (prefix = 'item', index, id) => {
   if (id) {
     return `${prefix}-${id}`;
   }
-  // Fallback: use index with timestamp to ensure uniqueness
   return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
@@ -33,12 +32,21 @@ export default function ManagerDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const router = useRouter();
 
+  // Tables from Admin Dashboard
+  const [stocksTable, setStocksTable] = useState([]);
+  const [salesTable, setSalesTable] = useState([]);
+  const [faultyTable, setFaultyTable] = useState([]);
+  const [usersTable, setUsersTable] = useState([]);
+  const [transfersTable, setTransfersTable] = useState([]);
+  const [installmentsTable, setInstallmentsTable] = useState([]);
+  const [repairsTable, setRepairsTable] = useState([]);
+
   // User Management State
   const [allUsers, setAllUsers] = useState([]);
 
   // Stocks & Locations State
-  const [allStocks, setAllStocks] = useState([]); // All stocks for viewing
-  const [locationStocks, setLocationStocks] = useState([]); // Stocks from manager's location for selling
+  const [allStocks, setAllStocks] = useState([]);
+  const [locationStocks, setLocationStocks] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState('all');
   
   // Stock Transfer State
@@ -155,8 +163,6 @@ export default function ManagerDashboard() {
       if (args[0] && typeof args[0] === 'string' && 
           (args[0].includes('Encountered two children with the same key') || 
            args[0].includes('Each child in a list should have a unique "key" prop'))) {
-        // Suppress React key warnings
-        console.warn('React key warning suppressed:', args[0]);
         return;
       }
       originalError.apply(console, args);
@@ -170,19 +176,108 @@ export default function ManagerDashboard() {
   // Error handling function
   const handleFirestoreError = useCallback((error, context) => {
     if (error.code === 'permission-denied') {
-      // Check auth state silently
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        // User is not authenticated - redirect silently
         setTimeout(() => router.push('/login'), 100);
         return;
       }
-      
-      // User is authenticated but lacks permissions
-      // This will be handled by the component UI state
       return;
     }
   }, [router]);
+
+  // Fetch all tables from Admin Dashboard
+  const fetchAllTables = useCallback(async (managerLocation) => {
+    try {
+      // Fetch stocks table
+      const stocksQuery = query(collection(db, 'stocks'));
+      const stocksSnapshot = await getDocs(stocksQuery);
+      const stocksData = stocksSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setStocksTable(stocksData);
+
+      // Fetch sales table
+      const salesQuery = query(
+        collection(db, 'sales'),
+        orderBy('soldAt', 'desc'),
+        limit(100)
+      );
+      const salesSnapshot = await getDocs(salesQuery);
+      const salesData = salesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSalesTable(salesData);
+
+      // Fetch faulty phones table for manager's location
+      const faultyQuery = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', managerLocation),
+        orderBy('reportedAt', 'desc')
+      );
+      const faultySnapshot = await getDocs(faultyQuery);
+      const faultyData = faultySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setFaultyTable(faultyData);
+
+      // Fetch users table (excluding managers/admins)
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('role', 'in', ['sales', 'dataEntry', 'user'])
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+      const usersData = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUsersTable(usersData);
+
+      // Fetch stock transfers
+      const transfersQuery = query(
+        collection(db, 'stockTransfers'),
+        where('location', '==', managerLocation),
+        orderBy('transferredAt', 'desc')
+      );
+      const transfersSnapshot = await getDocs(transfersQuery);
+      const transfersData = transfersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setTransfersTable(transfersData);
+
+      // Fetch installments
+      const installmentsQuery = query(
+        collection(db, 'installments'),
+        where('location', '==', managerLocation),
+        orderBy('createdAt', 'desc')
+      );
+      const installmentsSnapshot = await getDocs(installmentsQuery);
+      const installmentsData = installmentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setInstallmentsTable(installmentsData);
+
+      // Fetch repairs
+      const repairsQuery = query(
+        collection(db, 'repairs'),
+        where('location', '==', managerLocation),
+        orderBy('repairedAt', 'desc')
+      );
+      const repairsSnapshot = await getDocs(repairsQuery);
+      const repairsData = repairsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setRepairsTable(repairsData);
+
+    } catch (error) {
+      handleFirestoreError(error, 'fetch-all-tables');
+    }
+  }, [handleFirestoreError]);
 
   // Performance Helpers
   const getPerformanceGrade = useCallback((score) => {
@@ -306,6 +401,7 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       setFaultyPhones(faultyData);
+      setFaultyTable(faultyData);
     } catch (error) {
       handleFirestoreError(error, 'faulty-fetch');
       setFaultyPhones([]);
@@ -356,6 +452,7 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       setSales(salesData);
+      setSalesTable(salesData);
       calculateSalesAnalysis(salesData);
     } catch (error) {
       handleFirestoreError(error, 'fetch-sales-analysis');
@@ -392,143 +489,34 @@ export default function ManagerDashboard() {
     });
   }, []);
 
-  // Location Performance Calculation
-  const calculateLocationPerformance = useCallback((salesData) => {
-    const locationMetrics = {};
-    const today = new Date();
-    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const oneMonthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    LOCATIONS.forEach(location => {
-      locationMetrics[location] = {
-        totalRevenue: 0,
-        todayRevenue: 0,
-        weeklyRevenue: 0,
-        monthlyRevenue: 0,
-        salesCount: 0,
-        averageSaleValue: 0,
-        peakHours: {},
-        topSellers: {}
-      };
-    });
-
-    salesData.forEach(sale => {
-      const location = sale.location || 'Unknown';
-      if (locationMetrics[location]) {
-        const saleDate = sale.soldAt?.toDate();
-        const revenue = sale.finalSalePrice || 0;
-        
-        locationMetrics[location].totalRevenue += revenue;
-        locationMetrics[location].salesCount += 1;
-
-        if (saleDate && saleDate >= new Date(today.setHours(0, 0, 0, 0))) {
-          locationMetrics[location].todayRevenue += revenue;
-        }
-
-        if (saleDate && saleDate >= oneWeekAgo) {
-          locationMetrics[location].weeklyRevenue += revenue;
-        }
-
-        if (saleDate && saleDate >= oneMonthAgo) {
-          locationMetrics[location].monthlyRevenue += revenue;
-        }
-
-        if (saleDate) {
-          const hour = saleDate.getHours();
-          locationMetrics[location].peakHours[hour] = (locationMetrics[location].peakHours[hour] || 0) + 1;
-        }
-
-        const seller = sale.soldByName || sale.soldBy;
-        locationMetrics[location].topSellers[seller] = (locationMetrics[location].topSellers[seller] || 0) + revenue;
-      }
-    });
-
-    const locationPerformance = {};
-    const allRevenues = Object.values(locationMetrics).map(metric => metric.totalRevenue);
-    const maxRevenue = Math.max(...allRevenues);
-    const minRevenue = Math.min(...allRevenues);
-
-    Object.keys(locationMetrics).forEach(location => {
-      const metric = locationMetrics[location];
-      
-      const revenueScore = maxRevenue > minRevenue 
-        ? ((metric.totalRevenue - minRevenue) / (maxRevenue - minRevenue)) * 40
-        : 20;
-
-      const growthRate = metric.monthlyRevenue > 0 
-        ? ((metric.weeklyRevenue / metric.monthlyRevenue) * 4) - 1
-        : 0;
-      const growthScore = Math.min(Math.max(growthRate * 30, 0), 30);
-
-      const efficiency = metric.salesCount > 0 
-        ? (metric.totalRevenue / metric.salesCount) / 1000
-        : 0;
-      const efficiencyScore = Math.min(efficiency * 20, 20);
-
-      const todayActivity = metric.todayRevenue > 0 ? 10 : 0;
-
-      const totalScore = revenueScore + growthScore + efficiencyScore + todayActivity;
-      
-      locationPerformance[location] = {
-        score: Math.round(totalScore),
-        grade: getPerformanceGrade(totalScore),
-        metrics: metric,
-        trend: growthRate > 0.1 ? 'up' : growthRate < -0.1 ? 'down' : 'stable'
-      };
-    });
-
-    setSalesAnalysis(prev => ({
-      ...prev,
-      locationPerformance
-    }));
-  }, [getPerformanceGrade]);
-
   const setupRealtimeListeners = useCallback((managerLocation) => {
     // Cleanup function for listeners
     const cleanupFunctions = [];
 
-    // Real-time stock updates for ALL locations (view only)
-    const allStocksQuery = query(collection(db, 'stocks'));
+    // Real-time stocks updates
+    const stocksQuery = query(collection(db, 'stocks'));
     
-    const unsubscribeAllStocks = onSnapshot(allStocksQuery, (snapshot) => {
+    const unsubscribeStocks = onSnapshot(stocksQuery, (snapshot) => {
       const stocksData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
       setAllStocks(stocksData);
+      setStocksTable(stocksData);
+      
+      // Filter for manager's location
+      if (managerLocation) {
+        const locationStocks = stocksData.filter(stock => stock.location === managerLocation);
+        setLocationStocks(locationStocks);
+      }
     }, (error) => {
-      handleFirestoreError(error, 'all-stocks-listener');
-      setAllStocks([]);
+      handleFirestoreError(error, 'stocks-listener');
     });
 
-    cleanupFunctions.push(unsubscribeAllStocks);
+    cleanupFunctions.push(unsubscribeStocks);
 
-    // Real-time stock updates for manager's location only (for selling)
-    if (managerLocation) {
-      const locationStocksQuery = query(
-        collection(db, 'stocks'),
-        where('location', '==', managerLocation)
-      );
-      
-      const unsubscribeLocationStocks = onSnapshot(locationStocksQuery, (snapshot) => {
-        const stocksData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setLocationStocks(stocksData);
-      }, (error) => {
-        handleFirestoreError(error, 'location-stocks-listener');
-        setLocationStocks([]);
-      });
-
-      cleanupFunctions.push(unsubscribeLocationStocks);
-    }
-
-    // Real-time sales updates for manager's location
-    const salesQuery = query(
-      collection(db, 'sales'),
-      orderBy('soldAt', 'desc')
-    );
+    // Real-time sales updates
+    const salesQuery = query(collection(db, 'sales'), orderBy('soldAt', 'desc'));
 
     const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
       const salesData = snapshot.docs.map(doc => ({
@@ -536,11 +524,11 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       setSales(salesData);
+      setSalesTable(salesData);
       calculateSalesAnalysis(salesData);
       calculateRealTimeSales(salesData);
     }, (error) => {
       handleFirestoreError(error, 'sales-listener');
-      setSales([]);
     });
 
     cleanupFunctions.push(unsubscribeSales);
@@ -559,9 +547,9 @@ export default function ManagerDashboard() {
           ...doc.data()
         }));
         setFaultyPhones(faultyData);
+        setFaultyTable(faultyData);
       }, (error) => {
         handleFirestoreError(error, 'faulty-listener');
-        setFaultyPhones([]);
       });
 
       cleanupFunctions.push(unsubscribeFaulty);
@@ -581,10 +569,28 @@ export default function ManagerDashboard() {
       setStockRequests(requestsData);
     }, (error) => {
       handleFirestoreError(error, 'requests-listener');
-      setStockRequests([]);
     });
 
     cleanupFunctions.push(unsubscribeRequests);
+
+    // Real-time users updates
+    const usersQuery = query(
+      collection(db, 'users'),
+      where('role', 'in', ['sales', 'dataEntry', 'user'])
+    );
+
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setAllUsers(usersData);
+      setUsersTable(usersData);
+    }, (error) => {
+      handleFirestoreError(error, 'users-listener');
+    });
+
+    cleanupFunctions.push(unsubscribeUsers);
 
     return () => {
       cleanupFunctions.forEach(unsubscribe => {
@@ -650,20 +656,17 @@ export default function ManagerDashboard() {
 
   // User Management Functions with Manager Restrictions
   const handleAssignRole = async (userId, role, currentUserRole) => {
-    // Prevent manager from assigning manager, admin, or superadmin roles
     const restrictedRoles = ['manager', 'admin', 'superadmin'];
     if (restrictedRoles.includes(role)) {
       alert('You are not authorized to assign manager, admin, or superadmin roles.');
       return;
     }
 
-    // Prevent manager from changing their own role
     if (userId === user.uid) {
       alert('You cannot change your own role.');
       return;
     }
 
-    // Prevent manager from changing other managers', admins', or superadmins' roles
     if (restrictedRoles.includes(currentUserRole)) {
       alert('You are not authorized to modify roles of managers, admins, or superadmins.');
       return;
@@ -684,7 +687,6 @@ export default function ManagerDashboard() {
   };
 
   const handleUpdateUserLocation = async (userId, newLocation, currentUserRole) => {
-    // Prevent manager from updating locations of other managers, admins, or superadmins
     const restrictedRoles = ['manager', 'admin', 'superadmin'];
     if (restrictedRoles.includes(currentUserRole)) {
       alert('You are not authorized to update locations of managers, admins, or superadmins.');
@@ -761,7 +763,7 @@ export default function ManagerDashboard() {
     }
   };
 
-  // SALES FUNCTIONS FOR MANAGER (Can only sell from assigned location)
+  // SALES FUNCTIONS FOR MANAGER
   const handleQuickSale = async () => {
     if (!quickSale.itemCode) {
       alert('Please enter an item code.');
@@ -769,7 +771,6 @@ export default function ManagerDashboard() {
     }
 
     try {
-      // Check if item exists in manager's location
       const stockQuery = query(
         collection(db, 'stocks'),
         where('itemCode', '==', quickSale.itemCode),
@@ -863,7 +864,6 @@ export default function ManagerDashboard() {
 
   const handleSellItem = async (stockId, stockData, quantity = 1) => {
     try {
-      // Verify this stock belongs to manager's location
       if (stockData.location !== user.location) {
         alert('You can only sell items from your assigned location!');
         return;
@@ -946,7 +946,6 @@ export default function ManagerDashboard() {
         return;
       }
 
-      // Check if item exists in manager's location
       const stockQuery = query(
         collection(db, 'stocks'),
         where('itemCode', '==', faultyReport.itemCode),
@@ -1096,8 +1095,8 @@ export default function ManagerDashboard() {
     }
   };
 
-  // STYLISH PDF GENERATION
-  const generateStylishPDFReport = (data, type = 'sales') => {
+  // ENHANCED FAULTY PHONE PDF REPORT
+  const generateFaultyPhonePDFReport = (faultyData) => {
     const doc = new jsPDF('p', 'mm', 'a4');
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
@@ -1115,15 +1114,209 @@ export default function ManagerDashboard() {
     doc.setFontSize(16);
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'normal');
+    doc.text('FAULTY PHONE REPORT', pageWidth / 2, 30, { align: 'center' });
     
+    // Report ID and Date
+    doc.setFontSize(10);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Report ID: ${faultyData.id}`, 20, 40);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - 20, 40, { align: 'right' });
+    
+    // Device Information Section
+    doc.setFontSize(14);
+    doc.setTextColor(139, 92, 246);
+    doc.text('DEVICE INFORMATION', 20, 55);
+    
+    doc.setFillColor(55, 65, 81);
+    doc.roundedRect(20, 60, pageWidth - 40, 35, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    
+    const deviceInfo = [
+      [`Item Code: ${faultyData.itemCode}`, `Brand: ${faultyData.brand || 'N/A'}`],
+      [`Model: ${faultyData.model || 'N/A'}`, `IMEI: ${faultyData.imei || 'N/A'}`],
+      [`Location: ${faultyData.location}`, `Status: ${faultyData.status}`],
+      [`Reported Cost: MK ${faultyData.reportedCost?.toLocaleString() || '0'}`, `Estimated Repair: MK ${faultyData.estimatedRepairCost?.toLocaleString() || '0'}`]
+    ];
+    
+    let yPos = 70;
+    deviceInfo.forEach(([left, right]) => {
+      doc.text(left, 25, yPos);
+      doc.text(right, pageWidth / 2 + 10, yPos);
+      yPos += 8;
+    });
+    
+    // Customer Information Section
+    doc.setFontSize(14);
+    doc.setTextColor(139, 92, 246);
+    doc.text('CUSTOMER INFORMATION', 20, yPos + 5);
+    
+    doc.setFillColor(55, 65, 81);
+    doc.roundedRect(20, yPos + 10, pageWidth - 40, 20, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    
+    if (faultyData.customerName || faultyData.customerPhone) {
+      doc.text(`Customer Name: ${faultyData.customerName || 'N/A'}`, 25, yPos + 20);
+      doc.text(`Phone: ${faultyData.customerPhone || 'N/A'}`, pageWidth / 2 + 10, yPos + 20);
+    } else {
+      doc.text('No customer information provided', 25, yPos + 20);
+    }
+    
+    yPos += 35;
+    
+    // Fault Details Section
+    doc.setFontSize(14);
+    doc.setTextColor(139, 92, 246);
+    doc.text('FAULT DETAILS', 20, yPos);
+    
+    doc.setFillColor(55, 65, 81);
+    const faultHeight = 40;
+    doc.roundedRect(20, yPos + 5, pageWidth - 40, faultHeight, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    
+    // Split fault description into multiple lines
+    const faultDescription = faultyData.faultDescription || 'No description provided';
+    const splitFault = doc.splitTextToSize(faultDescription, pageWidth - 50);
+    doc.text(splitFault, 25, yPos + 15);
+    
+    yPos += faultHeight + 15;
+    
+    // Spares Needed Section
+    if (faultyData.sparesNeeded?.length > 0 || faultyData.otherSpares) {
+      doc.setFontSize(14);
+      doc.setTextColor(139, 92, 246);
+      doc.text('SPARES REQUIRED', 20, yPos);
+      
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, yPos + 5, pageWidth - 40, 20, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      
+      const sparesList = [...(faultyData.sparesNeeded || [])];
+      if (faultyData.otherSpares) {
+        sparesList.push(faultyData.otherSpares);
+      }
+      
+      doc.text(sparesList.join(', '), 25, yPos + 15);
+      yPos += 30;
+    }
+    
+    // Timeline Section
+    doc.setFontSize(14);
+    doc.setTextColor(139, 92, 246);
+    doc.text('TIMELINE', 20, yPos);
+    
+    const timelineData = [
+      ['Event', 'Date', 'Responsible Person'],
+      ['Reported', faultyData.reportedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.reportedByName || 'N/A'],
+      ['Last Updated', faultyData.lastUpdated?.toDate().toLocaleDateString() || 'N/A', faultyData.updatedByName || 'N/A']
+    ];
+    
+    if (faultyData.status === 'Fixed') {
+      timelineData.push(['Repaired', faultyData.repairedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.repairedByName || 'N/A']);
+    }
+    
+    autoTable(doc, {
+      startY: yPos + 10,
+      head: timelineData.slice(0, 1),
+      body: timelineData.slice(1),
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [139, 92, 246], 
+        textColor: [255, 255, 255], 
+        fontSize: 10,
+        fontStyle: 'bold'
+      },
+      bodyStyles: { 
+        textColor: [255, 255, 255], 
+        fontSize: 9 
+      },
+      alternateRowStyles: { fillColor: [55, 65, 81] },
+      margin: { left: 20, right: 20 },
+      tableWidth: 'auto'
+    });
+    
+    yPos = doc.lastAutoTable.finalY + 10;
+    
+    // Notes Section
+    if (faultyData.notes) {
+      doc.setFontSize(14);
+      doc.setTextColor(139, 92, 246);
+      doc.text('ADDITIONAL NOTES', 20, yPos);
+      
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, yPos + 5, pageWidth - 40, 30, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      
+      const splitNotes = doc.splitTextToSize(faultyData.notes, pageWidth - 50);
+      doc.text(splitNotes, 25, yPos + 15);
+      
+      yPos += 45;
+    }
+    
+    // Status Badge
+    doc.setFontSize(12);
+    doc.setTextColor(255, 255, 255);
+    const statusColor = {
+      'Reported': [234, 179, 8], // yellow-500
+      'In Repair': [59, 130, 246], // blue-500
+      'Fixed': [34, 197, 94], // green-500
+      'EOS (End of Service)': [239, 68, 68], // red-500
+      'Scrapped': [107, 114, 128] // gray-500
+    };
+    
+    const color = statusColor[faultyData.status] || [107, 114, 128];
+    doc.setFillColor(color[0], color[1], color[2]);
+    doc.roundedRect(pageWidth - 60, yPos + 5, 40, 15, 3, 3, 'F');
+    doc.text(faultyData.status, pageWidth - 40, yPos + 12, { align: 'center' });
+    
+    // Add footer
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+    
+    // Save PDF
+    const filename = `Faulty_Report_${faultyData.itemCode}_${faultyData.id || Date.now()}.pdf`;
+    doc.save(filename);
+  };
+
+  // STYLISH SALES PDF REPORT
+  const generateStylishPDFReport = (data, type = 'sales') => {
     if (type === 'sales') {
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
+      
+      // Add gradient background
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
+      
+      // Add header with logo
+      doc.setFontSize(24);
+      doc.setTextColor(139, 92, 246);
+      doc.setFont('helvetica', 'bold');
+      doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'normal');
       doc.text('SALES ANALYSIS REPORT', pageWidth / 2, 30, { align: 'center' });
+      
       doc.setFontSize(12);
       doc.text(`Report Period: ${reportFilters.startDate} to ${reportFilters.endDate}`, pageWidth / 2, 38, { align: 'center' });
       doc.text(`Location: ${reportFilters.location === 'all' ? 'All Locations' : reportFilters.location}`, pageWidth / 2, 44, { align: 'center' });
       
       // Summary Box
-      doc.setFillColor(55, 65, 81); // gray-700
+      doc.setFillColor(55, 65, 81);
       doc.roundedRect(20, 50, pageWidth - 40, 30, 3, 3, 'F');
       
       doc.setFontSize(14);
@@ -1187,58 +1380,18 @@ export default function ManagerDashboard() {
         margin: { left: 20, right: 20 }
       });
       
+      // Add footer
+      doc.setFontSize(8);
+      doc.setTextColor(156, 163, 175);
+      doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+      
+      // Save PDF
+      const filename = `Sales_Report_${reportFilters.startDate}_to_${reportFilters.endDate}.pdf`;
+      doc.save(filename);
     } else if (type === 'faulty') {
-      // Faulty Phone Report
-      doc.text('FAULTY PHONE REPORT', pageWidth / 2, 30, { align: 'center' });
-      
-      // Phone Details Box
-      doc.setFillColor(55, 65, 81);
-      doc.roundedRect(20, 40, pageWidth - 40, 60, 3, 3, 'F');
-      
-      doc.setFontSize(12);
-      doc.setTextColor(255, 255, 255);
-      doc.text(`Item Code: ${data.itemCode}`, 30, 50);
-      doc.text(`Brand & Model: ${data.brand} ${data.model}`, 30, 58);
-      doc.text(`IMEI: ${data.imei || 'N/A'}`, 30, 66);
-      doc.text(`Status: ${data.status}`, 30, 74);
-      doc.text(`Reported Cost: MK ${data.reportedCost || 0}`, 30, 82);
-      doc.text(`Reported By: ${data.reportedByName}`, 140, 50);
-      doc.text(`Location: ${data.location}`, 140, 58);
-      doc.text(`Report Date: ${data.reportedAt?.toDate().toLocaleDateString()}`, 140, 66);
-      
-      // Fault Details
-      doc.setFontSize(12);
-      doc.setTextColor(139, 92, 246);
-      doc.text('FAULT DETAILS', 20, 110);
-      
-      doc.setFillColor(55, 65, 81);
-      doc.roundedRect(20, 115, pageWidth - 40, 40, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(255, 255, 255);
-      doc.text(data.faultDescription, 25, 125, { maxWidth: pageWidth - 50 });
-      
-      if (data.sparesNeeded?.length > 0) {
-        doc.text(`Spares Needed: ${data.sparesNeeded.join(', ')}`, 25, 140);
-      }
-      
-      if (data.estimatedRepairCost > 0) {
-        doc.text(`Estimated Repair Cost: MK ${data.estimatedRepairCost}`, 25, 147);
-      }
+      generateFaultyPhonePDFReport(data);
     }
-    
-    // Add footer
-    doc.setFontSize(8);
-    doc.setTextColor(156, 163, 175);
-    doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
-    
-    // Save PDF
-    const filename = type === 'sales' 
-      ? `Sales_Report_${reportFilters.startDate}_to_${reportFilters.endDate}.pdf`
-      : `Faulty_Report_${data.itemCode}_${Date.now()}.pdf`;
-    
-    doc.save(filename);
   };
 
   // INSTALLMENT FUNCTIONS
@@ -1628,9 +1781,9 @@ export default function ManagerDashboard() {
     }
   }, [reportFilters, handleFirestoreError]);
 
-  // Filter Functions
+  // Filter Functions using tables
   const getFilteredAllStocks = () => {
-    let filtered = allStocks;
+    let filtered = stocksTable;
     
     if (searchTerm) {
       filtered = filtered.filter(stock => 
@@ -1670,7 +1823,7 @@ export default function ManagerDashboard() {
   };
 
   const getFilteredFaultyPhones = () => {
-    let filtered = faultyPhones;
+    let filtered = faultyTable;
     
     if (searchTerm) {
       filtered = filtered.filter(faulty => 
@@ -1690,9 +1843,9 @@ export default function ManagerDashboard() {
 
   const getFilteredSales = () => {
     if (selectedLocation === 'all') {
-      return sales;
+      return salesTable;
     }
-    return sales.filter(sale => sale.location === selectedLocation);
+    return salesTable.filter(sale => sale.location === selectedLocation);
   };
 
   const getFilteredStockRequests = () => {
@@ -1712,9 +1865,7 @@ export default function ManagerDashboard() {
 
   // Filter users to exclude managers, admins, and superadmins from role/location changes
   const getFilteredUsers = () => {
-    return allUsers.filter(userItem => 
-      !['manager', 'admin', 'superadmins'].includes(userItem.role)
-    );
+    return usersTable;
   };
 
   // Helper functions
@@ -1740,7 +1891,7 @@ export default function ManagerDashboard() {
   };
 
   const getUniqueBrands = () => {
-    return [...new Set(allStocks.map(stock => stock.brand).filter(Boolean))];
+    return [...new Set(stocksTable.map(stock => stock.brand).filter(Boolean))];
   };
 
   if (loading) {
@@ -1840,7 +1991,7 @@ export default function ManagerDashboard() {
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
                   <h3 className='text-white/70 text-sm'>Total Stock Value (All Locations)</h3>
                   <p className='text-2xl font-bold text-green-400'>
-                    MK {calculateTotalStockValue(allStocks).toLocaleString()}
+                    MK {calculateTotalStockValue(stocksTable).toLocaleString()}
                   </p>
                 </div>
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
@@ -1858,7 +2009,7 @@ export default function ManagerDashboard() {
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
                   <h3 className='text-white/70 text-sm'>Faulty Phones (My Location)</h3>
                   <p className='text-2xl font-bold text-orange-400'>
-                    {faultyPhones.length}
+                    {faultyTable.length}
                   </p>
                 </div>
               </div>
@@ -2453,7 +2604,7 @@ export default function ManagerDashboard() {
                         </td>
                         <td className='py-2 space-x-2'>
                           <button
-                            onClick={() => generateStylishPDFReport(faulty, 'faulty')}
+                            onClick={() => generateFaultyPhonePDFReport(faulty)}
                             className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
                             title='Generate PDF Report'
                           >

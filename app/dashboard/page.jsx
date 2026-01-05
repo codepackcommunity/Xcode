@@ -6,7 +6,7 @@ import { auth, db, storage } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
   serverTimestamp, addDoc, orderBy, onSnapshot, writeBatch,
-  deleteDoc, getDoc
+  deleteDoc, getDoc, Timestamp, limit
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import jsPDF from 'jspdf';
@@ -16,16 +16,26 @@ const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'
 const FAULTY_STATUS = ['Reported', 'In Repair', 'Fixed', 'EOS (End of Service)', 'Scrapped'];
 const SPARES_OPTIONS = ['Screen', 'Battery', 'Charging Port', 'Camera', 'Motherboard', 'Speaker', 'Microphone', 'Other'];
 
+// Safe key generator
+const generateSafeKey = (prefix = 'item', index, id) => {
+  if (id) return `${prefix}-${id}`;
+  return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
 export default function UserDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const router = useRouter();
 
-  // Data states
-  const [stocks, setStocks] = useState([]);
-  const [sales, setSales] = useState([]);
-  const [faultyPhones, setFaultyPhones] = useState([]);
+  // Database Tables
+  const [stocksTable, setStocksTable] = useState([]);
+  const [salesTable, setSalesTable] = useState([]);
+  const [faultyTable, setFaultyTable] = useState([]);
+  const [installmentsTable, setInstallmentsTable] = useState([]);
+  const [repairsTable, setRepairsTable] = useState([]);
+  
+  // Current location
   const [currentLocation, setCurrentLocation] = useState('');
   
   // Analytics states
@@ -33,7 +43,9 @@ export default function UserDashboard() {
     totalSales: 0,
     totalRevenue: 0,
     monthlyRevenue: 0,
-    topProducts: {}
+    topProducts: {},
+    todaySales: 0,
+    todayRevenue: 0
   });
 
   // Quick sale state
@@ -86,105 +98,137 @@ export default function UserDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBrand, setFilterBrand] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterSaleType, setFilterSaleType] = useState('');
 
-  // Refs to track user state for listeners
-  const userRef = useRef(null);
-  const locationRef = useRef('');
+  // Refs
   const unsubscribeRefs = useRef([]);
 
-  // Safe unsubscribe function
-  const safeUnsubscribe = (unsubscribe) => {
-    try {
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-    } catch (err) {
-      // Silent fail on unsubscribe errors
-    }
-  };
-
-  // Cleanup all listeners
+  // Cleanup listeners
   const cleanupListeners = useCallback(() => {
     if (unsubscribeRefs.current.length > 0) {
-      unsubscribeRefs.current.forEach(safeUnsubscribe);
+      unsubscribeRefs.current.forEach(unsubscribe => {
+        try {
+          if (unsubscribe && typeof unsubscribe === 'function') {
+            unsubscribe();
+          }
+        } catch (err) {
+          // Silent fail
+        }
+      });
       unsubscribeRefs.current = [];
     }
   }, []);
 
-  // Handle permission denied errors
+  // Error handling
   const handleFirestoreError = useCallback((error, context) => {
+    console.error(`Firestore Error in ${context}:`, error);
+    
     if (error.code === 'permission-denied') {
-      // Store the error for UI display
-      if (context === 'stocks' || context === 'sales') {
-        // These are handled by state updates in listeners
-      }
-      
-      // Check auth state silently
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        // User is not authenticated - redirect silently
         setTimeout(() => router.push('/login'), 100);
-        return;
       }
-      
-      // User is authenticated but lacks permissions
-      // This will be handled by the component UI state
       return;
     }
   }, [router]);
 
-  // Wrap initializeDashboard in useCallback with proper dependencies
+  // Initialize dashboard
   const initializeDashboard = useCallback(async (userData) => {
     try {
       await Promise.all([
-        fetchStocks(userData.location),
-        fetchSalesAnalysis(userData.location, userData.uid),
-        fetchFaultyPhones(userData.location, userData.uid)
+        fetchAllTables(userData.location, userData.uid),
+        setupRealtimeListeners(userData.location, userData.uid)
       ]);
-      setupRealtimeListeners(userData.location, userData.uid);
     } catch (error) {
-      // Silent catch for initialization errors
+      handleFirestoreError(error, 'initialize-dashboard');
     }
-  }, []);
+  }, [handleFirestoreError]);
 
-  // Wrap handleUserAuth in useCallback with proper dependencies
-  const handleUserAuth = useCallback(async (firebaseUser) => {
+  // Fetch all tables
+  const fetchAllTables = useCallback(async (location, userId) => {
     try {
-      const userDoc = await getDocs(
-        query(collection(db, 'users'), where('uid', '==', firebaseUser.uid))
+      // Stocks table
+      const stocksQuery = query(
+        collection(db, 'stocks'),
+        where('location', '==', location)
       );
-      
-      if (!userDoc.empty) {
-        const userData = userDoc.docs[0].data();
-        
-        if (userData.role === 'sales' || userData.role === 'dataEntry') {
-          setUser(userData);
-          userRef.current = userData;
-          const userLocation = userData.location || 'Lilongwe';
-          setCurrentLocation(userLocation);
-          locationRef.current = userLocation;
-          await initializeDashboard(userData);
-        } else {
-          router.push('/dashboard');
-        }
-      } else {
-        router.push('/login');
-      }
+      const stocksSnapshot = await getDocs(stocksQuery);
+      const stocksData = stocksSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setStocksTable(stocksData);
+
+      // Sales table (user's sales only)
+      const salesQuery = query(
+        collection(db, 'sales'),
+        where('location', '==', location),
+        where('soldBy', '==', userId),
+        orderBy('soldAt', 'desc'),
+        limit(100)
+      );
+      const salesSnapshot = await getDocs(salesQuery);
+      const salesData = salesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSalesTable(salesData);
+      calculateSalesAnalysis(salesData);
+
+      // Faulty phones table (user's reports only)
+      const faultyQuery = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', location),
+        where('reportedBy', '==', userId),
+        orderBy('reportedAt', 'desc')
+      );
+      const faultySnapshot = await getDocs(faultyQuery);
+      const faultyData = faultySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setFaultyTable(faultyData);
+
+      // Installments table (user's installments only)
+      const installmentsQuery = query(
+        collection(db, 'installments'),
+        where('location', '==', location),
+        where('createdBy', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const installmentsSnapshot = await getDocs(installmentsQuery);
+      const installmentsData = installmentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setInstallmentsTable(installmentsData);
+
+      // Repairs table (user's repairs only)
+      const repairsQuery = query(
+        collection(db, 'repairs'),
+        where('location', '==', location),
+        where('repairedBy', '==', userId),
+        orderBy('repairedAt', 'desc')
+      );
+      const repairsSnapshot = await getDocs(repairsQuery);
+      const repairsData = repairsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setRepairsTable(repairsData);
+
     } catch (error) {
-      handleFirestoreError(error, 'authentication');
-      router.push('/login');
+      handleFirestoreError(error, 'fetch-all-tables');
     }
-  }, [router, initializeDashboard, handleFirestoreError]);
+  }, [handleFirestoreError]);
 
-  // Wrap setupRealtimeListeners in useCallback
+  // Setup realtime listeners
   const setupRealtimeListeners = useCallback((location, userId) => {
-    cleanupListeners(); // Clean up existing listeners
+    cleanupListeners();
     
-    if (!location || !userId) {
-      return () => {}; // Return empty cleanup function
-    }
+    if (!location || !userId) return () => {};
 
-    // Real-time stock updates for user's location only
+    // Real-time stocks listener
     const stocksQuery = query(
       collection(db, 'stocks'),
       where('location', '==', location)
@@ -196,15 +240,12 @@ export default function UserDashboard() {
           id: doc.id,
           ...doc.data()
         }));
-        setStocks(stocksData);
+        setStocksTable(stocksData);
       }, 
-      (error) => {
-        handleFirestoreError(error, 'stocks');
-        setStocks([]); // Clear stocks on error
-      }
+      (error) => handleFirestoreError(error, 'stocks-listener')
     );
 
-    // Real-time sales updates for user's location and user only
+    // Real-time sales listener
     const salesQuery = query(
       collection(db, 'sales'),
       where('location', '==', location),
@@ -218,16 +259,13 @@ export default function UserDashboard() {
           id: doc.id,
           ...doc.data()
         }));
-        setSales(salesData);
+        setSalesTable(salesData);
         calculateSalesAnalysis(salesData);
       }, 
-      (error) => {
-        handleFirestoreError(error, 'sales');
-        setSales([]); // Clear sales on error
-      }
+      (error) => handleFirestoreError(error, 'sales-listener')
     );
 
-    // Real-time faulty phones updates
+    // Real-time faulty phones listener
     const faultyQuery = query(
       collection(db, 'faultyPhones'),
       where('location', '==', location),
@@ -241,88 +279,90 @@ export default function UserDashboard() {
           id: doc.id,
           ...doc.data()
         }));
-        setFaultyPhones(faultyData);
+        setFaultyTable(faultyData);
       },
-      (error) => {
-        handleFirestoreError(error, 'faulty-phones');
-        setFaultyPhones([]);
-      }
+      (error) => handleFirestoreError(error, 'faulty-listener')
     );
 
-    unsubscribeRefs.current.push(unsubscribeStocks, unsubscribeSales, unsubscribeFaulty);
+    // Real-time installments listener
+    const installmentsQuery = query(
+      collection(db, 'installments'),
+      where('location', '==', location),
+      where('createdBy', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribeInstallments = onSnapshot(installmentsQuery,
+      (snapshot) => {
+        const installmentsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setInstallmentsTable(installmentsData);
+      },
+      (error) => handleFirestoreError(error, 'installments-listener')
+    );
+
+    // Real-time repairs listener
+    const repairsQuery = query(
+      collection(db, 'repairs'),
+      where('location', '==', location),
+      where('repairedBy', '==', userId),
+      orderBy('repairedAt', 'desc')
+    );
+
+    const unsubscribeRepairs = onSnapshot(repairsQuery,
+      (snapshot) => {
+        const repairsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setRepairsTable(repairsData);
+      },
+      (error) => handleFirestoreError(error, 'repairs-listener')
+    );
+
+    unsubscribeRefs.current.push(
+      unsubscribeStocks, 
+      unsubscribeSales, 
+      unsubscribeFaulty,
+      unsubscribeInstallments,
+      unsubscribeRepairs
+    );
 
     return cleanupListeners;
   }, [cleanupListeners, handleFirestoreError]);
 
-  // Fetch faulty phones
-  const fetchFaultyPhones = useCallback(async (location, userId) => {
-    try {
-      if (!location || !userId) {
-        return;
-      }
-
-      const q = query(
-        collection(db, 'faultyPhones'),
-        where('location', '==', location),
-        where('reportedBy', '==', userId),
-        orderBy('reportedAt', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const faultyData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setFaultyPhones(faultyData);
-    } catch (error) {
-      handleFirestoreError(error, 'faulty-fetch');
-      setFaultyPhones([]);
-    }
-  }, [handleFirestoreError]);
-
-  // Wrap fetchSalesAnalysis in useCallback
-  const fetchSalesAnalysis = useCallback(async (location, userId) => {
-    try {
-      if (!location || !userId) {
-        return;
-      }
-
-      const q = query(
-        collection(db, 'sales'),
-        where('location', '==', location),
-        where('soldBy', '==', userId)
-      );
-      const querySnapshot = await getDocs(q);
-      const salesData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setSales(salesData);
-      calculateSalesAnalysis(salesData);
-    } catch (error) {
-      handleFirestoreError(error, 'sales-fetch');
-      setSales([]);
-    }
-  }, [handleFirestoreError]);
-
-  // Wrap calculateSalesAnalysis in useCallback
+  // Calculate sales analysis
   const calculateSalesAnalysis = useCallback((salesData) => {
     const analysis = {
       totalSales: 0,
       totalRevenue: 0,
       monthlyRevenue: 0,
-      topProducts: {}
+      topProducts: {},
+      todaySales: 0,
+      todayRevenue: 0
     };
 
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     salesData.forEach(sale => {
-      analysis.totalRevenue += sale.finalSalePrice || 0;
+      const salePrice = sale.finalSalePrice || 0;
+      analysis.totalRevenue += salePrice;
       analysis.totalSales++;
 
       const saleDate = sale.soldAt?.toDate();
-      if (saleDate && saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear) {
-        analysis.monthlyRevenue += sale.finalSalePrice || 0;
+      if (saleDate) {
+        if (saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear) {
+          analysis.monthlyRevenue += salePrice;
+        }
+        if (saleDate >= today) {
+          analysis.todaySales++;
+          analysis.todayRevenue += salePrice;
+        }
       }
 
       const productKey = `${sale.brand}-${sale.model}`;
@@ -332,30 +372,33 @@ export default function UserDashboard() {
     setSalesAnalysis(analysis);
   }, []);
 
-  // Wrap fetchStocks in useCallback
-  const fetchStocks = useCallback(async (location) => {
-    try {
-      if (!location) {
-        return;
-      }
-
-      const q = query(
-        collection(db, 'stocks'),
-        where('location', '==', location)
-      );
-      const querySnapshot = await getDocs(q);
-      const stocksData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setStocks(stocksData);
-    } catch (error) {
-      handleFirestoreError(error, 'stocks-fetch');
-      setStocks([]);
-    }
-  }, [handleFirestoreError]);
-
   // Authentication and initialization
+  const handleUserAuth = useCallback(async (firebaseUser) => {
+    try {
+      const userDoc = await getDocs(
+        query(collection(db, 'users'), where('uid', '==', firebaseUser.uid))
+      );
+      
+      if (!userDoc.empty) {
+        const userData = userDoc.docs[0].data();
+        
+        if (userData.role === 'sales' || userData.role === 'dataEntry') {
+          setUser(userData);
+          const userLocation = userData.location || 'Lilongwe';
+          setCurrentLocation(userLocation);
+          await initializeDashboard(userData);
+        } else {
+          router.push('/dashboard');
+        }
+      } else {
+        router.push('/login');
+      }
+    } catch (error) {
+      handleFirestoreError(error, 'authentication');
+      router.push('/login');
+    }
+  }, [router, initializeDashboard, handleFirestoreError]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -372,7 +415,7 @@ export default function UserDashboard() {
     };
   }, [router, handleUserAuth, cleanupListeners]);
 
-  // Enhanced Sales functions with better error handling
+  // Enhanced Sales functions
   const handleQuickSale = async () => {
     if (!quickSale.itemCode) {
       alert('Please enter an item code.');
@@ -396,7 +439,6 @@ export default function UserDashboard() {
       const stockDoc = stockSnapshot.docs[0];
       const stock = stockDoc.data();
 
-      // Validate stock data
       if (!stock.quantity && stock.quantity !== 0) {
         alert('Invalid stock data. Please contact administrator.');
         return;
@@ -407,7 +449,6 @@ export default function UserDashboard() {
         return;
       }
 
-      // Calculate final price
       let finalPrice;
       if (quickSale.customPrice) {
         finalPrice = parseFloat(quickSale.customPrice);
@@ -421,19 +462,18 @@ export default function UserDashboard() {
         finalPrice = salePrice * (1 - discountPercentage / 100) * quickSale.quantity;
       }
 
-      // Use batch write for atomic operation
       const batch = writeBatch(db);
 
-      // Update stock quantity
       const newQuantity = stock.quantity - quickSale.quantity;
       const stockRef = doc(db, 'stocks', stockDoc.id);
       batch.update(stockRef, {
         quantity: newQuantity,
         updatedAt: serverTimestamp(),
-        lastSold: serverTimestamp()
+        lastSold: serverTimestamp(),
+        lastSoldBy: user.uid,
+        lastSoldByName: user.fullName
       });
 
-      // Create sale record
       const saleData = {
         itemCode: stock.itemCode,
         brand: stock.brand,
@@ -451,16 +491,15 @@ export default function UserDashboard() {
         soldByName: user.fullName,
         location: currentLocation,
         saleType: quickSale.customPrice ? 'custom_price' : 'standard',
-        status: 'completed'
+        status: 'completed',
+        paymentType: 'full'
       };
 
       const salesRef = doc(collection(db, 'sales'));
       batch.set(salesRef, saleData);
 
-      // Commit the batch
       await batch.commit();
 
-      // Reset form
       setQuickSale({ itemCode: '', quantity: 1, customPrice: '' });
       alert('Sale completed successfully!');
       
@@ -480,7 +519,6 @@ export default function UserDashboard() {
 
   const handleSellItem = async (stockId, stockData, quantity = 1) => {
     try {
-      // Validate input
       if (!stockData.quantity && stockData.quantity !== 0) {
         alert('Invalid stock data. Please contact administrator.');
         return;
@@ -496,24 +534,22 @@ export default function UserDashboard() {
         return;
       }
 
-      // Calculate final price
       const salePrice = parseFloat(stockData.salePrice) || 0;
       const discountPercentage = parseFloat(stockData.discountPercentage) || 0;
       const finalPrice = salePrice * (1 - discountPercentage / 100) * quantity;
 
-      // Use batch write for atomic operation
       const batch = writeBatch(db);
 
-      // Update stock quantity
       const newQuantity = stockData.quantity - quantity;
       const stockRef = doc(db, 'stocks', stockId);
       batch.update(stockRef, {
         quantity: newQuantity,
         updatedAt: serverTimestamp(),
-        lastSold: serverTimestamp()
+        lastSold: serverTimestamp(),
+        lastSoldBy: user.uid,
+        lastSoldByName: user.fullName
       });
 
-      // Create sale record
       const saleData = {
         itemCode: stockData.itemCode,
         brand: stockData.brand,
@@ -530,13 +566,13 @@ export default function UserDashboard() {
         soldByName: user.fullName,
         location: currentLocation,
         saleType: 'standard',
-        status: 'completed'
+        status: 'completed',
+        paymentType: 'full'
       };
 
       const salesRef = doc(collection(db, 'sales'));
       batch.set(salesRef, saleData);
 
-      // Commit the batch
       await batch.commit();
 
       alert('Item sold successfully!');
@@ -555,16 +591,14 @@ export default function UserDashboard() {
     }
   };
 
-  // Faulty Phone Functions
+  // Enhanced Faulty Phone Functions
   const handleReportFaulty = async () => {
     try {
-      // Validate required fields
       if (!faultyReport.itemCode || !faultyReport.faultDescription) {
         alert('Please fill in required fields: Item Code and Fault Description');
         return;
       }
 
-      // Find the stock item
       const stockQuery = query(
         collection(db, 'stocks'),
         where('itemCode', '==', faultyReport.itemCode),
@@ -586,18 +620,17 @@ export default function UserDashboard() {
         return;
       }
 
-      // Use batch write for atomic operation
       const batch = writeBatch(db);
 
-      // Update stock quantity (remove from available stock)
       const newQuantity = stock.quantity - 1;
       const stockRef = doc(db, 'stocks', stockDoc.id);
       batch.update(stockRef, {
         quantity: newQuantity,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        markedFaulty: true,
+        faultyAt: serverTimestamp()
       });
 
-      // Create faulty phone record
       const faultyData = {
         itemCode: faultyReport.itemCode,
         stockId: stockDoc.id,
@@ -624,10 +657,8 @@ export default function UserDashboard() {
       const faultyRef = doc(collection(db, 'faultyPhones'));
       batch.set(faultyRef, faultyData);
 
-      // Commit the batch
       await batch.commit();
 
-      // Reset form
       setFaultyReport({
         itemCode: '',
         stockId: '',
@@ -660,7 +691,6 @@ export default function UserDashboard() {
       const batch = writeBatch(db);
       const faultyRef = doc(db, 'faultyPhones', faultyId);
       
-      // Get current faulty phone data
       const faultyDoc = await getDoc(faultyRef);
       if (!faultyDoc.exists()) {
         alert('Faulty phone record not found!');
@@ -670,16 +700,12 @@ export default function UserDashboard() {
       const faultyData = faultyDoc.data();
       const newStatus = updates.status;
 
-      // If status is changed to "Fixed", update stock
       if (newStatus === 'Fixed' && faultyData.status !== 'Fixed') {
-        // Check if stock exists
         const stockRef = doc(db, 'stocks', faultyData.stockId);
         const stockDoc = await getDoc(stockRef);
         
         if (stockDoc.exists()) {
           const stockData = stockDoc.data();
-          // Add back to stock as a fixed item (could be in separate collection for repaired items)
-          // For now, we'll add to main stock
           batch.update(stockRef, {
             quantity: (stockData.quantity || 0) + 1,
             updatedAt: serverTimestamp(),
@@ -687,7 +713,6 @@ export default function UserDashboard() {
             repairDate: serverTimestamp()
           });
 
-          // Create repair history record
           const repairData = {
             faultyId: faultyId,
             stockId: faultyData.stockId,
@@ -695,11 +720,12 @@ export default function UserDashboard() {
             brand: faultyData.brand,
             model: faultyData.model,
             repairCost: updates.repairCost || faultyData.estimatedRepairCost,
-            sparesUsed: faultyData.sparesNeeded,
+            sparesUsed: updates.sparesUsed || faultyData.sparesNeeded,
             repairedAt: serverTimestamp(),
             repairedBy: user.uid,
             repairedByName: user.fullName,
-            location: currentLocation
+            location: currentLocation,
+            notes: updates.updateNotes
           };
 
           const repairRef = doc(collection(db, 'repairs'));
@@ -707,7 +733,6 @@ export default function UserDashboard() {
         }
       }
 
-      // Update faulty phone status
       batch.update(faultyRef, {
         ...updates,
         lastUpdated: serverTimestamp(),
@@ -727,7 +752,7 @@ export default function UserDashboard() {
   };
 
   const handleDeleteFaulty = async (faultyId) => {
-    if (!confirm('Are you sure you want to delete this faulty phone record?')) {
+    if (!confirm('Are you sure you want to delete this faulty phone record? This action cannot be undone.')) {
       return;
     }
 
@@ -741,85 +766,251 @@ export default function UserDashboard() {
     }
   };
 
-  const generatePDFReport = (faultyPhone) => {
-    const doc = new jsPDF();
+  // ENHANCED FAULTY PHONE PDF REPORT
+  const generateFaultyPhonePDFReport = (faultyPhone) => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
     
-    // Add logo/header
-    doc.setFontSize(20);
-    doc.setTextColor(40, 53, 147);
-    doc.text('KM ELECTRONICS', 105, 20, { align: 'center' });
+    // Add gradient background
+    doc.setFillColor(30, 41, 59);
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
     
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('FAULTY PHONE REPORT', 105, 30, { align: 'center' });
+    // Add header with logo
+    doc.setFontSize(24);
+    doc.setTextColor(59, 130, 246); // blue-500
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
     
-    // Add report details
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'normal');
+    doc.text('FAULTY PHONE REPORT', pageWidth / 2, 30, { align: 'center' });
+    
+    // Report ID and Date
     doc.setFontSize(10);
-    doc.text(`Report ID: ${faultyPhone.id}`, 20, 45);
-    doc.text(`Report Date: ${faultyPhone.reportedAt?.toDate().toLocaleDateString()}`, 20, 50);
-    doc.text(`Location: ${faultyPhone.location}`, 20, 55);
-    doc.text(`Reported By: ${faultyPhone.reportedByName}`, 20, 60);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Report ID: ${faultyPhone.id}`, 20, 40);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - 20, 40, { align: 'right' });
     
-    // Phone details table
-    autoTable(doc, {
-      startY: 70,
-      head: [['Item Code', 'Brand', 'Model', 'IMEI']],
-      body: [[
-        faultyPhone.itemCode,
-        faultyPhone.brand,
-        faultyPhone.model,
-        faultyPhone.imei || 'N/A'
-      ]],
-      theme: 'striped',
-      headStyles: { fillColor: [40, 53, 147] }
+    // Device Information Section
+    doc.setFontSize(14);
+    doc.setTextColor(59, 130, 246);
+    doc.text('DEVICE INFORMATION', 20, 55);
+    
+    doc.setFillColor(55, 65, 81);
+    doc.roundedRect(20, 60, pageWidth - 40, 35, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    
+    const deviceInfo = [
+      [`Item Code: ${faultyPhone.itemCode}`, `Brand: ${faultyPhone.brand || 'N/A'}`],
+      [`Model: ${faultyPhone.model || 'N/A'}`, `IMEI: ${faultyPhone.imei || 'N/A'}`],
+      [`Location: ${faultyPhone.location}`, `Status: ${faultyPhone.status}`],
+      [`Reported Cost: MK ${faultyPhone.reportedCost?.toLocaleString() || '0'}`, `Estimated Repair: MK ${faultyPhone.estimatedRepairCost?.toLocaleString() || '0'}`]
+    ];
+    
+    let yPos = 70;
+    deviceInfo.forEach(([left, right]) => {
+      doc.text(left, 25, yPos);
+      doc.text(right, pageWidth / 2 + 10, yPos);
+      yPos += 8;
     });
     
-    // Fault details table
-    autoTable(doc, {
-      startY: 100,
-      head: [['Fault Description', 'Status', 'Reported Cost']],
-      body: [[
-        faultyPhone.faultDescription,
-        faultyPhone.status,
-        `MK ${faultyPhone.reportedCost?.toLocaleString()}`
-      ]],
-      theme: 'striped',
-      headStyles: { fillColor: [40, 53, 147] }
-    });
-    
-    // Spares needed
-    if (faultyPhone.sparesNeeded?.length > 0 || faultyPhone.otherSpares) {
-      const spares = [...faultyPhone.sparesNeeded];
-      if (faultyPhone.otherSpares) spares.push(faultyPhone.otherSpares);
+    // Customer Information Section
+    if (faultyPhone.customerName) {
+      doc.setFontSize(14);
+      doc.setTextColor(59, 130, 246);
+      doc.text('CUSTOMER INFORMATION', 20, yPos + 5);
       
-      autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 10,
-        head: [['Spares Required']],
-        body: [spares.map(spare => [spare])],
-        theme: 'striped',
-        headStyles: { fillColor: [40, 53, 147] }
-      });
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, yPos + 10, pageWidth - 40, 20, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      
+      doc.text(`Customer Name: ${faultyPhone.customerName || 'N/A'}`, 25, yPos + 20);
+      doc.text(`Phone: ${faultyPhone.customerPhone || 'N/A'}`, pageWidth / 2 + 10, yPos + 20);
+      yPos += 35;
+    } else {
+      yPos += 15;
     }
     
-    // Customer details if available
-    if (faultyPhone.customerName) {
-      autoTable(doc, {
-        startY: doc.lastAutoTable?.finalY + 10 || 130,
-        head: [['Customer Name', 'Phone Number']],
-        body: [[faultyPhone.customerName, faultyPhone.customerPhone || 'N/A']],
-        theme: 'striped',
-        headStyles: { fillColor: [40, 53, 147] }
-      });
+    // Fault Details Section
+    doc.setFontSize(14);
+    doc.setTextColor(59, 130, 246);
+    doc.text('FAULT DETAILS', 20, yPos);
+    
+    doc.setFillColor(55, 65, 81);
+    const faultHeight = 40;
+    doc.roundedRect(20, yPos + 5, pageWidth - 40, faultHeight, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    
+    const faultDescription = faultyPhone.faultDescription || 'No description provided';
+    const splitFault = doc.splitTextToSize(faultDescription, pageWidth - 50);
+    doc.text(splitFault, 25, yPos + 15);
+    yPos += faultHeight + 15;
+    
+    // Spares Needed Section
+    if (faultyPhone.sparesNeeded?.length > 0 || faultyPhone.otherSpares) {
+      doc.setFontSize(14);
+      doc.setTextColor(59, 130, 246);
+      doc.text('SPARES REQUIRED', 20, yPos);
+      
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, yPos + 5, pageWidth - 40, 20, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      
+      const sparesList = [...(faultyPhone.sparesNeeded || [])];
+      if (faultyPhone.otherSpares) sparesList.push(faultyPhone.otherSpares);
+      doc.text(sparesList.join(', '), 25, yPos + 15);
+      yPos += 30;
+    }
+    
+    // Timeline Section
+    doc.setFontSize(14);
+    doc.setTextColor(59, 130, 246);
+    doc.text('TIMELINE', 20, yPos);
+    
+    const timelineData = [
+      ['Event', 'Date', 'Responsible Person'],
+      ['Reported', faultyPhone.reportedAt?.toDate().toLocaleDateString() || 'N/A', faultyPhone.reportedByName || 'N/A']
+    ];
+    
+    if (faultyPhone.lastUpdated) {
+      timelineData.push(['Last Updated', faultyPhone.lastUpdated?.toDate().toLocaleDateString() || 'N/A', faultyPhone.updatedByName || 'N/A']);
+    }
+    
+    autoTable(doc, {
+      startY: yPos + 10,
+      head: timelineData.slice(0, 1),
+      body: timelineData.slice(1),
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [59, 130, 246], 
+        textColor: [255, 255, 255], 
+        fontSize: 10,
+        fontStyle: 'bold'
+      },
+      bodyStyles: { 
+        textColor: [255, 255, 255], 
+        fontSize: 9 
+      },
+      alternateRowStyles: { fillColor: [55, 65, 81] },
+      margin: { left: 20, right: 20 }
+    });
+    
+    yPos = doc.lastAutoTable.finalY + 10;
+    
+    // Notes Section
+    if (faultyPhone.notes) {
+      doc.setFontSize(14);
+      doc.setTextColor(59, 130, 246);
+      doc.text('ADDITIONAL NOTES', 20, yPos);
+      
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, yPos + 5, pageWidth - 40, 30, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      
+      const splitNotes = doc.splitTextToSize(faultyPhone.notes, pageWidth - 50);
+      doc.text(splitNotes, 25, yPos + 15);
+      yPos += 45;
+    }
+    
+    // Status Badge
+    doc.setFontSize(12);
+    doc.setTextColor(255, 255, 255);
+    const statusColor = {
+      'Reported': [234, 179, 8], // yellow-500
+      'In Repair': [59, 130, 246], // blue-500
+      'Fixed': [34, 197, 94], // green-500
+      'EOS (End of Service)': [239, 68, 68], // red-500
+      'Scrapped': [107, 114, 128] // gray-500
+    };
+    
+    const color = statusColor[faultyPhone.status] || [107, 114, 128];
+    doc.setFillColor(color[0], color[1], color[2]);
+    doc.roundedRect(pageWidth - 60, yPos + 5, 40, 15, 3, 3, 'F');
+    doc.text(faultyPhone.status, pageWidth - 40, yPos + 12, { align: 'center' });
+    
+    // Add footer
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text('Generated by KM Electronics User Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+    
+    // Save PDF
+    const filename = `Faulty_Report_${faultyPhone.itemCode}_${faultyPhone.id || Date.now()}.pdf`;
+    doc.save(filename);
+  };
+
+  // Enhanced Sales PDF Report
+  const generateSalesPDFReport = (sale) => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.width;
+    
+    // Add header
+    doc.setFontSize(24);
+    doc.setTextColor(59, 130, 246);
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('SALES RECEIPT', pageWidth / 2, 30, { align: 'center' });
+    
+    // Sale details
+    doc.setFontSize(10);
+    doc.text(`Receipt ID: ${sale.id}`, 20, 45);
+    doc.text(`Date: ${sale.soldAt?.toDate().toLocaleDateString()}`, 20, 50);
+    doc.text(`Sold By: ${sale.soldByName}`, 20, 55);
+    doc.text(`Location: ${sale.location}`, 20, 60);
+    
+    // Item details table
+    autoTable(doc, {
+      startY: 70,
+      head: [['Item Code', 'Brand', 'Model', 'Quantity', 'Unit Price', 'Total']],
+      body: [[
+        sale.itemCode,
+        sale.brand,
+        sale.model,
+        sale.quantity.toString(),
+        `MK ${sale.originalPrice?.toFixed(2)}`,
+        `MK ${sale.finalSalePrice?.toFixed(2)}`
+      ]],
+      theme: 'striped',
+      headStyles: { fillColor: [59, 130, 246] }
+    });
+    
+    // Payment details
+    const finalY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(12);
+    doc.text(`Total Amount: MK ${sale.finalSalePrice?.toFixed(2)}`, pageWidth - 20, finalY, { align: 'right' });
+    
+    if (sale.discountPercentage > 0) {
+      doc.text(`Discount: ${sale.discountPercentage}%`, pageWidth - 20, finalY + 8, { align: 'right' });
+    }
+    
+    if (sale.saleType === 'custom_price') {
+      doc.text(`Sale Type: Custom Price`, pageWidth - 20, finalY + 16, { align: 'right' });
     }
     
     // Add footer
     const pageHeight = doc.internal.pageSize.height;
     doc.setFontSize(8);
     doc.setTextColor(128, 128, 128);
-    doc.text('This is an automated report generated by KM Electronics System', 105, pageHeight - 10, { align: 'center' });
+    doc.text('Thank you for your business!', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.text('This is an automated sales receipt', pageWidth / 2, pageHeight - 5, { align: 'center' });
     
     // Save PDF
-    doc.save(`Faulty_Report_${faultyPhone.itemCode}_${Date.now()}.pdf`);
+    doc.save(`Sales_Receipt_${sale.itemCode}_${Date.now()}.pdf`);
   };
 
   // Installment Functions
@@ -831,7 +1022,6 @@ export default function UserDashboard() {
       }
 
       const installmentDataToSave = {
-        ...installmentData,
         saleId: installmentData.saleId,
         customerName: installmentData.customerName,
         phoneNumber: installmentData.phoneNumber,
@@ -854,13 +1044,12 @@ export default function UserDashboard() {
         }] : []
       };
 
-      await addDoc(collection(db, 'installments'), installmentDataToSave);
+      const installmentRef = await addDoc(collection(db, 'installments'), installmentDataToSave);
 
-      // Update sale record to mark as installment
       const saleRef = doc(db, 'sales', installmentData.saleId);
       await updateDoc(saleRef, {
         paymentType: 'installment',
-        installmentId: (await addDoc(collection(db, 'installments'), installmentDataToSave)).id,
+        installmentId: installmentRef.id,
         updatedAt: serverTimestamp()
       });
 
@@ -905,7 +1094,7 @@ export default function UserDashboard() {
 
   // Utility functions
   const getFilteredStocks = () => {
-    let filtered = stocks;
+    let filtered = stocksTable;
     
     if (searchTerm) {
       filtered = filtered.filter(stock => 
@@ -922,8 +1111,27 @@ export default function UserDashboard() {
     return filtered;
   };
 
+  const getFilteredSales = () => {
+    let filtered = salesTable;
+    
+    if (searchTerm) {
+      filtered = filtered.filter(sale => 
+        sale.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sale.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sale.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sale.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    if (filterSaleType) {
+      filtered = filtered.filter(sale => sale.saleType === filterSaleType);
+    }
+    
+    return filtered;
+  };
+
   const getFilteredFaultyPhones = () => {
-    let filtered = faultyPhones;
+    let filtered = faultyTable;
     
     if (searchTerm) {
       filtered = filtered.filter(faulty => 
@@ -942,11 +1150,11 @@ export default function UserDashboard() {
   };
 
   const getUniqueBrands = () => {
-    return [...new Set(stocks.map(stock => stock.brand).filter(Boolean))];
+    return [...new Set(stocksTable.map(stock => stock.brand).filter(Boolean))];
   };
 
   const calculateTotalStockValue = () => {
-    return stocks.reduce((total, stock) => {
+    return stocksTable.reduce((total, stock) => {
       return total + ((parseFloat(stock.orderPrice) || 0) * (parseInt(stock.quantity) || 0));
     }, 0);
   };
@@ -966,7 +1174,12 @@ export default function UserDashboard() {
     return role === 'sales' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300';
   };
 
-  // Loading state
+  const getStockStatusBadge = (quantity) => {
+    return quantity > 10 ? 'bg-green-500/20 text-green-300' :
+           quantity > 0 ? 'bg-orange-500/20 text-orange-300' :
+           'bg-red-500/20 text-red-300';
+  };
+
   if (loading) {
     return (
       <div className='min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center'>
@@ -983,7 +1196,7 @@ export default function UserDashboard() {
           <div className='flex justify-between items-center py-4'>
             <div>
               <h1 className='text-2xl font-bold text-white'>
-                KM ELECTRONICS <span className='text-blue-500'></span>
+                KM ELECTRONICS <span className='text-blue-500'>User</span>
               </h1>
               <p className='text-white/70 text-sm'>
                 Welcome, {user?.fullName} | Location: {currentLocation}
@@ -1007,22 +1220,25 @@ export default function UserDashboard() {
       <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'>
         <nav className='border-b border-white/20'>
           <div className='flex space-x-8 overflow-x-auto'>
-            {['dashboard', 'stocks', 'quickSale', 'salesHistory', 'faultyPhones', 'installments'].map((tab) => (
+            {[
+              { id: 'dashboard', name: 'Dashboard' },
+              { id: 'stocks', name: 'Stock & Sales' },
+              { id: 'quickSale', name: 'Quick Sale' },
+              { id: 'salesHistory', name: 'My Sales' },
+              { id: 'faultyPhones', name: 'Faulty Phones' },
+              { id: 'installments', name: 'Installments' },
+              { id: 'myRepairs', name: 'My Repairs' }
+            ].map((tab) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
                 className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab
+                  activeTab === tab.id
                     ? 'border-blue-500 text-blue-400'
                     : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
                 }`}
               >
-                {tab === 'dashboard' && 'Dashboard'}
-                {tab === 'stocks' && 'Stock & Sales'}
-                {tab === 'quickSale' && 'Quick Sale'}
-                {tab === 'salesHistory' && 'My Sales'}
-                {tab === 'faultyPhones' && 'Faulty Phones'}
-                {tab === 'installments' && 'Installments'}
+                {tab.name}
               </button>
             ))}
           </div>
@@ -1042,21 +1258,21 @@ export default function UserDashboard() {
                   </p>
                 </div>
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>My Total Sales</h3>
+                  <h3 className='text-white/70 text-sm'>Today's Sales</h3>
                   <p className='text-2xl font-bold text-blue-400'>
-                    {salesAnalysis.totalSales}
+                    {salesAnalysis.todaySales} (MK {salesAnalysis.todayRevenue?.toLocaleString()})
                   </p>
                 </div>
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>My Total Revenue</h3>
+                  <h3 className='text-white/70 text-sm'>Total Sales</h3>
                   <p className='text-2xl font-bold text-purple-400'>
-                    MK {salesAnalysis.totalRevenue?.toLocaleString() || 0}
+                    {salesAnalysis.totalSales} (MK {salesAnalysis.totalRevenue?.toLocaleString()})
                   </p>
                 </div>
                 <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>Faulty Phones Reported</h3>
+                  <h3 className='text-white/70 text-sm'>Faulty Phones</h3>
                   <p className='text-2xl font-bold text-orange-400'>
-                    {faultyPhones.length}
+                    {faultyTable.length}
                   </p>
                 </div>
               </div>
@@ -1088,26 +1304,20 @@ export default function UserDashboard() {
                       <div className='font-semibold'>Report Faulty Phone</div>
                       <div className='text-sm'>Report and track faulty devices</div>
                     </button>
-                    <button
-                      onClick={() => setActiveTab('faultyPhones')}
-                      className='w-full bg-red-600 hover:bg-red-700 text-red-200 px-4 py-3 rounded-lg transition-colors text-left'
-                    >
-                      <div className='font-semibold'>View Faulty Phones</div>
-                      <div className='text-sm'>Track and update repair status</div>
-                    </button>
                   </div>
                 </div>
 
                 {/* Recent Sales */}
                 <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
                   <h2 className='text-xl font-semibold text-white mb-4'>Recent Sales</h2>
-                  <div className='space-y-3'>
-                    {sales.slice(0, 3).map((sale) => (
+                  <div className='space-y-3 max-h-80 overflow-y-auto'>
+                    {salesTable.slice(0, 5).map((sale) => (
                       <div key={sale.id} className='bg-white/5 rounded-lg p-3 border border-white/10'>
                         <div className='flex justify-between items-start'>
                           <div>
                             <div className='font-semibold text-white'>{sale.brand} {sale.model}</div>
                             <div className='text-white/70 text-sm'>Qty: {sale.quantity}</div>
+                            <div className='text-white/70 text-sm'>{sale.itemCode}</div>
                           </div>
                           <div className='text-right'>
                             <div className='text-green-400 font-semibold'>MK {sale.finalSalePrice || 0}</div>
@@ -1118,10 +1328,44 @@ export default function UserDashboard() {
                         </div>
                       </div>
                     ))}
-                    {sales.length === 0 && (
+                    {salesTable.length === 0 && (
                       <div className='text-center py-8 text-white/70'>No sales yet</div>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* Stock Overview */}
+              <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+                <h2 className='text-xl font-semibold text-white mb-4'>Stock Overview - {currentLocation}</h2>
+                <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+                  {stocksTable.slice(0, 6).map((stock) => (
+                    <div key={stock.id} className='bg-white/5 rounded-lg p-4 border border-white/10'>
+                      <div className='flex justify-between items-start'>
+                        <div>
+                          <div className='font-semibold text-white'>{stock.brand} {stock.model}</div>
+                          <div className='text-white/70 text-sm'>{stock.itemCode}</div>
+                          {stock.storage && <div className='text-white/70 text-sm'>Storage: {stock.storage}</div>}
+                        </div>
+                        <div className='text-right'>
+                          <div className='text-green-400 font-semibold'>MK {stock.salePrice || 0}</div>
+                          <div className='text-white/50 text-xs'>{stock.quantity} available</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleSellItem(stock.id, stock, 1)}
+                        disabled={!stock.quantity || stock.quantity === 0}
+                        className='w-full mt-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors'
+                      >
+                        Sell 1 Unit
+                      </button>
+                    </div>
+                  ))}
+                  {stocksTable.length === 0 && (
+                    <div className="col-span-3 text-center py-8 text-white/70">
+                      No stock available in your location
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1176,71 +1420,67 @@ export default function UserDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredStocks().map((stock) => {
-                      const stockStatus = stock.quantity > 10 ? 'bg-green-500/20 text-green-300' :
-                                        stock.quantity > 0 ? 'bg-orange-500/20 text-orange-300' :
-                                        'bg-red-500/20 text-red-300';
-
-                      return (
-                        <tr key={stock.id} className='border-b border-white/10'>
-                          <td className='py-2 font-mono'>{stock.itemCode}</td>
-                          <td className='py-2'>
-                            <div className='font-semibold'>{stock.brand} {stock.model}</div>
-                            {stock.storage && <div className='text-white/70 text-sm'>Storage: {stock.storage}</div>}
-                            {stock.color && <div className='text-white/70 text-sm'>Color: {stock.color}</div>}
-                          </td>
-                          <td className='py-2'>
-                            <div className='text-green-400'>MK {stock.salePrice || 0}</div>
-                            {stock.discountPercentage > 0 && (
-                              <div className='text-orange-400 text-sm'>
-                                After discount: MK {(stock.salePrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
-                              </div>
-                            )}
-                          </td>
-                          <td className='py-2'>
-                            {stock.discountPercentage > 0 ? (
-                              <span className='text-orange-400'>{stock.discountPercentage}% OFF</span>
-                            ) : (
-                              <span className='text-white/50'>No discount</span>
-                            )}
-                          </td>
-                          <td className='py-2'>
-                            <span className={`px-2 py-1 rounded-full text-xs ${stockStatus}`}>
-                              {stock.quantity || 0} units
-                            </span>
-                          </td>
-                          <td className='py-2 space-x-2'>
+                    {getFilteredStocks().map((stock, index) => (
+                      <tr key={generateSafeKey('stock', index, stock.id)} className='border-b border-white/10'>
+                        <td className='py-2 font-mono'>{stock.itemCode}</td>
+                        <td className='py-2'>
+                          <div className='font-semibold'>{stock.brand} {stock.model}</div>
+                          {stock.storage && <div className='text-white/70 text-sm'>Storage: {stock.storage}</div>}
+                          {stock.color && <div className='text-white/70 text-sm'>Color: {stock.color}</div>}
+                        </td>
+                        <td className='py-2'>
+                          <div className='text-green-400'>MK {stock.salePrice || 0}</div>
+                          {stock.discountPercentage > 0 && (
+                            <div className='text-orange-400 text-sm'>
+                              After discount: MK {(stock.salePrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
+                            </div>
+                          )}
+                        </td>
+                        <td className='py-2'>
+                          {stock.discountPercentage > 0 ? (
+                            <span className='text-orange-400'>{stock.discountPercentage}% OFF</span>
+                          ) : (
+                            <span className='text-white/50'>No discount</span>
+                          )}
+                        </td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${getStockStatusBadge(stock.quantity)}`}>
+                            {stock.quantity || 0} units
+                          </span>
+                        </td>
+                        <td className='py-2 space-x-2'>
+                          <button
+                            onClick={() => handleSellItem(stock.id, stock, 1)}
+                            disabled={!stock.quantity || stock.quantity === 0}
+                            className='bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'
+                          >
+                            Sell 1
+                          </button>
+                          {stock.quantity > 1 && (
                             <button
-                              onClick={() => handleSellItem(stock.id, stock, 1)}
-                              disabled={!stock.quantity || stock.quantity === 0}
-                              className='bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'
+                              onClick={() => {
+                                const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
+                                if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
+                                  handleSellItem(stock.id, stock, parseInt(quantity));
+                                }
+                              }}
+                              className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
                             >
-                              Sell 1
+                              Sell Multiple
                             </button>
-                            {stock.quantity > 1 && (
-                              <button
-                                onClick={() => {
-                                  const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
-                                  if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
-                                    handleSellItem(stock.id, stock, parseInt(quantity));
-                                  }
-                                }}
-                                className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
-                              >
-                                Sell Multiple
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {getFilteredStocks().length === 0 && (
+                      <tr>
+                        <td colSpan='6' className='text-center py-8 text-white/70'>
+                          No stock items found matching your search criteria.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
-                {getFilteredStocks().length === 0 && (
-                  <div className='text-center py-8 text-white/70'>
-                    No stock items found matching your search criteria.
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1248,7 +1488,7 @@ export default function UserDashboard() {
           {/* Quick Sale Tab */}
           {activeTab === 'quickSale' && (
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>Quick Sale</h2>
+              <h2 className='text-xl font-semibold text-white mb-6'>Quick Sale - {currentLocation}</h2>
               
               <div className='max-w-md mx-auto space-y-6'>
                 {/* Quick Sale Form */}
@@ -1300,11 +1540,11 @@ export default function UserDashboard() {
 
                 {/* Recent Items */}
                 <div className='bg-white/5 rounded-lg p-6'>
-                  <h3 className='text-lg font-semibold text-white mb-4'>Recent Items</h3>
+                  <h3 className='text-lg font-semibold text-white mb-4'>Available Items in {currentLocation}</h3>
                   <div className='space-y-2'>
-                    {stocks.slice(0, 5).map((stock) => (
+                    {stocksTable.slice(0, 5).map((stock, index) => (
                       <div 
-                        key={stock.id} 
+                        key={generateSafeKey('recent-stock', index, stock.id)}
                         className='flex justify-between items-center p-2 hover:bg-white/5 rounded cursor-pointer'
                         onClick={() => setQuickSale(prev => ({...prev, itemCode: stock.itemCode}))}
                       >
@@ -1318,6 +1558,11 @@ export default function UserDashboard() {
                         </div>
                       </div>
                     ))}
+                    {stocksTable.length === 0 && (
+                      <div className="text-center py-4 text-white/70">
+                        No stocks available in your location
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1329,6 +1574,33 @@ export default function UserDashboard() {
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
               <h2 className='text-xl font-semibold text-white mb-6'>My Sales History</h2>
               
+              {/* Search and Filter */}
+              <div className='flex flex-col md:flex-row gap-4 mb-6'>
+                <input
+                  type='text'
+                  placeholder='Search by item code, brand, model, or customer...'
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className='flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                />
+                <select
+                  value={filterSaleType}
+                  onChange={(e) => setFilterSaleType(e.target.value)}
+                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                >
+                  <option value=''>All Sale Types</option>
+                  <option value='standard'>Standard</option>
+                  <option value='custom_price'>Custom Price</option>
+                  <option value='installment'>Installment</option>
+                </select>
+                <button
+                  onClick={() => { setSearchTerm(''); setFilterSaleType(''); }}
+                  className='bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'
+                >
+                  Clear
+                </button>
+              </div>
+              
               <div className='overflow-x-auto'>
                 <table className='w-full text-white'>
                   <thead>
@@ -1338,12 +1610,13 @@ export default function UserDashboard() {
                       <th className='text-left py-2'>Quantity</th>
                       <th className='text-left py-2'>Price</th>
                       <th className='text-left py-2'>Type</th>
+                      <th className='text-left py-2'>Payment</th>
                       <th className='text-left py-2'>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sales.map((sale) => (
-                      <tr key={sale.id} className='border-b border-white/10'>
+                    {getFilteredSales().map((sale, index) => (
+                      <tr key={generateSafeKey('sale', index, sale.id)} className='border-b border-white/10'>
                         <td className='py-2'>
                           {sale.soldAt?.toDate().toLocaleDateString() || 'Unknown date'}
                         </td>
@@ -1357,24 +1630,45 @@ export default function UserDashboard() {
                           <span className={`px-2 py-1 rounded-full text-xs ${
                             sale.saleType === 'custom_price' 
                               ? 'bg-purple-500/20 text-purple-300' 
+                              : sale.saleType === 'installment'
+                              ? 'bg-orange-500/20 text-orange-300'
                               : 'bg-blue-500/20 text-blue-300'
                           }`}>
-                            {sale.saleType === 'custom_price' ? 'Custom Price' : 'Standard'}
+                            {sale.saleType === 'custom_price' ? 'Custom Price' : 
+                             sale.saleType === 'installment' ? 'Installment' : 'Standard'}
+                          </span>
+                        </td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            sale.paymentType === 'installment' 
+                              ? 'bg-orange-500/20 text-orange-300' 
+                              : 'bg-green-500/20 text-green-300'
+                          }`}>
+                            {sale.paymentType === 'installment' ? 'Installment' : 'Full Payment'}
                           </span>
                         </td>
                         <td className='py-2 space-x-2'>
                           <button
-                            onClick={() => openInstallmentModal(sale)}
+                            onClick={() => generateSalesPDFReport(sale)}
                             className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                            title='Generate PDF Receipt'
                           >
-                            Process Installment
+                            Receipt
                           </button>
+                          {(!sale.paymentType || sale.paymentType === 'full') && (
+                            <button
+                              onClick={() => openInstallmentModal(sale)}
+                              className='bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                            >
+                              Installment
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
-                    {sales.length === 0 && (
+                    {getFilteredSales().length === 0 && (
                       <tr>
-                        <td colSpan='6' className='text-center py-8 text-white/70'>
+                        <td colSpan='7' className='text-center py-8 text-white/70'>
                           No sales history found.
                         </td>
                       </tr>
@@ -1442,8 +1736,8 @@ export default function UserDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredFaultyPhones().map((faulty) => (
-                      <tr key={faulty.id} className='border-b border-white/10 hover:bg-white/5'>
+                    {getFilteredFaultyPhones().map((faulty, index) => (
+                      <tr key={generateSafeKey('faulty', index, faulty.id)} className='border-b border-white/10 hover:bg-white/5'>
                         <td className='py-2 font-mono'>{faulty.itemCode}</td>
                         <td className='py-2'>
                           <div className='font-semibold'>{faulty.brand} {faulty.model}</div>
@@ -1466,7 +1760,7 @@ export default function UserDashboard() {
                         </td>
                         <td className='py-2 space-x-2'>
                           <button
-                            onClick={() => generatePDFReport(faulty)}
+                            onClick={() => generateFaultyPhonePDFReport(faulty)}
                             className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
                             title='Generate PDF Report'
                           >
@@ -1508,34 +1802,112 @@ export default function UserDashboard() {
           {/* Installments Tab */}
           {activeTab === 'installments' && (
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>Installment Plans</h2>
+              <h2 className='text-xl font-semibold text-white mb-6'>My Installment Plans</h2>
               
               <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
-                {sales.filter(sale => !sale.paymentType || sale.paymentType === 'full').slice(0, 6).map((sale) => (
-                  <div key={sale.id} className='bg-white/5 rounded-lg p-4 border border-white/10'>
+                {installmentsTable.map((installment, index) => (
+                  <div key={generateSafeKey('installment', index, installment.id)} className='bg-white/5 rounded-lg p-4 border border-white/10'>
                     <div className='flex justify-between items-start mb-3'>
                       <div>
-                        <div className='font-semibold text-white'>{sale.brand} {sale.model}</div>
-                        <div className='text-white/70 text-sm'>{sale.itemCode}</div>
+                        <div className='font-semibold text-white'>{installment.customerName}</div>
+                        <div className='text-white/70 text-sm'>Phone: {installment.phoneNumber}</div>
                       </div>
-                      <div className='text-green-400 font-semibold'>MK {sale.finalSalePrice}</div>
+                      <div className='text-green-400 font-semibold'>MK {installment.totalAmount}</div>
                     </div>
-                    <div className='text-white/70 text-sm mb-3'>
-                      Sold on: {sale.soldAt?.toDate().toLocaleDateString()}
+                    <div className='space-y-2 mb-3'>
+                      <div className='text-white/70 text-sm'>
+                        Down Payment: MK {installment.downPayment}
+                      </div>
+                      <div className='text-white/70 text-sm'>
+                        Monthly: MK {installment.monthlyPayment} for {installment.installmentPlan} months
+                      </div>
+                      <div className='text-white/70 text-sm'>
+                        Next Payment: {installment.nextPaymentDate}
+                      </div>
+                      <div className='text-white/70 text-sm'>
+                        Status: <span className={`px-2 py-1 rounded-full text-xs ${
+                          installment.status === 'active' ? 'bg-green-500/20 text-green-300' :
+                          installment.status === 'overdue' ? 'bg-red-500/20 text-red-300' :
+                          'bg-gray-500/20 text-gray-300'
+                        }`}>
+                          {installment.status}
+                        </span>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => openInstallmentModal(sale)}
-                      className='w-full bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm'
-                    >
-                      Create Installment Plan
-                    </button>
+                    <div className='text-white/50 text-xs'>
+                      Created: {installment.createdAt?.toDate().toLocaleDateString()}
+                    </div>
                   </div>
                 ))}
-                {sales.filter(sale => !sale.paymentType || sale.paymentType === 'full').length === 0 && (
+                {installmentsTable.length === 0 && (
                   <div className='col-span-3 text-center py-8 text-white/70'>
-                    No sales available for installment plans.
+                    No installment plans created yet.
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* My Repairs Tab */}
+          {activeTab === 'myRepairs' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <h2 className='text-xl font-semibold text-white mb-6'>My Repairs - {currentLocation}</h2>
+              
+              <div className='overflow-x-auto'>
+                <table className='w-full text-white'>
+                  <thead>
+                    <tr className='border-b border-white/20'>
+                      <th className='text-left py-2'>Item Code</th>
+                      <th className='text-left py-2'>Brand & Model</th>
+                      <th className='text-left py-2'>Repair Cost</th>
+                      <th className='text-left py-2'>Spares Used</th>
+                      <th className='text-left py-2'>Repaired Date</th>
+                      <th className='text-left py-2'>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairsTable.map((repair, index) => (
+                      <tr key={generateSafeKey('repair', index, repair.id)} className='border-b border-white/10 hover:bg-white/5'>
+                        <td className='py-2 font-mono'>{repair.itemCode}</td>
+                        <td className='py-2'>
+                          <div className='font-semibold'>{repair.brand} {repair.model}</div>
+                        </td>
+                        <td className='py-2'>
+                          <div className='text-green-400'>MK {repair.repairCost?.toLocaleString() || 0}</div>
+                        </td>
+                        <td className='py-2'>
+                          {repair.sparesUsed?.join(', ') || 'None'}
+                        </td>
+                        <td className='py-2'>
+                          {repair.repairedAt?.toDate().toLocaleDateString() || 'Unknown'}
+                        </td>
+                        <td className='py-2'>
+                          <button
+                            onClick={() => {
+                              const repairReport = {
+                                ...repair,
+                                status: 'Fixed',
+                                reportedAt: repair.repairedAt,
+                                reportedByName: repair.repairedByName
+                              };
+                              generateFaultyPhonePDFReport(repairReport);
+                            }}
+                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                          >
+                            PDF
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {repairsTable.length === 0 && (
+                      <tr>
+                        <td colSpan='6' className='text-center py-8 text-white/70'>
+                          No repair records found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -1548,7 +1920,7 @@ export default function UserDashboard() {
           <div className='bg-slate-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto'>
             <div className='p-6'>
               <div className='flex justify-between items-center mb-6'>
-                <h2 className='text-xl font-semibold text-white'>Report Faulty Phone</h2>
+                <h2 className='text-xl font-semibold text-white'>Report Faulty Phone - {currentLocation}</h2>
                 <button
                   onClick={() => setReportModal(false)}
                   className='text-white/70 hover:text-white'
@@ -1567,6 +1939,7 @@ export default function UserDashboard() {
                     className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
                     placeholder='Enter item code'
                   />
+                  <p className='text-xs text-orange-300 mt-1'>Only items from your location can be reported</p>
                 </div>
 
                 <div>
@@ -1623,28 +1996,6 @@ export default function UserDashboard() {
                       <option key={status} value={status}>{status}</option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Customer Name (Optional)</label>
-                  <input
-                    type='text'
-                    value={faultyReport.customerName}
-                    onChange={(e) => setFaultyReport({...faultyReport, customerName: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Customer name'
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Customer Phone (Optional)</label>
-                  <input
-                    type='tel'
-                    value={faultyReport.customerPhone}
-                    onChange={(e) => setFaultyReport({...faultyReport, customerPhone: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Phone number'
-                  />
                 </div>
 
                 <div className='md:col-span-2'>
