@@ -2247,7 +2247,7 @@ export default function SuperAdminDashboard() {
                 </button>
                 <button
                   onClick={() => router.push("/operations")}
-                  className={'mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                  className={'mt-4 ml-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'}
                 >
                   Operations
                 </button>
@@ -3065,6 +3065,13 @@ export default function SuperAdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="mt-8 border-t bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-500 text-sm">
+          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
+        </div>
+      </footer>
     </div>
   );
 }

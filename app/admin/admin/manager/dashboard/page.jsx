@@ -5,8 +5,11 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
-  serverTimestamp, addDoc, orderBy, onSnapshot 
+  serverTimestamp, addDoc, orderBy, onSnapshot,
+  writeBatch, getDoc
 } from 'firebase/firestore';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Available locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
@@ -20,6 +23,10 @@ const generateSafeKey = (prefix = 'item', index, id) => {
   return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
+// Faulty phone constants
+const FAULTY_STATUS = ['Reported', 'In Repair', 'Fixed', 'EOS (End of Service)', 'Scrapped'];
+const SPARES_OPTIONS = ['Screen', 'Battery', 'Charging Port', 'Camera', 'Motherboard', 'Speaker', 'Microphone', 'Other'];
+
 export default function ManagerDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +37,8 @@ export default function ManagerDashboard() {
   const [allUsers, setAllUsers] = useState([]);
 
   // Stocks & Locations State
-  const [stocks, setStocks] = useState([]);
+  const [allStocks, setAllStocks] = useState([]); // All stocks for viewing
+  const [locationStocks, setLocationStocks] = useState([]); // Stocks from manager's location for selling
   const [selectedLocation, setSelectedLocation] = useState('all');
   
   // Stock Transfer State
@@ -85,8 +93,60 @@ export default function ManagerDashboard() {
   const [reportData, setReportData] = useState(null);
   const [generatingReport, setGeneratingReport] = useState(false);
 
+  // Manager-specific states
   const [processingRequest, setProcessingRequest] = useState(null);
   const [timePeriod, setTimePeriod] = useState('today');
+  
+  // Quick Sale State for Manager
+  const [quickSale, setQuickSale] = useState({
+    itemCode: '',
+    quantity: 1,
+    customPrice: ''
+  });
+
+  // Faulty Phone State for Manager
+  const [faultyPhones, setFaultyPhones] = useState([]);
+  const [reportModal, setReportModal] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [selectedFaulty, setSelectedFaulty] = useState(null);
+  const [faultyReport, setFaultyReport] = useState({
+    itemCode: '',
+    stockId: '',
+    brand: '',
+    model: '',
+    imei: '',
+    faultDescription: '',
+    reportedCost: 0,
+    status: 'Reported',
+    sparesNeeded: [],
+    otherSpares: '',
+    customerName: '',
+    customerPhone: '',
+    estimatedRepairCost: 0,
+    images: [],
+    notes: ''
+  });
+
+  // Installment State
+  const [installmentModal, setInstallmentModal] = useState(false);
+  const [selectedSaleForInstallment, setSelectedSaleForInstallment] = useState(null);
+  const [installmentData, setInstallmentData] = useState({
+    saleId: '',
+    customerName: '',
+    phoneNumber: '',
+    totalAmount: 0,
+    downPayment: 0,
+    remainingAmount: 0,
+    installmentPlan: '1',
+    monthlyPayment: 0,
+    nextPaymentDate: '',
+    notes: ''
+  });
+
+  // Search and Filter States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterBrand, setFilterBrand] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   // Suppress React key warnings
   useEffect(() => {
@@ -124,7 +184,7 @@ export default function ManagerDashboard() {
     }
   }, [router]);
 
-  // Performance Helpers - moved inside useCallback to fix dependency issue
+  // Performance Helpers
   const getPerformanceGrade = useCallback((score) => {
     if (score >= 90) return 'Excellent';
     if (score >= 80) return 'Very Good';
@@ -160,7 +220,7 @@ export default function ManagerDashboard() {
     return 'text-gray-400';
   }, []);
 
-  // Core Data Fetching Functions with error handling
+  // Core Data Fetching Functions
   const fetchAllUsers = useCallback(async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'users'));
@@ -182,10 +242,33 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
-      setStocks(stocksData);
+      setAllStocks(stocksData);
     } catch (error) {
       handleFirestoreError(error, 'fetch-stocks');
-      setStocks([]);
+      setAllStocks([]);
+    }
+  }, [handleFirestoreError]);
+
+  const fetchLocationStocks = useCallback(async (location) => {
+    try {
+      if (!location) {
+        setLocationStocks([]);
+        return;
+      }
+      
+      const q = query(
+        collection(db, 'stocks'),
+        where('location', '==', location)
+      );
+      const querySnapshot = await getDocs(q);
+      const stocksData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setLocationStocks(stocksData);
+    } catch (error) {
+      handleFirestoreError(error, 'fetch-location-stocks');
+      setLocationStocks([]);
     }
   }, [handleFirestoreError]);
 
@@ -204,6 +287,28 @@ export default function ManagerDashboard() {
     } catch (error) {
       handleFirestoreError(error, 'fetch-stock-requests');
       setStockRequests([]);
+    }
+  }, [handleFirestoreError]);
+
+  // Fetch faulty phones for manager's location
+  const fetchFaultyPhones = useCallback(async (location) => {
+    try {
+      if (!location) return;
+
+      const q = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', location),
+        orderBy('reportedAt', 'desc')
+      );
+      const querySnapshot = await getDocs(q);
+      const faultyData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setFaultyPhones(faultyData);
+    } catch (error) {
+      handleFirestoreError(error, 'faulty-fetch');
+      setFaultyPhones([]);
     }
   }, [handleFirestoreError]);
 
@@ -378,27 +483,48 @@ export default function ManagerDashboard() {
     }));
   }, [getPerformanceGrade]);
 
-  const setupRealtimeListeners = useCallback(() => {
+  const setupRealtimeListeners = useCallback((managerLocation) => {
     // Cleanup function for listeners
     const cleanupFunctions = [];
 
-    // Real-time stock updates
-    const stocksQuery = query(collection(db, 'stocks'));
+    // Real-time stock updates for ALL locations (view only)
+    const allStocksQuery = query(collection(db, 'stocks'));
     
-    const unsubscribeStocks = onSnapshot(stocksQuery, (snapshot) => {
+    const unsubscribeAllStocks = onSnapshot(allStocksQuery, (snapshot) => {
       const stocksData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      setStocks(stocksData);
+      setAllStocks(stocksData);
     }, (error) => {
-      handleFirestoreError(error, 'stocks-listener');
-      setStocks([]);
+      handleFirestoreError(error, 'all-stocks-listener');
+      setAllStocks([]);
     });
 
-    cleanupFunctions.push(unsubscribeStocks);
+    cleanupFunctions.push(unsubscribeAllStocks);
 
-    // Real-time sales updates
+    // Real-time stock updates for manager's location only (for selling)
+    if (managerLocation) {
+      const locationStocksQuery = query(
+        collection(db, 'stocks'),
+        where('location', '==', managerLocation)
+      );
+      
+      const unsubscribeLocationStocks = onSnapshot(locationStocksQuery, (snapshot) => {
+        const stocksData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setLocationStocks(stocksData);
+      }, (error) => {
+        handleFirestoreError(error, 'location-stocks-listener');
+        setLocationStocks([]);
+      });
+
+      cleanupFunctions.push(unsubscribeLocationStocks);
+    }
+
+    // Real-time sales updates for manager's location
     const salesQuery = query(
       collection(db, 'sales'),
       orderBy('soldAt', 'desc')
@@ -412,13 +538,34 @@ export default function ManagerDashboard() {
       setSales(salesData);
       calculateSalesAnalysis(salesData);
       calculateRealTimeSales(salesData);
-      calculateLocationPerformance(salesData);
     }, (error) => {
       handleFirestoreError(error, 'sales-listener');
       setSales([]);
     });
 
     cleanupFunctions.push(unsubscribeSales);
+
+    // Real-time faulty phones for manager's location
+    if (managerLocation) {
+      const faultyQuery = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', managerLocation),
+        orderBy('reportedAt', 'desc')
+      );
+
+      const unsubscribeFaulty = onSnapshot(faultyQuery, (snapshot) => {
+        const faultyData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setFaultyPhones(faultyData);
+      }, (error) => {
+        handleFirestoreError(error, 'faulty-listener');
+        setFaultyPhones([]);
+      });
+
+      cleanupFunctions.push(unsubscribeFaulty);
+    }
 
     // Real-time stock requests
     const requestsQuery = query(
@@ -450,21 +597,24 @@ export default function ManagerDashboard() {
         }
       });
     };
-  }, [calculateSalesAnalysis, calculateRealTimeSales, calculateLocationPerformance, handleFirestoreError]);
+  }, [calculateSalesAnalysis, calculateRealTimeSales, handleFirestoreError]);
 
-  const initializeDashboard = useCallback(async () => {
+  const initializeDashboard = useCallback(async (userData) => {
     try {
+      setSelectedLocation(userData.location);
       await Promise.all([
         fetchAllUsers(),
         fetchAllStocks(),
+        fetchLocationStocks(userData.location),
         fetchAllSalesAnalysis(),
-        fetchAllStockRequests()
+        fetchAllStockRequests(),
+        fetchFaultyPhones(userData.location)
       ]);
-      setupRealtimeListeners();
+      setupRealtimeListeners(userData.location);
     } catch (error) {
       handleFirestoreError(error, 'initialize-dashboard');
     }
-  }, [fetchAllUsers, fetchAllStocks, fetchAllSalesAnalysis, fetchAllStockRequests, setupRealtimeListeners, handleFirestoreError]);
+  }, [fetchAllUsers, fetchAllStocks, fetchLocationStocks, fetchAllSalesAnalysis, fetchAllStockRequests, fetchFaultyPhones, setupRealtimeListeners, handleFirestoreError]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -478,7 +628,7 @@ export default function ManagerDashboard() {
             const userData = userDoc.docs[0].data();
             if (userData.role === 'manager') {
               setUser(userData);
-              await initializeDashboard();
+              await initializeDashboard(userData);
             } else {
               router.push('/dashboard');
             }
@@ -611,6 +761,567 @@ export default function ManagerDashboard() {
     }
   };
 
+  // SALES FUNCTIONS FOR MANAGER (Can only sell from assigned location)
+  const handleQuickSale = async () => {
+    if (!quickSale.itemCode) {
+      alert('Please enter an item code.');
+      return;
+    }
+
+    try {
+      // Check if item exists in manager's location
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', quickSale.itemCode),
+        where('location', '==', user.location)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        alert('Item not found in stock for your location! You can only sell items from your assigned location.');
+        return;
+      }
+
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
+
+      if (!stock.quantity && stock.quantity !== 0) {
+        alert('Invalid stock data. Please contact administrator.');
+        return;
+      }
+
+      if (stock.quantity < quickSale.quantity) {
+        alert(`Insufficient stock! Only ${stock.quantity} units available.`);
+        return;
+      }
+
+      let finalPrice;
+      if (quickSale.customPrice) {
+        finalPrice = parseFloat(quickSale.customPrice);
+        if (isNaN(finalPrice) || finalPrice <= 0) {
+          alert('Please enter a valid custom price.');
+          return;
+        }
+      } else {
+        const salePrice = parseFloat(stock.salePrice) || 0;
+        const discountPercentage = parseFloat(stock.discountPercentage) || 0;
+        finalPrice = salePrice * (1 - discountPercentage / 100) * quickSale.quantity;
+      }
+
+      const batch = writeBatch(db);
+
+      const newQuantity = stock.quantity - quickSale.quantity;
+      const stockRef = doc(db, 'stocks', stockDoc.id);
+      batch.update(stockRef, {
+        quantity: newQuantity,
+        updatedAt: serverTimestamp(),
+        lastSold: serverTimestamp()
+      });
+
+      const saleData = {
+        itemCode: stock.itemCode,
+        brand: stock.brand,
+        model: stock.model,
+        storage: stock.storage,
+        color: stock.color,
+        stockId: stockDoc.id,
+        quantity: quickSale.quantity,
+        originalPrice: parseFloat(stock.salePrice) || 0,
+        finalSalePrice: finalPrice,
+        customPrice: quickSale.customPrice ? parseFloat(quickSale.customPrice) : null,
+        discountPercentage: parseFloat(stock.discountPercentage) || 0,
+        soldAt: serverTimestamp(),
+        soldBy: user.uid,
+        soldByName: user.fullName,
+        location: user.location,
+        saleType: quickSale.customPrice ? 'custom_price' : 'standard',
+        status: 'completed'
+      };
+
+      const salesRef = doc(collection(db, 'sales'));
+      batch.set(salesRef, saleData);
+
+      await batch.commit();
+
+      setQuickSale({ itemCode: '', quantity: 1, customPrice: '' });
+      alert('Sale completed successfully!');
+      
+    } catch (error) {
+      let errorMessage = 'Error processing sale. Please try again.';
+      
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied. Please check if you have sales permissions.';
+        handleFirestoreError(error, 'quick-sale');
+      } else if (error.code === 'failed-precondition') {
+        errorMessage = 'Stock was modified by another user. Please try again.';
+      }
+      
+      alert(errorMessage);
+    }
+  };
+
+  const handleSellItem = async (stockId, stockData, quantity = 1) => {
+    try {
+      // Verify this stock belongs to manager's location
+      if (stockData.location !== user.location) {
+        alert('You can only sell items from your assigned location!');
+        return;
+      }
+
+      if (!stockData.quantity && stockData.quantity !== 0) {
+        alert('Invalid stock data. Please contact administrator.');
+        return;
+      }
+
+      if (stockData.quantity < quantity) {
+        alert(`Insufficient stock! Only ${stockData.quantity} units available.`);
+        return;
+      }
+
+      if (quantity <= 0) {
+        alert('Please enter a valid quantity.');
+        return;
+      }
+
+      const salePrice = parseFloat(stockData.salePrice) || 0;
+      const discountPercentage = parseFloat(stockData.discountPercentage) || 0;
+      const finalPrice = salePrice * (1 - discountPercentage / 100) * quantity;
+
+      const batch = writeBatch(db);
+
+      const newQuantity = stockData.quantity - quantity;
+      const stockRef = doc(db, 'stocks', stockId);
+      batch.update(stockRef, {
+        quantity: newQuantity,
+        updatedAt: serverTimestamp(),
+        lastSold: serverTimestamp()
+      });
+
+      const saleData = {
+        itemCode: stockData.itemCode,
+        brand: stockData.brand,
+        model: stockData.model,
+        storage: stockData.storage,
+        color: stockData.color,
+        stockId: stockId,
+        quantity: quantity,
+        originalPrice: salePrice,
+        finalSalePrice: finalPrice,
+        discountPercentage: discountPercentage,
+        soldAt: serverTimestamp(),
+        soldBy: user.uid,
+        soldByName: user.fullName,
+        location: user.location,
+        saleType: 'standard',
+        status: 'completed'
+      };
+
+      const salesRef = doc(collection(db, 'sales'));
+      batch.set(salesRef, saleData);
+
+      await batch.commit();
+
+      alert('Item sold successfully!');
+      
+    } catch (error) {
+      let errorMessage = 'Error selling item. Please try again.';
+      
+      if (error.code === 'permission-denied') {
+        errorMessage = 'Permission denied. Please check if you have sales permissions.';
+        handleFirestoreError(error, 'sell-item');
+      } else if (error.code === 'failed-precondition') {
+        errorMessage = 'Stock was modified by another user. Please try again.';
+      }
+      
+      alert(errorMessage);
+    }
+  };
+
+  // FAULTY PHONE FUNCTIONS FOR MANAGER
+  const handleReportFaulty = async () => {
+    try {
+      if (!faultyReport.itemCode || !faultyReport.faultDescription) {
+        alert('Please fill in required fields: Item Code and Fault Description');
+        return;
+      }
+
+      // Check if item exists in manager's location
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', faultyReport.itemCode),
+        where('location', '==', user.location)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        alert('Item not found in stock for your location!');
+        return;
+      }
+
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
+
+      if (stock.quantity < 1) {
+        alert('Item out of stock!');
+        return;
+      }
+
+      const batch = writeBatch(db);
+
+      const newQuantity = stock.quantity - 1;
+      const stockRef = doc(db, 'stocks', stockDoc.id);
+      batch.update(stockRef, {
+        quantity: newQuantity,
+        updatedAt: serverTimestamp()
+      });
+
+      const faultyData = {
+        itemCode: faultyReport.itemCode,
+        stockId: stockDoc.id,
+        brand: stock.brand || faultyReport.brand,
+        model: stock.model || faultyReport.model,
+        imei: faultyReport.imei,
+        faultDescription: faultyReport.faultDescription,
+        reportedCost: parseFloat(faultyReport.reportedCost) || 0,
+        estimatedRepairCost: parseFloat(faultyReport.estimatedRepairCost) || 0,
+        status: faultyReport.status,
+        sparesNeeded: faultyReport.sparesNeeded,
+        otherSpares: faultyReport.otherSpares,
+        customerName: faultyReport.customerName,
+        customerPhone: faultyReport.customerPhone,
+        images: faultyReport.images,
+        notes: faultyReport.notes,
+        reportedAt: serverTimestamp(),
+        reportedBy: user.uid,
+        reportedByName: user.fullName,
+        location: user.location,
+        lastUpdated: serverTimestamp()
+      };
+
+      const faultyRef = doc(collection(db, 'faultyPhones'));
+      batch.set(faultyRef, faultyData);
+
+      await batch.commit();
+
+      setFaultyReport({
+        itemCode: '',
+        stockId: '',
+        brand: '',
+        model: '',
+        imei: '',
+        faultDescription: '',
+        reportedCost: 0,
+        status: 'Reported',
+        sparesNeeded: [],
+        otherSpares: '',
+        customerName: '',
+        customerPhone: '',
+        estimatedRepairCost: 0,
+        images: [],
+        notes: ''
+      });
+
+      setReportModal(false);
+      alert('Faulty phone reported successfully! Stock has been updated.');
+      
+    } catch (error) {
+      console.error('Error reporting faulty phone:', error);
+      alert('Error reporting faulty phone. Please try again.');
+    }
+  };
+
+  const handleUpdateFaultyStatus = async (faultyId, updates) => {
+    try {
+      const batch = writeBatch(db);
+      const faultyRef = doc(db, 'faultyPhones', faultyId);
+      
+      const faultyDoc = await getDoc(faultyRef);
+      if (!faultyDoc.exists()) {
+        alert('Faulty phone record not found!');
+        return;
+      }
+
+      const faultyData = faultyDoc.data();
+      const newStatus = updates.status;
+
+      if (newStatus === 'Fixed' && faultyData.status !== 'Fixed') {
+        const stockRef = doc(db, 'stocks', faultyData.stockId);
+        const stockDoc = await getDoc(stockRef);
+        
+        if (stockDoc.exists()) {
+          const stockData = stockDoc.data();
+          batch.update(stockRef, {
+            quantity: (stockData.quantity || 0) + 1,
+            updatedAt: serverTimestamp(),
+            isRepaired: true,
+            repairDate: serverTimestamp()
+          });
+
+          const repairData = {
+            faultyId: faultyId,
+            stockId: faultyData.stockId,
+            itemCode: faultyData.itemCode,
+            brand: faultyData.brand,
+            model: faultyData.model,
+            repairCost: updates.repairCost || faultyData.estimatedRepairCost,
+            sparesUsed: faultyData.sparesNeeded,
+            repairedAt: serverTimestamp(),
+            repairedBy: user.uid,
+            repairedByName: user.fullName,
+            location: user.location
+          };
+
+          const repairRef = doc(collection(db, 'repairs'));
+          batch.set(repairRef, repairData);
+        }
+      }
+
+      batch.update(faultyRef, {
+        ...updates,
+        lastUpdated: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByName: user.fullName
+      });
+
+      await batch.commit();
+      alert('Status updated successfully!');
+      setEditModal(false);
+      setSelectedFaulty(null);
+      
+    } catch (error) {
+      console.error('Error updating faulty status:', error);
+      alert('Error updating status. Please try again.');
+    }
+  };
+
+  // STYLISH PDF GENERATION
+  const generateStylishPDFReport = (data, type = 'sales') => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    
+    // Add gradient background
+    doc.setFillColor(30, 41, 59); // slate-900
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
+    
+    // Add header with logo
+    doc.setFontSize(24);
+    doc.setTextColor(139, 92, 246); // purple-500
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'normal');
+    
+    if (type === 'sales') {
+      doc.text('SALES ANALYSIS REPORT', pageWidth / 2, 30, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(`Report Period: ${reportFilters.startDate} to ${reportFilters.endDate}`, pageWidth / 2, 38, { align: 'center' });
+      doc.text(`Location: ${reportFilters.location === 'all' ? 'All Locations' : reportFilters.location}`, pageWidth / 2, 44, { align: 'center' });
+      
+      // Summary Box
+      doc.setFillColor(55, 65, 81); // gray-700
+      doc.roundedRect(20, 50, pageWidth - 40, 30, 3, 3, 'F');
+      
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text('REPORT SUMMARY', pageWidth / 2, 58, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.text(`Total Sales: ${data.summary.totalSales}`, 30, 68);
+      doc.text(`Total Revenue: MK ${data.summary.totalRevenue.toLocaleString()}`, 100, 68);
+      doc.text(`Avg. Sale Value: MK ${data.summary.averageSaleValue.toFixed(2)}`, 170, 68);
+      
+      let yPos = 90;
+      
+      // Sales by Location Table
+      doc.setFontSize(12);
+      doc.setTextColor(139, 92, 246);
+      doc.text('SALES BY LOCATION', 20, yPos);
+      yPos += 10;
+      
+      const locationData = Object.entries(data.salesByLocation).map(([location, metrics]) => [
+        location,
+        metrics.count.toString(),
+        `MK ${metrics.revenue.toFixed(2)}`,
+        `${((metrics.revenue / data.summary.totalRevenue) * 100).toFixed(1)}%`
+      ]);
+      
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Location', 'Sales Count', 'Revenue', 'Percentage']],
+        body: locationData,
+        theme: 'grid',
+        headStyles: { fillColor: [139, 92, 246], textColor: [255, 255, 255], fontSize: 10 },
+        bodyStyles: { textColor: [255, 255, 255], fontSize: 9 },
+        alternateRowStyles: { fillColor: [55, 65, 81] },
+        margin: { left: 20, right: 20 }
+      });
+      
+      yPos = doc.lastAutoTable.finalY + 10;
+      
+      // Top Products Table
+      doc.setFontSize(12);
+      doc.setTextColor(139, 92, 246);
+      doc.text('TOP PRODUCTS', 20, yPos);
+      yPos += 10;
+      
+      const productData = data.topProducts.map(product => [
+        product.product,
+        product.count.toString(),
+        `MK ${product.revenue.toFixed(2)}`,
+        `${((product.revenue / data.summary.totalRevenue) * 100).toFixed(1)}%`
+      ]);
+      
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Product', 'Sales Count', 'Revenue', 'Percentage']],
+        body: productData,
+        theme: 'grid',
+        headStyles: { fillColor: [139, 92, 246], textColor: [255, 255, 255], fontSize: 10 },
+        bodyStyles: { textColor: [255, 255, 255], fontSize: 9 },
+        alternateRowStyles: { fillColor: [55, 65, 81] },
+        margin: { left: 20, right: 20 }
+      });
+      
+    } else if (type === 'faulty') {
+      // Faulty Phone Report
+      doc.text('FAULTY PHONE REPORT', pageWidth / 2, 30, { align: 'center' });
+      
+      // Phone Details Box
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, 40, pageWidth - 40, 60, 3, 3, 'F');
+      
+      doc.setFontSize(12);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`Item Code: ${data.itemCode}`, 30, 50);
+      doc.text(`Brand & Model: ${data.brand} ${data.model}`, 30, 58);
+      doc.text(`IMEI: ${data.imei || 'N/A'}`, 30, 66);
+      doc.text(`Status: ${data.status}`, 30, 74);
+      doc.text(`Reported Cost: MK ${data.reportedCost || 0}`, 30, 82);
+      doc.text(`Reported By: ${data.reportedByName}`, 140, 50);
+      doc.text(`Location: ${data.location}`, 140, 58);
+      doc.text(`Report Date: ${data.reportedAt?.toDate().toLocaleDateString()}`, 140, 66);
+      
+      // Fault Details
+      doc.setFontSize(12);
+      doc.setTextColor(139, 92, 246);
+      doc.text('FAULT DETAILS', 20, 110);
+      
+      doc.setFillColor(55, 65, 81);
+      doc.roundedRect(20, 115, pageWidth - 40, 40, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.text(data.faultDescription, 25, 125, { maxWidth: pageWidth - 50 });
+      
+      if (data.sparesNeeded?.length > 0) {
+        doc.text(`Spares Needed: ${data.sparesNeeded.join(', ')}`, 25, 140);
+      }
+      
+      if (data.estimatedRepairCost > 0) {
+        doc.text(`Estimated Repair Cost: MK ${data.estimatedRepairCost}`, 25, 147);
+      }
+    }
+    
+    // Add footer
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+    
+    // Save PDF
+    const filename = type === 'sales' 
+      ? `Sales_Report_${reportFilters.startDate}_to_${reportFilters.endDate}.pdf`
+      : `Faulty_Report_${data.itemCode}_${Date.now()}.pdf`;
+    
+    doc.save(filename);
+  };
+
+  // INSTALLMENT FUNCTIONS
+  const openInstallmentModal = (sale) => {
+    setSelectedSaleForInstallment(sale);
+    setInstallmentData({
+      saleId: sale.id,
+      customerName: '',
+      phoneNumber: '',
+      totalAmount: sale.finalSalePrice,
+      downPayment: 0,
+      remainingAmount: sale.finalSalePrice,
+      installmentPlan: '1',
+      monthlyPayment: sale.finalSalePrice,
+      nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      notes: ''
+    });
+    setInstallmentModal(true);
+  };
+
+  const handleProcessInstallment = async () => {
+    try {
+      if (!installmentData.saleId || !installmentData.customerName || !installmentData.totalAmount) {
+        alert('Please fill in required fields');
+        return;
+      }
+
+      const installmentDataToSave = {
+        ...installmentData,
+        saleId: installmentData.saleId,
+        customerName: installmentData.customerName,
+        phoneNumber: installmentData.phoneNumber,
+        totalAmount: parseFloat(installmentData.totalAmount),
+        downPayment: parseFloat(installmentData.downPayment) || 0,
+        remainingAmount: parseFloat(installmentData.totalAmount) - (parseFloat(installmentData.downPayment) || 0),
+        installmentPlan: installmentData.installmentPlan,
+        monthlyPayment: parseFloat(installmentData.monthlyPayment) || 0,
+        nextPaymentDate: installmentData.nextPaymentDate,
+        notes: installmentData.notes,
+        createdAt: serverTimestamp(),
+        createdBy: user.uid,
+        createdByName: user.fullName,
+        location: user.location,
+        status: 'active',
+        payments: installmentData.downPayment > 0 ? [{
+          amount: parseFloat(installmentData.downPayment),
+          date: new Date().toISOString().split('T')[0],
+          type: 'down_payment'
+        }] : []
+      };
+
+      await addDoc(collection(db, 'installments'), installmentDataToSave);
+
+      const saleRef = doc(db, 'sales', installmentData.saleId);
+      await updateDoc(saleRef, {
+        paymentType: 'installment',
+        installmentId: (await addDoc(collection(db, 'installments'), installmentDataToSave)).id,
+        updatedAt: serverTimestamp()
+      });
+
+      alert('Installment plan created successfully!');
+      setInstallmentModal(false);
+      setSelectedSaleForInstallment(null);
+      setInstallmentData({
+        saleId: '',
+        customerName: '',
+        phoneNumber: '',
+        totalAmount: 0,
+        downPayment: 0,
+        remainingAmount: 0,
+        installmentPlan: '1',
+        monthlyPayment: 0,
+        nextPaymentDate: '',
+        notes: ''
+      });
+
+    } catch (error) {
+      console.error('Error processing installment:', error);
+      alert('Error creating installment plan. Please try again.');
+    }
+  };
+
+  // Stock Request Functions
   const handleRequestStock = async () => {
     if (!transferStock.itemCode || !transferStock.quantity || !transferStock.fromLocation || !transferStock.toLocation) {
       alert('Please fill in all required fields.');
@@ -810,39 +1521,6 @@ export default function ManagerDashboard() {
     }
   };
 
-  const handleMarkAsSold = async (stockId, stockData) => {
-    try {
-      if (stockData.quantity <= 0) {
-        alert('Insufficient stock!');
-        return;
-      }
-
-      // Update stock quantity
-      await updateDoc(doc(db, 'stocks', stockId), {
-        quantity: stockData.quantity - 1,
-        updatedAt: serverTimestamp()
-      });
-
-      // Create sale record
-      await addDoc(collection(db, 'sales'), {
-        ...stockData,
-        stockId,
-        quantity: 1,
-        originalPrice: stockData.salePrice,
-        finalSalePrice: stockData.salePrice * (1 - (stockData.discountPercentage || 0) / 100),
-        soldAt: serverTimestamp(),
-        soldBy: user.uid,
-        soldByName: user.fullName,
-        location: stockData.location
-      });
-
-      alert('Item marked as sold!');
-    } catch (error) {
-      handleFirestoreError(error, 'mark-as-sold');
-      alert('Error marking item as sold. Please try again.');
-    }
-  };
-
   // Sales Report Functions
   const generateSalesReport = useCallback(async () => {
     if (!reportFilters.startDate || !reportFilters.endDate) {
@@ -950,80 +1628,64 @@ export default function ManagerDashboard() {
     }
   }, [reportFilters, handleFirestoreError]);
 
-  const downloadCSVReport = () => {
-    if (!reportData) {
-      alert('Please generate a report first.');
-      return;
+  // Filter Functions
+  const getFilteredAllStocks = () => {
+    let filtered = allStocks;
+    
+    if (searchTerm) {
+      filtered = filtered.filter(stock => 
+        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
-
-    try {
-      // Create CSV content
-      let csvContent = 'KM Electronics Sales Analysis Report\n\n';
-      
-      // Report period
-      csvContent += `Report Period: ${reportData.period.startDate} to ${reportData.period.endDate}\n`;
-      csvContent += `Location: ${reportData.period.location}\n\n`;
-      
-      // Summary
-      csvContent += 'SUMMARY\n';
-      csvContent += `Total Sales:,${reportData.summary.totalSales}\n`;
-      csvContent += `Total Revenue:,MK ${reportData.summary.totalRevenue.toFixed(2)}\n`;
-      csvContent += `Average Sale Value:,MK ${reportData.summary.averageSaleValue.toFixed(2)}\n\n`;
-      
-      // Sales by Location
-      csvContent += 'SALES BY LOCATION\n';
-      csvContent += 'Location,Sales Count,Revenue\n';
-      Object.entries(reportData.salesByLocation).forEach(([location, data]) => {
-        csvContent += `${location},${data.count},MK ${data.revenue.toFixed(2)}\n`;
-      });
-      csvContent += '\n';
-      
-      // Top Products
-      csvContent += 'TOP PRODUCTS\n';
-      csvContent += 'Product,Sales Count,Revenue\n';
-      reportData.topProducts.forEach(item => {
-        csvContent += `${item.product},${item.count},MK ${item.revenue.toFixed(2)}\n`;
-      });
-      csvContent += '\n';
-      
-      // Top Sellers
-      csvContent += 'TOP SELLERS\n';
-      csvContent += 'Seller,Sales Count,Revenue\n';
-      reportData.topSellers.forEach(item => {
-        csvContent += `${item.seller},${item.count},MK ${item.revenue.toFixed(2)}\n`;
-      });
-      csvContent += '\n';
-      
-      // Daily Sales
-      csvContent += 'DAILY SALES\n';
-      csvContent += 'Date,Sales Count,Revenue\n';
-      Object.entries(reportData.dailySales).forEach(([date, data]) => {
-        csvContent += `${date},${data.count},MK ${data.revenue.toFixed(2)}\n`;
-      });
-
-      // Create and download CSV file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `sales_report_${reportFilters.startDate}_to_${reportFilters.endDate}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      alert('Report downloaded successfully!');
-    } catch (error) {
-      alert('Error downloading report. Please try again.');
+    
+    if (filterBrand) {
+      filtered = filtered.filter(stock => stock.brand === filterBrand);
     }
+    
+    if (selectedLocation && selectedLocation !== 'all') {
+      filtered = filtered.filter(stock => stock.location === selectedLocation);
+    }
+    
+    return filtered;
   };
 
-  // Filter Functions
-  const getFilteredStocks = () => {
-    if (selectedLocation === 'all') {
-      return stocks;
+  const getFilteredLocationStocks = () => {
+    let filtered = locationStocks;
+    
+    if (searchTerm) {
+      filtered = filtered.filter(stock => 
+        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
-    return stocks.filter(stock => stock.location === selectedLocation);
+    
+    if (filterBrand) {
+      filtered = filtered.filter(stock => stock.brand === filterBrand);
+    }
+    
+    return filtered;
+  };
+
+  const getFilteredFaultyPhones = () => {
+    let filtered = faultyPhones;
+    
+    if (searchTerm) {
+      filtered = filtered.filter(faulty => 
+        faulty.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        faulty.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        faulty.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        faulty.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    if (filterStatus) {
+      filtered = filtered.filter(faulty => faulty.status === filterStatus);
+    }
+    
+    return filtered;
   };
 
   const getFilteredSales = () => {
@@ -1042,9 +1704,8 @@ export default function ManagerDashboard() {
     );
   };
 
-  const calculateTotalStockValue = () => {
-    const filteredStocks = getFilteredStocks();
-    return filteredStocks.reduce((total, stock) => {
+  const calculateTotalStockValue = (stocksArray) => {
+    return stocksArray.reduce((total, stock) => {
       return total + ((stock.orderPrice || 0) * (stock.quantity || 0));
     }, 0);
   };
@@ -1052,8 +1713,34 @@ export default function ManagerDashboard() {
   // Filter users to exclude managers, admins, and superadmins from role/location changes
   const getFilteredUsers = () => {
     return allUsers.filter(userItem => 
-      !['manager', 'admin', 'superadmin'].includes(userItem.role)
+      !['manager', 'admin', 'superadmins'].includes(userItem.role)
     );
+  };
+
+  // Helper functions
+  const getStatusBadgeColor = (status) => {
+    switch (status) {
+      case 'Reported': return 'bg-yellow-500/20 text-yellow-300';
+      case 'In Repair': return 'bg-blue-500/20 text-blue-300';
+      case 'Fixed': return 'bg-green-500/20 text-green-300';
+      case 'EOS (End of Service)': return 'bg-red-500/20 text-red-300';
+      case 'Scrapped': return 'bg-gray-500/20 text-gray-300';
+      default: return 'bg-gray-500/20 text-gray-300';
+    }
+  };
+
+  const getRoleBadgeColor = (role) => {
+    return role === 'sales' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300';
+  };
+
+  const getStockStatusBadge = (quantity) => {
+    return quantity > 10 ? 'bg-green-500/20 text-green-300' :
+           quantity > 0 ? 'bg-orange-500/20 text-orange-300' :
+           'bg-red-500/20 text-red-300';
+  };
+
+  const getUniqueBrands = () => {
+    return [...new Set(allStocks.map(stock => stock.brand).filter(Boolean))];
   };
 
   if (loading) {
@@ -1075,7 +1762,10 @@ export default function ManagerDashboard() {
                 KM ELECTRONICS <span className={'text-orange-500'}>Manager</span>
               </h1>
               <p className={'text-white/70 text-sm'}>
-                Welcome, {user?.fullName} | Multi-Location View Enabled
+                Welcome, {user?.fullName} | Assigned Location: {user?.location}
+                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getRoleBadgeColor('manager')}`}>
+                  Manager
+                </span>
               </p>
             </div>
             
@@ -1085,7 +1775,8 @@ export default function ManagerDashboard() {
                 onChange={(e) => setSelectedLocation(e.target.value)}
                 className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
               >
-                <option value={'all'}>All Locations</option>
+                <option value={'all'}>All Locations (View Only)</option>
+                <option value={user?.location}>My Location: {user?.location} (Sell)</option>
                 {LOCATIONS.map((location, index) => (
                   <option key={generateSafeKey('location-option', index, location)} value={location}>{location}</option>
                 ))}
@@ -1102,19 +1793,22 @@ export default function ManagerDashboard() {
         </div>
       </header>
 
-      {/* Navigation Tabs - FIXED with unique keys */}
+      {/* Navigation Tabs */}
       <div className={'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}>
         <div className={'border-b border-white/20'}>
           <nav className={'-mb-px flex space-x-8 overflow-x-auto'}>
             {[
               { id: 'dashboard', name: 'Dashboard' },
-              { id: 'salesReport', name: 'Sales Report' },
-              { id: 'locationPerformance', name: 'Location Performance' },
-              { id: 'stocks', name: 'Stock Management' },
-              { id: 'salesAnalysis', name: 'Sales Analysis Report' },
+              { id: 'allStocks', name: 'View All Stocks' },
+              { id: 'myStocks', name: 'My Location Stocks' },
+              { id: 'quickSale', name: 'Quick Sale' },
+              { id: 'salesHistory', name: 'Sales History' },
+              { id: 'faultyPhones', name: 'Faulty Phones' },
+              { id: 'installments', name: 'Installments' },
+              { id: 'salesAnalysis', name: 'Sales Analysis' },
               { id: 'transfer', name: 'Stock Transfer' },
-              { id: 'personnel', name: 'Personnel Management' },
-              { id: 'requests', name: 'Stock Requests', count: getFilteredStockRequests().length }
+              { id: 'personnel', name: 'Personnel' },
+              { id: 'requests', name: 'Requests', count: getFilteredStockRequests().length }
             ].map((tab, index) => (
               <button
                 key={generateSafeKey('tab', index, tab.id)}
@@ -1138,47 +1832,43 @@ export default function ManagerDashboard() {
 
         {/* Content */}
         <div className={'py-6'}>
-          {/* Dashboard Tab - FIXED */}
+          {/* Dashboard Tab */}
           {activeTab === 'dashboard' && (
             <div className={'space-y-6'}>
               {/* Analytics Cards */}
+              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6'>
+                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-sm'>Total Stock Value (All Locations)</h3>
+                  <p className='text-2xl font-bold text-green-400'>
+                    MK {calculateTotalStockValue(allStocks).toLocaleString()}
+                  </p>
+                </div>
+                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-sm'>My Location Stock Value</h3>
+                  <p className='text-2xl font-bold text-blue-400'>
+                    MK {calculateTotalStockValue(locationStocks).toLocaleString()}
+                  </p>
+                </div>
+                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-sm'>Total Sales (All)</h3>
+                  <p className='text-2xl font-bold text-purple-400'>
+                    {salesAnalysis.totalSales}
+                  </p>
+                </div>
+                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-sm'>Faulty Phones (My Location)</h3>
+                  <p className='text-2xl font-bold text-orange-400'>
+                    {faultyPhones.length}
+                  </p>
+                </div>
+              </div>
 
               <div className={'grid grid-cols-1 lg:grid-cols-2 gap-6'}>
-                {/* Location Performance Overview - FIXED */}
-                <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-                  <h2 className={'text-xl font-semibold text-white mb-4'}>Location Performance</h2>
-                  <div className={'space-y-3'}>
-                    {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
-                      <div key={generateSafeKey('location-perf', index, location)} className={'flex items-center justify-between p-3 bg-white/5 rounded-lg'}>
-                        <div className={'flex items-center space-x-3'}>
-                          <div className={`w-3 h-3 rounded-full ${
-                            data.score >= 80 ? 'bg-green-500' :
-                            data.score >= 60 ? 'bg-yellow-500' :
-                            data.score >= 40 ? 'bg-orange-500' : 'bg-red-500'
-                          }`}></div>
-                          <span className={'text-white font-medium'}>{location}</span>
-                        </div>
-                        <div className={'flex items-center space-x-2'}>
-                          <span className={`text-sm ${getTrendColor(data.trend)}`}>
-                            {getTrendIcon(data.trend)}
-                          </span>
-                          <span className={`text-lg font-bold ${getPerformanceColor(data.score)}`}>
-                            {data.score}%
-                          </span>
-                          <span className={`px-2 py-1 rounded-full text-xs ${getPerformanceBadge(data.score)}`}>
-                            {data.grade}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Live Sales Feed - FIXED */}
+                {/* Live Sales Feed */}
                 <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
                   <h2 className={'text-xl font-semibold text-white mb-4'}>Live Sales Feed</h2>
                   <div className={'space-y-3 max-h-80 overflow-y-auto'}>
-                    {realTimeSales.liveSales.map((sale, index) => (
+                    {realTimeSales.liveSales.slice(0, 5).map((sale, index) => (
                       <div key={generateSafeKey('live-sale', index, sale.id)} className={'flex justify-between items-center p-3 bg-white/5 rounded-lg'}>
                         <div>
                           <div className={'text-white font-medium'}>{sale.brand} {sale.model}</div>
@@ -1199,116 +1889,92 @@ export default function ManagerDashboard() {
                     )}
                   </div>
                 </div>
+
+                {/* Quick Actions */}
+                <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+                  <h2 className='text-xl font-semibold text-white mb-4'>Quick Actions</h2>
+                  <div className='space-y-3'>
+                    <button
+                      onClick={() => setActiveTab('quickSale')}
+                      className='w-full bg-blue-600 hover:bg-blue-700 text-blue-200 px-4 py-3 rounded-lg transition-colors text-left'
+                    >
+                      <div className='font-semibold'>Quick Sale</div>
+                      <div className='text-sm'>Process a sale from your location</div>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('myStocks')}
+                      className='w-full bg-green-600 hover:bg-green-700 text-green-200 px-4 py-3 rounded-lg transition-colors text-left'
+                    >
+                      <div className='font-semibold'>Sell from My Location</div>
+                      <div className='text-sm'>Browse and sell items from {user?.location}</div>
+                    </button>
+                    <button
+                      onClick={() => setReportModal(true)}
+                      className='w-full bg-orange-600 hover:bg-orange-700 text-orange-200 px-4 py-3 rounded-lg transition-colors text-left'
+                    >
+                      <div className='font-semibold'>Report Faulty Phone</div>
+                      <div className='text-sm'>Report a faulty device from your location</div>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Revenue by Location - FIXED */}
+              {/* Stock Overview - My Location */}
               <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-                <h2 className={'text-xl font-semibold text-white mb-4'}>Revenue by Location</h2>
-                <div className={'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4'}>
-                  {Object.entries(salesAnalysis.revenueByLocation).map(([location, revenue], index) => (
-                    <div key={generateSafeKey('revenue-loc', index, location)} className={'bg-white/5 rounded-lg p-4 text-center'}>
-                      <h3 className={'text-white/70 text-sm'}>{location}</h3>
-                      <p className={'text-lg font-bold text-green-400'}>
-                        MK {revenue.toLocaleString()}
-                      </p>
-                      {salesAnalysis.locationPerformance?.[location] && (
-                        <p className={`text-xs mt-1 ${getPerformanceColor(salesAnalysis.locationPerformance[location].score)}`}>
-                          {salesAnalysis.locationPerformance[location].score}%
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Sales Report Tab - FIXED */}
-          {activeTab === 'salesReport' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <div className={'flex justify-between items-center mb-6'}>
-                <h2 className={'text-xl font-semibold text-white'}>Real-time Sales Report</h2>
-                <select
-                  value={timePeriod}
-                  onChange={(e) => setTimePeriod(e.target.value)}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={'today'}>Today</option>
-                  <option value={'week'}>This Week</option>
-                  <option value={'month'}>This Month</option>
-                  <option value={'year'}>This Year</option>
-                </select>
-              </div>
-
-              {/* Sales Summary */}
-
-              {/* Hourly Sales Chart - FIXED */}
-              <div className={'bg-white/5 rounded-lg p-6 mb-6'}>
-                <h3 className={'text-lg font-semibold text-white mb-4'}>Today's Hourly Sales</h3>
-                <div className={'grid grid-cols-6 md:grid-cols-12 gap-2'}>
-                  {Array.from({ length: 12 }, (_, i) => i + 8).map((hour, index) => (
-                    <div key={generateSafeKey('hour', index, hour.toString())} className={'text-center'}>
-                      <div className={'text-white/70 text-xs mb-1'}>{hour}:00</div>
-                      <div className={'bg-blue-500/20 rounded-lg p-2'}>
-                        <div className={'text-blue-300 text-sm font-semibold'}>
-                          MK {((realTimeSales.hourlySales[hour] || 0) / 1000).toFixed(0)}K
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Location-wise Breakdown - FIXED */}
-              <div className={'bg-white/5 rounded-lg p-6'}>
-                <h3 className={'text-lg font-semibold text-white mb-4'}>Location Performance Breakdown</h3>
+                <h2 className={'text-xl font-semibold text-white mb-4'}>Stock Overview - {user?.location} (Your Location)</h2>
                 <div className={'overflow-x-auto'}>
                   <table className={'w-full text-white'}>
                     <thead>
                       <tr className={'border-b border-white/20'}>
-                        <th className={'text-left py-2'}>Location</th>
-                        <th className={'text-left py-2'}>Today's Revenue</th>
-                        <th className={'text-left py-2'}>Weekly Revenue</th>
-                        <th className={'text-left py-2'}>Performance</th>
-                        <th className={'text-left py-2'}>Grade</th>
-                        <th className={'text-left py-2'}>Trend</th>
+                        <th className={'text-left py-2'}>Item Code</th>
+                        <th className={'text-left py-2'}>Brand & Model</th>
+                        <th className={'text-left py-2'}>Sale Price</th>
+                        <th className={'text-left py-2'}>Available</th>
+                        <th className={'text-left py-2'}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
-                        <tr key={generateSafeKey('loc-breakdown', index, location)} className={'border-b border-white/10'}>
-                          <td className={'py-2 font-medium'}>{location}</td>
-                          <td className={'py-2'}>MK {data.metrics.todayRevenue.toLocaleString()}</td>
-                          <td className={'py-2'}>MK {data.metrics.weeklyRevenue.toLocaleString()}</td>
-                          <td className={'py-2'}>
-                            <div className={'flex items-center space-x-2'}>
-                              <div className={'w-24 bg-gray-700 rounded-full h-2'}>
-                                <div 
-                                  className={`h-2 rounded-full ${
-                                    data.score >= 80 ? 'bg-green-500' :
-                                    data.score >= 60 ? 'bg-yellow-500' :
-                                    data.score >= 40 ? 'bg-orange-500' : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${data.score}%` }}
-                                ></div>
-                              </div>
-                              <span className={`font-semibold ${getPerformanceColor(data.score)}`}>
-                                {data.score}%
+                      {locationStocks.slice(0, 5).map((stock, index) => {
+                        return (
+                          <tr key={generateSafeKey('stock', index, stock.id)} className={'border-b border-white/10'}>
+                            <td className={'py-2 font-mono'}>{stock.itemCode}</td>
+                            <td className={'py-2'}>
+                              <div className={'font-semibold'}>{stock.brand} {stock.model}</div>
+                              {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
+                              {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
+                            </td>
+                            <td className={'py-2'}>
+                              <div className={'text-green-400'}>MK {stock.salePrice || 0}</div>
+                              {stock.discountPercentage > 0 && (
+                                <div className={'text-orange-400 text-sm'}>
+                                  After discount: MK {(stock.salePrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
+                                </div>
+                              )}
+                            </td>
+                            <td className={'py-2'}>
+                              <span className={`px-2 py-1 rounded-full text-xs ${getStockStatusBadge(stock.quantity)}`}>
+                                {stock.quantity || 0} units
                               </span>
-                            </div>
-                          </td>
-                          <td className={'py-2'}>
-                            <span className={`px-2 py-1 rounded-full text-xs ${getPerformanceBadge(data.score)}`}>
-                              {data.grade}
-                            </span>
-                          </td>
-                          <td className={'py-2'}>
-                            <span className={`text-lg ${getTrendColor(data.trend)}`}>
-                              {getTrendIcon(data.trend)}
-                            </span>
+                            </td>
+                            <td className={'py-2 space-x-2'}>
+                              <button
+                                onClick={() => handleSellItem(stock.id, stock, 1)}
+                                disabled={!stock.quantity || stock.quantity === 0}
+                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'}
+                              >
+                                Sell 1
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {locationStocks.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-4 text-white/70">
+                            No stocks available in your location
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1316,261 +1982,552 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Location Performance Tab - FIXED */}
-          {activeTab === 'locationPerformance' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <h2 className={'text-xl font-semibold text-white mb-6'}>Location Performance Analytics</h2>
-              
-              <div className={'grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6'}>
-                {Object.entries(salesAnalysis.locationPerformance || {}).map(([location, data], index) => (
-                  <div key={generateSafeKey('loc-analytics', index, location)} className={'bg-white/5 rounded-lg p-6 border border-white/10'}>
-                    <div className={'flex justify-between items-start mb-4'}>
-                      <h3 className={'text-lg font-semibold text-white'}>{location}</h3>
-                      <span className={`px-3 py-1 rounded-full text-sm ${getPerformanceBadge(data.score)}`}>
-                        {data.grade}
-                      </span>
-                    </div>
-                    
-                    <div className={'space-y-3'}>
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Performance Score</span>
-                        <span className={`text-xl font-bold ${getPerformanceColor(data.score)}`}>
-                          {data.score}%
-                        </span>
-                      </div>
-                      
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Today's Revenue</span>
-                        <span className={'text-green-400 font-semibold'}>
-                          MK {data.metrics.todayRevenue.toLocaleString()}
-                        </span>
-                      </div>
-                      
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Weekly Revenue</span>
-                        <span className={'text-blue-400 font-semibold'}>
-                          MK {data.metrics.weeklyRevenue.toLocaleString()}
-                        </span>
-                      </div>
-                      
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Total Sales</span>
-                        <span className={'text-white font-semibold'}>
-                          {data.metrics.salesCount}
-                        </span>
-                      </div>
-                      
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Avg. Sale Value</span>
-                        <span className={'text-purple-400 font-semibold'}>
-                          MK {data.metrics.salesCount > 0 ? (data.metrics.totalRevenue / data.metrics.salesCount).toFixed(2) : 0}
-                        </span>
-                      </div>
-                      
-                      <div className={'flex justify-between items-center'}>
-                        <span className={'text-white/70'}>Trend</span>
-                        <span className={`text-lg ${getTrendColor(data.trend)}`}>
-                          {getTrendIcon(data.trend)} {data.trend}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {/* Performance Progress Bar */}
-                    <div className={'mt-4'}>
-                      <div className={'w-full bg-gray-700 rounded-full h-3'}>
-                        <div 
-                          className={`h-3 rounded-full ${
-                            data.score >= 80 ? 'bg-green-500' :
-                            data.score >= 60 ? 'bg-yellow-500' :
-                            data.score >= 40 ? 'bg-orange-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${data.score}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Performance Summary */}
-              <div className={'bg-white/5 rounded-lg p-6'}>
-                <h3 className={'text-lg font-semibold text-white mb-4'}>Performance Summary</h3>
-                <div className={'grid grid-cols-2 md:grid-cols-4 gap-4'}>
-                  <div className={'text-center'}>
-                    <div className={'text-2xl font-bold text-green-400'}>
-                      {Object.values(salesAnalysis.locationPerformance || {}).filter(p => p.score >= 80).length}
-                    </div>
-                    <div className={'text-white/70 text-sm'}>Excellent</div>
-                  </div>
-                  <div className={'text-center'}>
-                    <div className={'text-2xl font-bold text-yellow-400'}>
-                      {Object.values(salesAnalysis.locationPerformance || {}).filter(p => p.score >= 60 && p.score < 80).length}
-                    </div>
-                    <div className={'text-white/70 text-sm'}>Good</div>
-                  </div>
-                  <div className={'text-center'}>
-                    <div className={'text-2xl font-bold text-orange-400'}>
-                      {Object.values(salesAnalysis.locationPerformance || {}).filter(p => p.score >= 40 && p.score < 60).length}
-                    </div>
-                    <div className={'text-white/70 text-sm'}>Average</div>
-                  </div>
-                  <div className={'text-center'}>
-                    <div className={'text-2xl font-bold text-red-400'}>
-                      {Object.values(salesAnalysis.locationPerformance || {}).filter(p => p.score < 40).length}
-                    </div>
-                    <div className={'text-white/70 text-sm'}>Needs Attention</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Stock Management Tab - FIXED */}
-          {activeTab === 'stocks' && (
+          {/* View All Stocks Tab */}
+          {activeTab === 'allStocks' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <div className={'flex justify-between items-center mb-6'}>
                 <h2 className={'text-xl font-semibold text-white'}>
-                  Stock Management - {selectedLocation === 'all' ? 'All Locations' : selectedLocation}
+                  All Stocks - {selectedLocation === 'all' ? 'All Locations' : selectedLocation}
                 </h2>
                 <div className={'text-white'}>
-                  Total Value: MK {calculateTotalStockValue().toLocaleString()}
+                  Total Value: MK {calculateTotalStockValue(getFilteredAllStocks()).toLocaleString()}
+                  <div className="text-sm text-white/70">(View Only - Cannot Sell)</div>
                 </div>
               </div>
 
-              {/* Add Stock Form - FIXED */}
-              <div className={'bg-white/5 rounded-lg p-4 mb-6'}>
-                <h3 className={'text-lg font-semibold text-white mb-4'}>Add New Stock</h3>
-                <div className={'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'}>
-                  <input
-                    type={'text'}
-                    placeholder={'Brand'}
-                    value={newStock.brand}
-                    onChange={(e) => setNewStock({...newStock, brand: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'text'}
-                    placeholder={'Model'}
-                    value={newStock.model}
-                    onChange={(e) => setNewStock({...newStock, model: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'text'}
-                    placeholder={'Item Code'}
-                    value={newStock.itemCode}
-                    onChange={(e) => setNewStock({...newStock, itemCode: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <select
-                    value={newStock.location}
-                    onChange={(e) => setNewStock({...newStock, location: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                  >
-                    <option value={''}>Select Location</option>
-                    {LOCATIONS.map((location, index) => (
-                      <option key={generateSafeKey('newstock-location', index, location)} value={location}>{location}</option>
-                    ))}
-                  </select>
-                  <input
-                    type={'number'}
-                    placeholder={'Quantity'}
-                    value={newStock.quantity}
-                    onChange={(e) => setNewStock({...newStock, quantity: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Order Price'}
-                    value={newStock.orderPrice}
-                    onChange={(e) => setNewStock({...newStock, orderPrice: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Sale Price'}
-                    value={newStock.salePrice}
-                    onChange={(e) => setNewStock({...newStock, salePrice: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Discount %'}
-                    value={newStock.discountPercentage}
-                    onChange={(e) => setNewStock({...newStock, discountPercentage: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                </div>
-                <button
-                  onClick={handleAddStock}
-                  className={'mt-4 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors'}
+              {/* Search and Filter */}
+              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
+                <input
+                  type={'text'}
+                  placeholder={'Search by item code, brand, or model...'}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={'flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                />
+                <select
+                  value={filterBrand}
+                  onChange={(e) => setFilterBrand(e.target.value)}
+                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
                 >
-                  Add Stock
+                  <option value={''}>All Brands</option>
+                  {getUniqueBrands().map(brand => (
+                    <option key={brand} value={brand}>{brand}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => { setSearchTerm(''); setFilterBrand(''); }}
+                  className={'bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                >
+                  Clear
                 </button>
               </div>
 
-              {/* Stocks Table - FIXED */}
+              {/* Stocks Table - View Only */}
               <div className={'overflow-x-auto'}>
                 <table className={'w-full text-white'}>
                   <thead>
                     <tr className={'border-b border-white/20'}>
-                      {selectedLocation === 'all' && <th className={'text-left py-2'}>Location</th>}
+                      <th className={'text-left py-2'}>Location</th>
                       <th className={'text-left py-2'}>Item Code</th>
                       <th className={'text-left py-2'}>Brand & Model</th>
                       <th className={'text-left py-2'}>Order Price</th>
                       <th className={'text-left py-2'}>Sale Price</th>
                       <th className={'text-left py-2'}>Quantity</th>
                       <th className={'text-left py-2'}>Total Value</th>
-                      <th className={'text-left py-2'}>Actions</th>
+                      <th className={'text-left py-2'}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredStocks().map((stock, index) => (
-                      <tr key={generateSafeKey('stock', index, stock.id)} className={'border-b border-white/10'}>
-                        {selectedLocation === 'all' && (
-                          <td className={'py-2'}>
-                            <span className={'bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-xs'}>
-                              {stock.location}
-                            </span>
-                          </td>
-                        )}
+                    {getFilteredAllStocks().map((stock, index) => (
+                      <tr key={generateSafeKey('all-stock', index, stock.id)} className={'border-b border-white/10'}>
+                        <td className={'py-2'}>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            stock.location === user?.location 
+                              ? 'bg-green-500/20 text-green-300' 
+                              : 'bg-blue-500/20 text-blue-300'
+                          }`}>
+                            {stock.location}
+                            {stock.location === user?.location && ' (Yours)'}
+                          </span>
+                        </td>
                         <td className={'py-2 font-mono'}>{stock.itemCode}</td>
                         <td className={'py-2'}>{stock.brand} {stock.model}</td>
                         <td className={'py-2'}>MK {stock.orderPrice || 0}</td>
                         <td className={'py-2'}>MK {stock.salePrice || 0}</td>
                         <td className={'py-2'}>{stock.quantity || 0}</td>
                         <td className={'py-2'}>MK {((stock.orderPrice || 0) * (stock.quantity || 0)).toLocaleString()}</td>
-                        <td className={'py-2 space-x-2'}>
-                          <button
-                            onClick={() => handleMarkAsSold(stock.id, stock)}
-                            disabled={!stock.quantity || stock.quantity === 0}
-                            className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'}
-                          >
-                            Sell
-                          </button>
-                          <button
-                            onClick={() => handleUpdateStock(stock.id, { quantity: (stock.quantity || 0) + 1 })}
-                            className={'bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'}
-                          >
-                            +1
-                          </button>
+                        <td className={'py-2'}>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            stock.location === user?.location 
+                              ? 'bg-green-500/20 text-green-300' 
+                              : 'bg-gray-500/20 text-gray-300'
+                          }`}>
+                            {stock.location === user?.location ? 'Can Sell' : 'View Only'}
+                          </span>
                         </td>
                       </tr>
                     ))}
+                    {getFilteredAllStocks().length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center py-8 text-white/70">
+                          No stocks found matching your search criteria.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* Sales Analysis Report Tab - FIXED */}
+          {/* My Location Stocks Tab */}
+          {activeTab === 'myStocks' && (
+            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
+              <div className={'flex justify-between items-center mb-6'}>
+                <h2 className={'text-xl font-semibold text-white'}>
+                  My Location Stocks - {user?.location}
+                </h2>
+                <div className={'text-white'}>
+                  Total Value: MK {calculateTotalStockValue(locationStocks).toLocaleString()}
+                  <div className="text-sm text-green-400">(Can Sell)</div>
+                </div>
+              </div>
+
+              {/* Search and Filter */}
+              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
+                <input
+                  type={'text'}
+                  placeholder={'Search by item code, brand, or model...'}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={'flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                />
+                <select
+                  value={filterBrand}
+                  onChange={(e) => setFilterBrand(e.target.value)}
+                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                >
+                  <option value={''}>All Brands</option>
+                  {[...new Set(locationStocks.map(stock => stock.brand).filter(Boolean))].map(brand => (
+                    <option key={brand} value={brand}>{brand}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => { setSearchTerm(''); setFilterBrand(''); }}
+                  className={'bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                >
+                  Clear
+                </button>
+              </div>
+
+              {/* Stocks Table - Can Sell */}
+              <div className={'overflow-x-auto'}>
+                <table className={'w-full text-white'}>
+                  <thead>
+                    <tr className={'border-b border-white/20'}>
+                      <th className={'text-left py-2'}>Item Code</th>
+                      <th className={'text-left py-2'}>Brand & Model</th>
+                      <th className={'text-left py-2'}>Sale Price</th>
+                      <th className={'text-left py-2'}>Discount</th>
+                      <th className={'text-left py-2'}>Available</th>
+                      <th className={'text-left py-2'}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getFilteredLocationStocks().map((stock, index) => {
+                      return (
+                        <tr key={generateSafeKey('my-stock', index, stock.id)} className={'border-b border-white/10'}>
+                          <td className={'py-2 font-mono'}>{stock.itemCode}</td>
+                          <td className={'py-2'}>
+                            <div className={'font-semibold'}>{stock.brand} {stock.model}</div>
+                            {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
+                            {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
+                          </td>
+                          <td className={'py-2'}>
+                            <div className={'text-green-400'}>MK {stock.salePrice || 0}</div>
+                            {stock.discountPercentage > 0 && (
+                              <div className={'text-orange-400 text-sm'}>
+                                After discount: MK {(stock.salePrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
+                              </div>
+                            )}
+                          </td>
+                          <td className={'py-2'}>
+                            {stock.discountPercentage > 0 ? (
+                              <span className={'text-orange-400'}>{stock.discountPercentage}% OFF</span>
+                            ) : (
+                              <span className={'text-white/50'}>No discount</span>
+                            )}
+                          </td>
+                          <td className={'py-2'}>
+                            <span className={`px-2 py-1 rounded-full text-xs ${getStockStatusBadge(stock.quantity)}`}>
+                              {stock.quantity || 0} units
+                            </span>
+                          </td>
+                          <td className={'py-2 space-x-2'}>
+                            <button
+                              onClick={() => handleSellItem(stock.id, stock, 1)}
+                              disabled={!stock.quantity || stock.quantity === 0}
+                              className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'}
+                            >
+                              Sell 1
+                            </button>
+                            {stock.quantity > 1 && (
+                              <button
+                                onClick={() => {
+                                  const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
+                                  if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
+                                    handleSellItem(stock.id, stock, parseInt(quantity));
+                                  }
+                                }}
+                                className={'bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'}
+                              >
+                                Sell Multiple
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {getFilteredLocationStocks().length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-white/70">
+                          No stocks available in your location matching your search criteria.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Sale Tab */}
+          {activeTab === 'quickSale' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <h2 className='text-xl font-semibold text-white mb-6'>Quick Sale - {user?.location}</h2>
+              
+              <div className='max-w-md mx-auto space-y-6'>
+                {/* Quick Sale Form */}
+                <div className='bg-white/5 rounded-lg p-6'>
+                  <h3 className='text-lg font-semibold text-white mb-4'>Process Sale from Your Location</h3>
+                  <div className='space-y-4'>
+                    <div>
+                      <label className='block text-white/70 text-sm mb-2'>Item Code</label>
+                      <input
+                        type='text'
+                        placeholder='Enter item code...'
+                        value={quickSale.itemCode}
+                        onChange={(e) => setQuickSale({...quickSale, itemCode: e.target.value})}
+                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                      />
+                      <p className="text-xs text-orange-300 mt-1">Only items from {user?.location} can be sold</p>
+                    </div>
+                    <div>
+                      <label className='block text-white/70 text-sm mb-2'>Quantity</label>
+                      <input
+                        type='number'
+                        min='1'
+                        value={quickSale.quantity}
+                        onChange={(e) => setQuickSale({...quickSale, quantity: parseInt(e.target.value) || 1})}
+                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                      />
+                    </div>
+                    <div>
+                      <label className='block text-white/70 text-sm mb-2'>
+                        Custom Price (Optional)
+                        <span className='text-white/50 text-xs ml-1'>- Leave empty for standard price</span>
+                      </label>
+                      <input
+                        type='number'
+                        placeholder='Enter custom price...'
+                        value={quickSale.customPrice}
+                        onChange={(e) => setQuickSale({...quickSale, customPrice: e.target.value})}
+                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                      />
+                    </div>
+                    <button
+                      onClick={handleQuickSale}
+                      disabled={!quickSale.itemCode}
+                      className='w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors font-semibold'
+                    >
+                      Process Sale
+                    </button>
+                  </div>
+                </div>
+
+                {/* Recent Items from Your Location */}
+                <div className='bg-white/5 rounded-lg p-6'>
+                  <h3 className='text-lg font-semibold text-white mb-4'>Available Items in {user?.location}</h3>
+                  <div className='space-y-2'>
+                    {locationStocks.slice(0, 5).map((stock) => (
+                      <div 
+                        key={stock.id} 
+                        className='flex justify-between items-center p-2 hover:bg-white/5 rounded cursor-pointer'
+                        onClick={() => setQuickSale(prev => ({...prev, itemCode: stock.itemCode}))}
+                      >
+                        <div>
+                          <div className='text-white font-mono text-sm'>{stock.itemCode}</div>
+                          <div className='text-white/70 text-xs'>{stock.brand} {stock.model}</div>
+                        </div>
+                        <div className='text-right'>
+                          <div className='text-green-400 text-sm'>MK {stock.salePrice || 0}</div>
+                          <div className='text-white/50 text-xs'>{stock.quantity} available</div>
+                        </div>
+                      </div>
+                    ))}
+                    {locationStocks.length === 0 && (
+                      <div className="text-center py-4 text-white/70">
+                        No stocks available in your location
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sales History Tab */}
+          {activeTab === 'salesHistory' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <h2 className='text-xl font-semibold text-white mb-6'>Sales History</h2>
+              
+              <div className="flex items-center space-x-4 mb-6">
+                <select
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                >
+                  <option value='all'>All Locations</option>
+                  <option value={user?.location}>My Location: {user?.location}</option>
+                  {LOCATIONS.map((location, index) => (
+                    <option key={generateSafeKey('sales-loc', index, location)} value={location}>{location}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className='overflow-x-auto'>
+                <table className='w-full text-white'>
+                  <thead>
+                    <tr className='border-b border-white/20'>
+                      <th className='text-left py-2'>Date</th>
+                      <th className='text-left py-2'>Item</th>
+                      <th className='text-left py-2'>Location</th>
+                      <th className='text-left py-2'>Quantity</th>
+                      <th className='text-left py-2'>Price</th>
+                      <th className='text-left py-2'>Sold By</th>
+                      <th className='text-left py-2'>Type</th>
+                      <th className='text-left py-2'>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getFilteredSales().map((sale) => (
+                      <tr key={sale.id} className='border-b border-white/10'>
+                        <td className='py-2'>
+                          {sale.soldAt?.toDate().toLocaleDateString() || 'Unknown date'}
+                        </td>
+                        <td className='py-2'>
+                          <div className='font-semibold'>{sale.brand} {sale.model}</div>
+                          <div className='text-white/70 text-sm'>{sale.itemCode}</div>
+                        </td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            sale.location === user?.location 
+                              ? 'bg-green-500/20 text-green-300' 
+                              : 'bg-blue-500/20 text-blue-300'
+                          }`}>
+                            {sale.location}
+                          </span>
+                        </td>
+                        <td className='py-2'>{sale.quantity}</td>
+                        <td className='py-2 text-green-400'>MK {sale.finalSalePrice || 0}</td>
+                        <td className='py-2'>{sale.soldByName}</td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            sale.saleType === 'custom_price' 
+                              ? 'bg-purple-500/20 text-purple-300' 
+                              : 'bg-blue-500/20 text-blue-300'
+                          }`}>
+                            {sale.saleType === 'custom_price' ? 'Custom Price' : 'Standard'}
+                          </span>
+                        </td>
+                        <td className='py-2 space-x-2'>
+                          <button
+                            onClick={() => openInstallmentModal(sale)}
+                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                          >
+                            Process Installment
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {getFilteredSales().length === 0 && (
+                      <tr>
+                        <td colSpan='8' className='text-center py-8 text-white/70'>
+                          No sales history found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Faulty Phones Tab */}
+          {activeTab === 'faultyPhones' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <div className='flex justify-between items-center mb-6'>
+                <h2 className='text-xl font-semibold text-white'>Faulty Phones - {user?.location}</h2>
+                <div className='space-x-2'>
+                  <button
+                    onClick={() => setReportModal(true)}
+                    className='bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition-colors'
+                  >
+                    + Report New Faulty
+                  </button>
+                </div>
+              </div>
+
+              {/* Search and Filter */}
+              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
+                <input
+                  type='text'
+                  placeholder='Search by item code, brand, model, or customer...'
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className='flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                />
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                >
+                  <option value=''>All Status</option>
+                  {FAULTY_STATUS.map(status => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => { setSearchTerm(''); setFilterStatus(''); }}
+                  className='bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className='overflow-x-auto'>
+                <table className='w-full text-white'>
+                  <thead>
+                    <tr className='border-b border-white/20'>
+                      <th className='text-left py-2'>Item Code</th>
+                      <th className='text-left py-2'>Brand & Model</th>
+                      <th className='text-left py-2'>Fault Description</th>
+                      <th className='text-left py-2'>Status</th>
+                      <th className='text-left py-2'>Cost</th>
+                      <th className='text-left py-2'>Reported Date</th>
+                      <th className='text-left py-2'>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getFilteredFaultyPhones().map((faulty, index) => (
+                      <tr key={generateSafeKey('faulty', index, faulty.id)} className='border-b border-white/10 hover:bg-white/5'>
+                        <td className='py-2 font-mono'>{faulty.itemCode}</td>
+                        <td className='py-2'>
+                          <div className='font-semibold'>{faulty.brand} {faulty.model}</div>
+                          {faulty.imei && <div className='text-white/70 text-sm'>IMEI: {faulty.imei}</div>}
+                        </td>
+                        <td className='py-2'>{faulty.faultDescription}</td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(faulty.status)}`}>
+                            {faulty.status}
+                          </span>
+                        </td>
+                        <td className='py-2'>
+                          <div className='text-orange-400'>MK {faulty.reportedCost?.toLocaleString() || 0}</div>
+                          {faulty.estimatedRepairCost > 0 && (
+                            <div className='text-white/70 text-sm'>Est. Repair: MK {faulty.estimatedRepairCost}</div>
+                          )}
+                        </td>
+                        <td className='py-2'>
+                          {faulty.reportedAt?.toDate().toLocaleDateString() || 'Unknown'}
+                        </td>
+                        <td className='py-2 space-x-2'>
+                          <button
+                            onClick={() => generateStylishPDFReport(faulty, 'faulty')}
+                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                            title='Generate PDF Report'
+                          >
+                            PDF
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedFaulty(faulty);
+                              setEditModal(true);
+                            }}
+                            className='bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                            title='Update Status'
+                          >
+                            Update
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {getFilteredFaultyPhones().length === 0 && (
+                      <tr>
+                        <td colSpan='7' className='text-center py-8 text-white/70'>
+                          No faulty phones found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Installments Tab */}
+          {activeTab === 'installments' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <h2 className='text-xl font-semibold text-white mb-6'>Installment Plans - {user?.location}</h2>
+              
+              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
+                {getFilteredSales().filter(sale => !sale.paymentType || sale.paymentType === 'full').slice(0, 6).map((sale) => (
+                  <div key={sale.id} className='bg-white/5 rounded-lg p-4 border border-white/10'>
+                    <div className='flex justify-between items-start mb-3'>
+                      <div>
+                        <div className='font-semibold text-white'>{sale.brand} {sale.model}</div>
+                        <div className='text-white/70 text-sm'>{sale.itemCode}</div>
+                      </div>
+                      <div className='text-green-400 font-semibold'>MK {sale.finalSalePrice}</div>
+                    </div>
+                    <div className='text-white/70 text-sm mb-3'>
+                      Sold on: {sale.soldAt?.toDate().toLocaleDateString()}
+                    </div>
+                    <button
+                      onClick={() => openInstallmentModal(sale)}
+                      className='w-full bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm'
+                    >
+                      Create Installment Plan
+                    </button>
+                  </div>
+                ))}
+                {getFilteredSales().filter(sale => !sale.paymentType || sale.paymentType === 'full').length === 0 && (
+                  <div className='col-span-3 text-center py-8 text-white/70'>
+                    No sales available for installment plans.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Sales Analysis Report Tab */}
           {activeTab === 'salesAnalysis' && (
             <div className="bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6">
               <h2 className="text-xl font-semibold text-white mb-6">
                 Sales Analysis Report Generator
               </h2>
               
-              {/* Report Filters - FIXED */}
+              {/* Report Filters */}
               <div className="bg-white/5 rounded-lg p-6 mb-6">
                 <h3 className="text-lg font-semibold text-white mb-4">Report Filters</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1623,11 +2580,11 @@ export default function ManagerDashboard() {
                   </button>
                   
                   <button
-                    onClick={downloadCSVReport}
+                    onClick={() => reportData && generateStylishPDFReport(reportData, 'sales')}
                     disabled={!reportData}
                     className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
                   >
-                    <span>Download CSV Report</span>
+                    <span>Download Stylish PDF</span>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
@@ -1635,101 +2592,29 @@ export default function ManagerDashboard() {
                 </div>
               </div>
 
-              {/* Report Preview - FIXED */}
+              {/* Report Preview */}
               {reportData && (
                 <div className="space-y-6">
                   {/* Report Summary */}
-
-                  {/* Sales by Location - FIXED */}
                   <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Sales by Location</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-white">
-                        <thead>
-                          <tr className="border-b border-white/20">
-                            <th className="text-left py-2">Location</th>
-                            <th className="text-left py-2">Sales Count</th>
-                            <th className="text-left py-2">Revenue</th>
-                            <th className="text-left py-2">Percentage</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(reportData.salesByLocation).map(([location, data], index) => (
-                            <tr key={generateSafeKey('sales-loc', index, location)} className="border-b border-white/10">
-                              <td className="py-2 font-medium">{location}</td>
-                              <td className="py-2">{data.count}</td>
-                              <td className="py-2">MK {data.revenue.toFixed(2)}</td>
-                              <td className="py-2">
-                                {reportData.summary.totalRevenue > 0 
-                                  ? `${((data.revenue / reportData.summary.totalRevenue) * 100).toFixed(1)}%`
-                                  : '0%'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Top Products - FIXED */}
-                  <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Top Products</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-white">
-                        <thead>
-                          <tr className="border-b border-white/20">
-                            <th className="text-left py-2">Product</th>
-                            <th className="text-left py-2">Sales Count</th>
-                            <th className="text-left py-2">Revenue</th>
-                            <th className="text-left py-2">Percentage</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportData.topProducts.map((item, index) => (
-                            <tr key={generateSafeKey('top-product', index, item.product)} className="border-b border-white/10">
-                              <td className="py-2 font-medium">{item.product}</td>
-                              <td className="py-2">{item.count}</td>
-                              <td className="py-2">MK {item.revenue.toFixed(2)}</td>
-                              <td className="py-2">
-                                {reportData.summary.totalRevenue > 0 
-                                  ? `${((item.revenue / reportData.summary.totalRevenue) * 100).toFixed(1)}%`
-                                  : '0%'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Top Sellers - FIXED */}
-                  <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Top Sellers</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-white">
-                        <thead>
-                          <tr className="border-b border-white/20">
-                            <th className="text-left py-2">Seller</th>
-                            <th className="text-left py-2">Sales Count</th>
-                            <th className="text-left py-2">Revenue</th>
-                            <th className="text-left py-2">Percentage</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportData.topSellers.map((item, index) => (
-                            <tr key={generateSafeKey('top-seller', index, item.seller)} className="border-b border-white/10">
-                              <td className="py-2 font-medium">{item.seller}</td>
-                              <td className="py-2">{item.count}</td>
-                              <td className="py-2">MK {item.revenue.toFixed(2)}</td>
-                              <td className="py-2">
-                                {reportData.summary.totalRevenue > 0 
-                                  ? `${((item.revenue / reportData.summary.totalRevenue) * 100).toFixed(1)}%`
-                                  : '0%'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <h3 className="text-lg font-semibold text-white mb-4">Report Summary</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-blue-400">{reportData.summary.totalSales}</div>
+                        <div className="text-white/70">Total Sales</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-400">
+                          MK {reportData.summary.totalRevenue.toFixed(2)}
+                        </div>
+                        <div className="text-white/70">Total Revenue</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-purple-400">
+                          MK {reportData.summary.averageSaleValue.toFixed(2)}
+                        </div>
+                        <div className="text-white/70">Average Sale Value</div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1737,7 +2622,7 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Stock Transfer Tab - FIXED */}
+          {/* Stock Transfer Tab */}
           {activeTab === 'transfer' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>Request Stock Transfer</h2>
@@ -1784,10 +2669,48 @@ export default function ManagerDashboard() {
                   Request Stock Transfer
                 </button>
               </div>
+
+              {/* Pending Requests */}
+              {stockRequests.length > 0 && (
+                <div className="mt-8">
+                  <h3 className="text-lg font-semibold text-white mb-4">Pending Stock Requests</h3>
+                  <div className="space-y-4">
+                    {stockRequests.map((request, index) => (
+                      <div key={generateSafeKey('request', index, request.id)} className="bg-white/5 rounded-lg p-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="font-semibold text-white">Item: {request.itemCode}</div>
+                            <div className="text-white/70 text-sm">
+                              From: {request.fromLocation} → To: {request.toLocation}
+                            </div>
+                            <div className="text-white/70 text-sm">Quantity: {request.quantity}</div>
+                            <div className="text-white/70 text-sm">Requested by: {request.requestedByName}</div>
+                          </div>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => handleApproveStockRequest(request.id, request)}
+                              disabled={processingRequest === request.id}
+                              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm"
+                            >
+                              {processingRequest === request.id ? 'Processing...' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => handleRejectStockRequest(request.id, request)}
+                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Personnel Management Tab - FIXED */}
+          {/* Personnel Management Tab */}
           {activeTab === 'personnel' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>Personnel Management</h2>
@@ -1851,18 +2774,18 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Stock Requests Tab - FIXED */}
+          {/* Stock Requests Tab */}
           {activeTab === 'requests' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>
-                Stock Request Approval - {selectedLocation === 'all' ? 'All Locations' : selectedLocation}
+                Stock Request Approval
               </h2>
               
-              {getFilteredStockRequests().length === 0 ? (
+              {stockRequests.length === 0 ? (
                 <p className={'text-white/70'}>No pending stock requests.</p>
               ) : (
                 <div className={'space-y-4'}>
-                  {getFilteredStockRequests().map((request, index) => (
+                  {stockRequests.map((request, index) => (
                     <div key={generateSafeKey('stock-request', index, request.id)} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
                       <div className={'flex justify-between items-start'}>
                         <div className={'flex-1'}>
@@ -1894,7 +2817,21 @@ export default function ManagerDashboard() {
                             </div>
                           </div>
                         </div>
-                        {/* request actions Pending Update*/}
+                        <div className={'flex flex-col space-y-2'}>
+                          <button
+                            onClick={() => handleApproveStockRequest(request.id, request)}
+                            disabled={processingRequest === request.id}
+                            className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors'}
+                          >
+                            {processingRequest === request.id ? 'Processing...' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => handleRejectStockRequest(request.id, request)}
+                            className={'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors'}
+                          >
+                            Reject
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1904,6 +2841,315 @@ export default function ManagerDashboard() {
           )}
         </div>
       </div>
+
+      {/* Report Faulty Phone Modal */}
+      {reportModal && (
+        <div className='fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4'>
+          <div className='bg-slate-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto'>
+            <div className='p-6'>
+              <div className='flex justify-between items-center mb-6'>
+                <h2 className='text-xl font-semibold text-white'>Report Faulty Phone - {user?.location}</h2>
+                <button
+                  onClick={() => setReportModal(false)}
+                  className='text-white/70 hover:text-white'
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Item Code *</label>
+                  <input
+                    type='text'
+                    value={faultyReport.itemCode}
+                    onChange={(e) => setFaultyReport({...faultyReport, itemCode: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter item code'
+                  />
+                  <p className="text-xs text-orange-300 mt-1">Only items from {user?.location} can be reported</p>
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>IMEI (Optional)</label>
+                  <input
+                    type='text'
+                    value={faultyReport.imei}
+                    onChange={(e) => setFaultyReport({...faultyReport, imei: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter IMEI number'
+                  />
+                </div>
+
+                <div className='md:col-span-2'>
+                  <label className='block text-white/70 text-sm mb-2'>Fault Description *</label>
+                  <textarea
+                    value={faultyReport.faultDescription}
+                    onChange={(e) => setFaultyReport({...faultyReport, faultDescription: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-24'
+                    placeholder='Describe the fault in detail...'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Reported Cost (MWK)</label>
+                  <input
+                    type='number'
+                    value={faultyReport.reportedCost}
+                    onChange={(e) => setFaultyReport({...faultyReport, reportedCost: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='0'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Estimated Repair Cost (MWK)</label>
+                  <input
+                    type='number'
+                    value={faultyReport.estimatedRepairCost}
+                    onChange={(e) => setFaultyReport({...faultyReport, estimatedRepairCost: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='0'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Status</label>
+                  <select
+                    value={faultyReport.status}
+                    onChange={(e) => setFaultyReport({...faultyReport, status: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                  >
+                    {FAULTY_STATUS.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className='md:col-span-2'>
+                  <label className='block text-white/70 text-sm mb-2'>Spares Needed</label>
+                  <div className='grid grid-cols-2 md:grid-cols-4 gap-2'>
+                    {SPARES_OPTIONS.map(spare => (
+                      <label key={spare} className='flex items-center'>
+                        <input
+                          type='checkbox'
+                          checked={faultyReport.sparesNeeded.includes(spare)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFaultyReport({
+                                ...faultyReport,
+                                sparesNeeded: [...faultyReport.sparesNeeded, spare]
+                              });
+                            } else {
+                              setFaultyReport({
+                                ...faultyReport,
+                                sparesNeeded: faultyReport.sparesNeeded.filter(s => s !== spare)
+                              });
+                            }
+                          }}
+                          className='mr-2'
+                        />
+                        <span className='text-white/80 text-sm'>{spare}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className='md:col-span-2'>
+                  <label className='block text-white/70 text-sm mb-2'>Other Spares (Specify)</label>
+                  <input
+                    type='text'
+                    value={faultyReport.otherSpares}
+                    onChange={(e) => setFaultyReport({...faultyReport, otherSpares: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Specify other spares needed...'
+                  />
+                </div>
+
+                <div className='md:col-span-2'>
+                  <label className='block text-white/70 text-sm mb-2'>Notes</label>
+                  <textarea
+                    value={faultyReport.notes}
+                    onChange={(e) => setFaultyReport({...faultyReport, notes: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-20'
+                    placeholder='Additional notes...'
+                  />
+                </div>
+              </div>
+
+              <div className='flex justify-end space-x-3 mt-6'>
+                <button
+                  onClick={() => setReportModal(false)}
+                  className='px-4 py-2 text-white/70 hover:text-white'
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReportFaulty}
+                  className='bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg transition-colors'
+                >
+                  Report Faulty
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Installment Modal */}
+      {installmentModal && selectedSaleForInstallment && (
+        <div className='fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4'>
+          <div className='bg-slate-800 rounded-lg max-w-md w-full'>
+            <div className='p-6'>
+              <div className='flex justify-between items-center mb-6'>
+                <h2 className='text-xl font-semibold text-white'>Create Installment Plan</h2>
+                <button
+                  onClick={() => {
+                    setInstallmentModal(false);
+                    setSelectedSaleForInstallment(null);
+                  }}
+                  className='text-white/70 hover:text-white'
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className='space-y-4'>
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Customer Name *</label>
+                  <input
+                    type='text'
+                    value={installmentData.customerName}
+                    onChange={(e) => setInstallmentData({...installmentData, customerName: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter customer name'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Phone Number</label>
+                  <input
+                    type='tel'
+                    value={installmentData.phoneNumber}
+                    onChange={(e) => setInstallmentData({...installmentData, phoneNumber: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter phone number'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Total Amount (MWK)</label>
+                  <input
+                    type='number'
+                    value={installmentData.totalAmount}
+                    onChange={(e) => setInstallmentData({...installmentData, totalAmount: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    readOnly
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Down Payment (MWK)</label>
+                  <input
+                    type='number'
+                    value={installmentData.downPayment}
+                    onChange={(e) => {
+                      const downPayment = parseFloat(e.target.value) || 0;
+                      setInstallmentData({
+                        ...installmentData,
+                        downPayment: downPayment,
+                        remainingAmount: installmentData.totalAmount - downPayment
+                      });
+                    }}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter down payment'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Installment Plan (Months)</label>
+                  <select
+                    value={installmentData.installmentPlan}
+                    onChange={(e) => {
+                      const months = parseInt(e.target.value);
+                      const monthlyPayment = (installmentData.totalAmount - installmentData.downPayment) / months;
+                      setInstallmentData({
+                        ...installmentData,
+                        installmentPlan: e.target.value,
+                        monthlyPayment: monthlyPayment
+                      });
+                    }}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                  >
+                    <option value='1'>1 Month</option>
+                    <option value='2'>2 Months</option>
+                    <option value='3'>3 Months</option>
+                    <option value='4'>4 Months</option>
+                    <option value='5'>5 Months</option>
+                    <option value='6'>6 Months</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Monthly Payment (MWK)</label>
+                  <input
+                    type='number'
+                    value={installmentData.monthlyPayment}
+                    onChange={(e) => setInstallmentData({...installmentData, monthlyPayment: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    readOnly
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Next Payment Date</label>
+                  <input
+                    type='date'
+                    value={installmentData.nextPaymentDate}
+                    onChange={(e) => setInstallmentData({...installmentData, nextPaymentDate: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Notes</label>
+                  <textarea
+                    value={installmentData.notes}
+                    onChange={(e) => setInstallmentData({...installmentData, notes: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-20'
+                    placeholder='Additional notes...'
+                  />
+                </div>
+              </div>
+
+              <div className='flex justify-end space-x-3 mt-6'>
+                <button
+                  onClick={() => {
+                    setInstallmentModal(false);
+                    setSelectedSaleForInstallment(null);
+                  }}
+                  className='px-4 py-2 text-white/70 hover:text-white'
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleProcessInstallment}
+                  className='bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg transition-colors'
+                >
+                  Create Installment
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="mt-8 border-t bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-500 text-sm">
+          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
+        </div>
+      </footer>
     </div>
   );
 }
