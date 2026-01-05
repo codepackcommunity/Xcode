@@ -3331,7 +3331,7 @@ export default function InstallmentSuperAdminDashboard() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full bg-gradient-to-br from-gray-900 to-gray-800 py-4 mt-8">
+      <footer className="w-full fixed bottom-0 left-0 z-10 bg-gradient-to-br from-gray-900 to-gray-800 py-4 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-200 text-sm">
           © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK | INSTALLMENT SYSTEM v2.0
         </div>
