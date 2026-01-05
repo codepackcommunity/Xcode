@@ -16,7 +16,6 @@ export const metadata = {
   title: "KM Electronix - Your Ultimate Phone Plug",
   description: "Your Ultimate Phone Plug | Developed By Cod3pack",
 
-
 };
 
 export default function RootLayout({ children }) {
