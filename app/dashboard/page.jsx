@@ -54,6 +54,8 @@ export default function UserDashboard() {
     quantity: 1,
     customPrice: ''
   });
+  const [quickSaleErrors, setQuickSaleErrors] = useState({});
+  const [isQuickSaleValidating, setIsQuickSaleValidating] = useState(false);
 
   // Faulty phone reporting state
   const [reportModal, setReportModal] = useState(false);
@@ -79,6 +81,8 @@ export default function UserDashboard() {
     images: [],
     notes: ''
   });
+  const [faultyReportErrors, setFaultyReportErrors] = useState({});
+  const [isFaultyValidating, setIsFaultyValidating] = useState(false);
 
   // Installment state
   const [installmentData, setInstallmentData] = useState({
@@ -93,6 +97,8 @@ export default function UserDashboard() {
     nextPaymentDate: '',
     notes: ''
   });
+  const [installmentErrors, setInstallmentErrors] = useState({});
+  const [isInstallmentValidating, setIsInstallmentValidating] = useState(false);
 
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -415,47 +421,273 @@ export default function UserDashboard() {
     };
   }, [router, handleUserAuth, cleanupListeners]);
 
-  // Enhanced Sales functions
-  const handleQuickSale = async () => {
-    if (!quickSale.itemCode) {
-      alert('Please enter an item code.');
-      return;
-    }
+  // VALIDATION FUNCTIONS
 
+  // Validate quick sale
+  const validateQuickSale = async () => {
+    const errors = {};
+    
+    // Check required fields
+    if (!quickSale.itemCode.trim()) {
+      errors.itemCode = 'Item Code is required';
+    }
+    
+    if (!quickSale.quantity) {
+      errors.quantity = 'Quantity is required';
+    } else if (parseInt(quickSale.quantity) <= 0) {
+      errors.quantity = 'Quantity must be greater than 0';
+    } else if (!Number.isInteger(Number(quickSale.quantity))) {
+      errors.quantity = 'Quantity must be a whole number';
+    }
+    
+    if (quickSale.customPrice) {
+      const customPrice = parseFloat(quickSale.customPrice);
+      if (isNaN(customPrice) || customPrice <= 0) {
+        errors.customPrice = 'Custom price must be a positive number';
+      }
+    }
+    
+    // If basic validation fails, return early
+    if (Object.keys(errors).length > 0) {
+      return { errors, isValid: false };
+    }
+    
+    // Validate stock availability
     try {
       const stockQuery = query(
         collection(db, 'stocks'),
-        where('itemCode', '==', quickSale.itemCode),
+        where('itemCode', '==', quickSale.itemCode.trim()),
         where('location', '==', currentLocation)
       );
       
       const stockSnapshot = await getDocs(stockQuery);
       
       if (stockSnapshot.empty) {
-        alert('Item not found in stock for your location!');
-        return;
+        errors.itemCode = `Item not found in ${currentLocation}`;
+        return { errors, isValid: false };
       }
-
+      
       const stockDoc = stockSnapshot.docs[0];
       const stock = stockDoc.data();
+      const requestedQuantity = parseInt(quickSale.quantity);
+      
+      // Validate stock data
+      if (stock.quantity === undefined || stock.quantity === null) {
+        errors.stock = 'Invalid stock data. Please contact administrator.';
+        return { errors, isValid: false };
+      }
+      
+      if (stock.quantity < requestedQuantity) {
+        errors.quantity = `Insufficient stock! Only ${stock.quantity} units available`;
+        return { errors, isValid: false };
+      }
+      
+      // Validate sale price
+      if (quickSale.customPrice) {
+        const customPrice = parseFloat(quickSale.customPrice);
+        const salePrice = parseFloat(stock.salePrice) || 0;
+        const maxDiscount = salePrice * 0.5; // Allow up to 50% discount
+        
+        if (customPrice < salePrice * 0.5) {
+          errors.customPrice = `Custom price too low! Minimum price: MK ${(salePrice * 0.5).toFixed(2)}`;
+          return { errors, isValid: false };
+        }
+        
+        if (customPrice > salePrice * 2) {
+          errors.customPrice = `Custom price too high! Maximum price: MK ${(salePrice * 2).toFixed(2)}`;
+          return { errors, isValid: false };
+        }
+      }
+      
+      return { errors, isValid: true };
+      
+    } catch (error) {
+      console.error('Quick sale validation error:', error);
+      errors.validation = 'Error validating stock. Please try again.';
+      return { errors, isValid: false };
+    }
+  };
 
-      if (!stock.quantity && stock.quantity !== 0) {
-        alert('Invalid stock data. Please contact administrator.');
+  // Validate faulty phone report
+  const validateFaultyReport = async () => {
+    const errors = {};
+    
+    // Required fields
+    if (!faultyReport.itemCode.trim()) {
+      errors.itemCode = 'Item Code is required';
+    }
+    
+    if (!faultyReport.faultDescription.trim()) {
+      errors.faultDescription = 'Fault Description is required';
+    }
+    
+    // Numeric field validation
+    if (faultyReport.reportedCost && (isNaN(parseFloat(faultyReport.reportedCost)) || parseFloat(faultyReport.reportedCost) < 0)) {
+      errors.reportedCost = 'Reported cost must be a positive number';
+    }
+    
+    if (faultyReport.estimatedRepairCost && (isNaN(parseFloat(faultyReport.estimatedRepairCost)) || parseFloat(faultyReport.estimatedRepairCost) < 0)) {
+      errors.estimatedRepairCost = 'Estimated repair cost must be a positive number';
+    }
+    
+    // Phone number validation
+    if (faultyReport.customerPhone) {
+      const phoneRegex = /^(\+?265|0)(\d{9})$/;
+      if (!phoneRegex.test(faultyReport.customerPhone.replace(/\s+/g, ''))) {
+        errors.customerPhone = 'Please enter a valid Malawi phone number';
+      }
+    }
+    
+    // If basic validation fails, return early
+    if (Object.keys(errors).length > 0) {
+      return { errors, isValid: false };
+    }
+    
+    // Validate stock availability
+    try {
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', faultyReport.itemCode.trim()),
+        where('location', '==', currentLocation)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        errors.itemCode = `Item not found in ${currentLocation}`;
+        return { errors, isValid: false };
+      }
+      
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
+      
+      if (stock.quantity < 1) {
+        errors.itemCode = 'Item is out of stock';
+        return { errors, isValid: false };
+      }
+      
+      // Check if item is already marked as faulty
+      const existingFaultyQuery = query(
+        collection(db, 'faultyPhones'),
+        where('itemCode', '==', faultyReport.itemCode.trim()),
+        where('status', 'in', ['Reported', 'In Repair']),
+        where('location', '==', currentLocation)
+      );
+      
+      const existingFaultySnapshot = await getDocs(existingFaultyQuery);
+      if (!existingFaultySnapshot.empty) {
+        errors.itemCode = 'This item is already reported as faulty';
+        return { errors, isValid: false };
+      }
+      
+      return { errors, isValid: true };
+      
+    } catch (error) {
+      console.error('Faulty report validation error:', error);
+      errors.validation = 'Error validating stock. Please try again.';
+      return { errors, isValid: false };
+    }
+  };
+
+  // Validate installment plan
+  const validateInstallmentPlan = () => {
+    const errors = {};
+    
+    // Required fields
+    if (!installmentData.customerName.trim()) {
+      errors.customerName = 'Customer Name is required';
+    }
+    
+    if (!installmentData.totalAmount || parseFloat(installmentData.totalAmount) <= 0) {
+      errors.totalAmount = 'Total Amount must be greater than 0';
+    }
+    
+    // Phone number validation
+    if (installmentData.phoneNumber) {
+      const phoneRegex = /^(\+?265|0)(\d{9})$/;
+      if (!phoneRegex.test(installmentData.phoneNumber.replace(/\s+/g, ''))) {
+        errors.phoneNumber = 'Please enter a valid Malawi phone number';
+      }
+    }
+    
+    // Down payment validation
+    if (installmentData.downPayment) {
+      const downPayment = parseFloat(installmentData.downPayment);
+      const totalAmount = parseFloat(installmentData.totalAmount);
+      
+      if (isNaN(downPayment) || downPayment < 0) {
+        errors.downPayment = 'Down payment must be a positive number';
+      } else if (downPayment > totalAmount) {
+        errors.downPayment = 'Down payment cannot exceed total amount';
+      }
+    }
+    
+    // Installment plan validation
+    const plan = parseInt(installmentData.installmentPlan);
+    if (isNaN(plan) || plan < 1 || plan > 12) {
+      errors.installmentPlan = 'Installment plan must be between 1 and 12 months';
+    }
+    
+    // Next payment date validation
+    if (!installmentData.nextPaymentDate) {
+      errors.nextPaymentDate = 'Next payment date is required';
+    } else {
+      const nextPayment = new Date(installmentData.nextPaymentDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (nextPayment < today) {
+        errors.nextPaymentDate = 'Next payment date cannot be in the past';
+      }
+    }
+    
+    // Monthly payment calculation
+    const totalAmount = parseFloat(installmentData.totalAmount);
+    const downPayment = parseFloat(installmentData.downPayment) || 0;
+    const remainingAmount = totalAmount - downPayment;
+    
+    if (remainingAmount <= 0 && plan > 1) {
+      errors.downPayment = 'Down payment already covers full amount. Select 1 month plan.';
+    }
+    
+    const monthlyPayment = remainingAmount / plan;
+    if (monthlyPayment < 1000 && remainingAmount > 0) {
+      errors.installmentPlan = 'Monthly payment too small. Choose shorter plan.';
+    }
+    
+    return { errors, isValid: Object.keys(errors).length === 0 };
+  };
+
+  // ENHANCED SALES FUNCTIONS WITH VALIDATION
+  const handleQuickSale = async () => {
+    // Clear previous errors
+    setQuickSaleErrors({});
+    setIsQuickSaleValidating(true);
+    
+    try {
+      // Validate all fields
+      const validation = await validateQuickSale();
+      
+      if (!validation.isValid) {
+        setQuickSaleErrors(validation.errors);
+        setIsQuickSaleValidating(false);
         return;
       }
-
-      if (stock.quantity < quickSale.quantity) {
-        alert(`Insufficient stock! Only ${stock.quantity} units available.`);
-        return;
-      }
+      
+      // All validations passed, process sale
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', quickSale.itemCode.trim()),
+        where('location', '==', currentLocation)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
 
       let finalPrice;
       if (quickSale.customPrice) {
         finalPrice = parseFloat(quickSale.customPrice);
-        if (isNaN(finalPrice) || finalPrice <= 0) {
-          alert('Please enter a valid custom price.');
-          return;
-        }
       } else {
         const salePrice = parseFloat(stock.salePrice) || 0;
         const discountPercentage = parseFloat(stock.discountPercentage) || 0;
@@ -464,7 +696,7 @@ export default function UserDashboard() {
 
       const batch = writeBatch(db);
 
-      const newQuantity = stock.quantity - quickSale.quantity;
+      const newQuantity = stock.quantity - parseInt(quickSale.quantity);
       const stockRef = doc(db, 'stocks', stockDoc.id);
       batch.update(stockRef, {
         quantity: newQuantity,
@@ -481,7 +713,7 @@ export default function UserDashboard() {
         storage: stock.storage,
         color: stock.color,
         stockId: stockDoc.id,
-        quantity: quickSale.quantity,
+        quantity: parseInt(quickSale.quantity),
         originalPrice: parseFloat(stock.salePrice) || 0,
         finalSalePrice: finalPrice,
         customPrice: quickSale.customPrice ? parseFloat(quickSale.customPrice) : null,
@@ -492,7 +724,10 @@ export default function UserDashboard() {
         location: currentLocation,
         saleType: quickSale.customPrice ? 'custom_price' : 'standard',
         status: 'completed',
-        paymentType: 'full'
+        paymentType: 'full',
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       };
 
       const salesRef = doc(collection(db, 'sales'));
@@ -500,7 +735,10 @@ export default function UserDashboard() {
 
       await batch.commit();
 
+      // Reset form
       setQuickSale({ itemCode: '', quantity: 1, customPrice: '' });
+      setQuickSaleErrors({});
+      
       alert('Sale completed successfully!');
       
     } catch (error) {
@@ -513,17 +751,22 @@ export default function UserDashboard() {
         errorMessage = 'Stock was modified by another user. Please try again.';
       }
       
+      setQuickSaleErrors({ submission: errorMessage });
       alert(errorMessage);
+    } finally {
+      setIsQuickSaleValidating(false);
     }
   };
 
   const handleSellItem = async (stockId, stockData, quantity = 1) => {
     try {
+      // Validate stock data
       if (!stockData.quantity && stockData.quantity !== 0) {
         alert('Invalid stock data. Please contact administrator.');
         return;
       }
 
+      // Validate quantity
       if (stockData.quantity < quantity) {
         alert(`Insufficient stock! Only ${stockData.quantity} units available.`);
         return;
@@ -531,6 +774,11 @@ export default function UserDashboard() {
 
       if (quantity <= 0) {
         alert('Please enter a valid quantity.');
+        return;
+      }
+
+      if (!Number.isInteger(quantity)) {
+        alert('Quantity must be a whole number.');
         return;
       }
 
@@ -567,7 +815,10 @@ export default function UserDashboard() {
         location: currentLocation,
         saleType: 'standard',
         status: 'completed',
-        paymentType: 'full'
+        paymentType: 'full',
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       };
 
       const salesRef = doc(collection(db, 'sales'));
@@ -591,34 +842,32 @@ export default function UserDashboard() {
     }
   };
 
-  // Enhanced Faulty Phone Functions
+  // ENHANCED FAULTY PHONE FUNCTIONS WITH VALIDATION
   const handleReportFaulty = async () => {
+    // Clear previous errors
+    setFaultyReportErrors({});
+    setIsFaultyValidating(true);
+    
     try {
-      if (!faultyReport.itemCode || !faultyReport.faultDescription) {
-        alert('Please fill in required fields: Item Code and Fault Description');
+      // Validate all fields
+      const validation = await validateFaultyReport();
+      
+      if (!validation.isValid) {
+        setFaultyReportErrors(validation.errors);
+        setIsFaultyValidating(false);
         return;
       }
-
+      
+      // All validations passed, report faulty
       const stockQuery = query(
         collection(db, 'stocks'),
-        where('itemCode', '==', faultyReport.itemCode),
+        where('itemCode', '==', faultyReport.itemCode.trim()),
         where('location', '==', currentLocation)
       );
       
       const stockSnapshot = await getDocs(stockQuery);
-      
-      if (stockSnapshot.empty) {
-        alert('Item not found in stock for your location!');
-        return;
-      }
-
       const stockDoc = stockSnapshot.docs[0];
       const stock = stockDoc.data();
-
-      if (stock.quantity < 1) {
-        alert('Item out of stock!');
-        return;
-      }
 
       const batch = writeBatch(db);
 
@@ -651,7 +900,10 @@ export default function UserDashboard() {
         reportedBy: user.uid,
         reportedByName: user.fullName,
         location: currentLocation,
-        lastUpdated: serverTimestamp()
+        lastUpdated: serverTimestamp(),
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       };
 
       const faultyRef = doc(collection(db, 'faultyPhones'));
@@ -659,6 +911,7 @@ export default function UserDashboard() {
 
       await batch.commit();
 
+      // Reset form
       setFaultyReport({
         itemCode: '',
         stockId: '',
@@ -676,17 +929,32 @@ export default function UserDashboard() {
         images: [],
         notes: ''
       });
+      setFaultyReportErrors({});
 
       setReportModal(false);
       alert('Faulty phone reported successfully! Stock has been updated.');
       
     } catch (error) {
       console.error('Error reporting faulty phone:', error);
+      setFaultyReportErrors({ submission: 'Error reporting faulty phone. Please try again.' });
       alert('Error reporting faulty phone. Please try again.');
+    } finally {
+      setIsFaultyValidating(false);
     }
   };
 
   const handleUpdateFaultyStatus = async (faultyId, updates) => {
+    // Validate updates
+    if (!updates.status || !FAULTY_STATUS.includes(updates.status)) {
+      alert('Invalid status selected.');
+      return;
+    }
+    
+    if (updates.repairCost && (isNaN(parseFloat(updates.repairCost)) || parseFloat(updates.repairCost) < 0)) {
+      alert('Repair cost must be a positive number.');
+      return;
+    }
+
     try {
       const batch = writeBatch(db);
       const faultyRef = doc(db, 'faultyPhones', faultyId);
@@ -725,7 +993,10 @@ export default function UserDashboard() {
             repairedBy: user.uid,
             repairedByName: user.fullName,
             location: currentLocation,
-            notes: updates.updateNotes
+            notes: updates.updateNotes,
+            validatedAt: serverTimestamp(),
+            validatedBy: user.uid,
+            validatedByName: user.fullName
           };
 
           const repairRef = doc(collection(db, 'repairs'));
@@ -737,7 +1008,10 @@ export default function UserDashboard() {
         ...updates,
         lastUpdated: serverTimestamp(),
         updatedBy: user.uid,
-        updatedByName: user.fullName
+        updatedByName: user.fullName,
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       });
 
       await batch.commit();
@@ -1013,22 +1287,48 @@ export default function UserDashboard() {
     doc.save(`Sales_Receipt_${sale.itemCode}_${Date.now()}.pdf`);
   };
 
-  // Installment Functions
+  // ENHANCED INSTALLMENT FUNCTIONS WITH VALIDATION
   const handleProcessInstallment = async () => {
+    // Clear previous errors
+    setInstallmentErrors({});
+    setIsInstallmentValidating(true);
+    
     try {
-      if (!installmentData.saleId || !installmentData.customerName || !installmentData.totalAmount) {
-        alert('Please fill in required fields');
+      // Validate all fields
+      const validation = validateInstallmentPlan();
+      
+      if (!validation.isValid) {
+        setInstallmentErrors(validation.errors);
+        setIsInstallmentValidating(false);
         return;
       }
-
+      
+      // Check if sale exists and is not already on installment
+      const saleRef = doc(db, 'sales', installmentData.saleId);
+      const saleDoc = await getDoc(saleRef);
+      
+      if (!saleDoc.exists()) {
+        setInstallmentErrors({ saleId: 'Sale record not found' });
+        setIsInstallmentValidating(false);
+        return;
+      }
+      
+      const saleData = saleDoc.data();
+      if (saleData.paymentType === 'installment') {
+        setInstallmentErrors({ saleId: 'This sale already has an installment plan' });
+        setIsInstallmentValidating(false);
+        return;
+      }
+      
+      // All validations passed, create installment
       const installmentDataToSave = {
         saleId: installmentData.saleId,
-        customerName: installmentData.customerName,
-        phoneNumber: installmentData.phoneNumber,
+        customerName: installmentData.customerName.trim(),
+        phoneNumber: installmentData.phoneNumber.trim(),
         totalAmount: parseFloat(installmentData.totalAmount),
         downPayment: parseFloat(installmentData.downPayment) || 0,
         remainingAmount: parseFloat(installmentData.totalAmount) - (parseFloat(installmentData.downPayment) || 0),
-        installmentPlan: installmentData.installmentPlan,
+        installmentPlan: parseInt(installmentData.installmentPlan),
         monthlyPayment: parseFloat(installmentData.monthlyPayment) || 0,
         nextPaymentDate: installmentData.nextPaymentDate,
         notes: installmentData.notes,
@@ -1040,13 +1340,17 @@ export default function UserDashboard() {
         payments: installmentData.downPayment > 0 ? [{
           amount: parseFloat(installmentData.downPayment),
           date: new Date().toISOString().split('T')[0],
-          type: 'down_payment'
-        }] : []
+          type: 'down_payment',
+          receivedBy: user.uid,
+          receivedByName: user.fullName
+        }] : [],
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       };
 
       const installmentRef = await addDoc(collection(db, 'installments'), installmentDataToSave);
 
-      const saleRef = doc(db, 'sales', installmentData.saleId);
       await updateDoc(saleRef, {
         paymentType: 'installment',
         installmentId: installmentRef.id,
@@ -1068,15 +1372,22 @@ export default function UserDashboard() {
         nextPaymentDate: '',
         notes: ''
       });
+      setInstallmentErrors({});
 
     } catch (error) {
       console.error('Error processing installment:', error);
+      setInstallmentErrors({ submission: 'Error creating installment plan. Please try again.' });
       alert('Error creating installment plan. Please try again.');
+    } finally {
+      setIsInstallmentValidating(false);
     }
   };
 
   const openInstallmentModal = (sale) => {
     setSelectedSaleForInstallment(sale);
+    const nextMonth = new Date();
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    
     setInstallmentData({
       saleId: sale.id,
       customerName: '',
@@ -1084,11 +1395,12 @@ export default function UserDashboard() {
       totalAmount: sale.finalSalePrice,
       downPayment: 0,
       remainingAmount: sale.finalSalePrice,
-      installmentPlan: '1',
-      monthlyPayment: sale.finalSalePrice,
-      nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      installmentPlan: '3',
+      monthlyPayment: sale.finalSalePrice / 3,
+      nextPaymentDate: nextMonth.toISOString().split('T')[0],
       notes: ''
     });
+    setInstallmentErrors({});
     setInstallmentModal(true);
   };
 
@@ -1460,8 +1772,10 @@ export default function UserDashboard() {
                             <button
                               onClick={() => {
                                 const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
-                                if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
+                                if (quantity && !isNaN(quantity) && parseInt(quantity) > 0 && Number.isInteger(Number(quantity))) {
                                   handleSellItem(stock.id, stock, parseInt(quantity));
+                                } else {
+                                  alert('Please enter a valid whole number quantity.');
                                 }
                               }}
                               className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
@@ -1489,6 +1803,7 @@ export default function UserDashboard() {
           {activeTab === 'quickSale' && (
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
               <h2 className='text-xl font-semibold text-white mb-6'>Quick Sale - {currentLocation}</h2>
+              <p className="text-white/70 mb-6">All fields are required and will be validated before processing.</p>
               
               <div className='max-w-md mx-auto space-y-6'>
                 {/* Quick Sale Form */}
@@ -1496,44 +1811,62 @@ export default function UserDashboard() {
                   <h3 className='text-lg font-semibold text-white mb-4'>Process Sale</h3>
                   <div className='space-y-4'>
                     <div>
-                      <label className='block text-white/70 text-sm mb-2'>Item Code</label>
+                      <label className='block text-white/70 text-sm mb-2'>Item Code *</label>
                       <input
                         type='text'
                         placeholder='Enter item code...'
                         value={quickSale.itemCode}
                         onChange={(e) => setQuickSale({...quickSale, itemCode: e.target.value})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                        className={`w-full bg-white/10 border ${quickSaleErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
                       />
+                      {quickSaleErrors.itemCode && (
+                        <p className="text-red-400 text-sm mt-1">{quickSaleErrors.itemCode}</p>
+                      )}
                     </div>
                     <div>
-                      <label className='block text-white/70 text-sm mb-2'>Quantity</label>
+                      <label className='block text-white/70 text-sm mb-2'>Quantity *</label>
                       <input
                         type='number'
                         min='1'
                         value={quickSale.quantity}
                         onChange={(e) => setQuickSale({...quickSale, quantity: parseInt(e.target.value) || 1})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                        className={`w-full bg-white/10 border ${quickSaleErrors.quantity ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                       />
+                      {quickSaleErrors.quantity && (
+                        <p className="text-red-400 text-sm mt-1">{quickSaleErrors.quantity}</p>
+                      )}
                     </div>
                     <div>
                       <label className='block text-white/70 text-sm mb-2'>
                         Custom Price (Optional)
-                        <span className='text-white/50 text-xs ml-1'>- Leave empty for standard price</span>
+                        <span className='text-white/50 text-xs ml-1'>- Enter to override standard price</span>
                       </label>
                       <input
                         type='number'
+                        min='0'
+                        step='0.01'
                         placeholder='Enter custom price...'
                         value={quickSale.customPrice}
                         onChange={(e) => setQuickSale({...quickSale, customPrice: e.target.value})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                        className={`w-full bg-white/10 border ${quickSaleErrors.customPrice ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
                       />
+                      {quickSaleErrors.customPrice && (
+                        <p className="text-red-400 text-sm mt-1">{quickSaleErrors.customPrice}</p>
+                      )}
                     </div>
+                    
+                    {quickSaleErrors.submission && (
+                      <div className="p-3 bg-red-500/20 border border-red-500/50 rounded">
+                        <p className="text-red-300 text-sm">{quickSaleErrors.submission}</p>
+                      </div>
+                    )}
+                    
                     <button
                       onClick={handleQuickSale}
-                      disabled={!quickSale.itemCode}
-                      className='w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors font-semibold'
+                      disabled={isQuickSaleValidating || !quickSale.itemCode}
+                      className='w-full bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white px-6 py-3 rounded-lg transition-colors font-semibold'
                     >
-                      Process Sale
+                      {isQuickSaleValidating ? 'Validating...' : 'Process Sale'}
                     </button>
                   </div>
                 </div>
@@ -1551,10 +1884,15 @@ export default function UserDashboard() {
                         <div>
                           <div className='text-white font-mono text-sm'>{stock.itemCode}</div>
                           <div className='text-white/70 text-xs'>{stock.brand} {stock.model}</div>
+                          <div className='text-white/50 text-xs'>{stock.quantity} available</div>
                         </div>
                         <div className='text-right'>
                           <div className='text-green-400 text-sm'>MK {stock.salePrice || 0}</div>
-                          <div className='text-white/50 text-xs'>{stock.quantity} available</div>
+                          {stock.discountPercentage > 0 && (
+                            <div className='text-orange-400 text-xs'>
+                              Save {stock.discountPercentage}%
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1928,6 +2266,8 @@ export default function UserDashboard() {
                   ✕
                 </button>
               </div>
+              
+              <p className="text-white/70 mb-4">Fields marked with * are required.</p>
 
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                 <div>
@@ -1936,10 +2276,12 @@ export default function UserDashboard() {
                     type='text'
                     value={faultyReport.itemCode}
                     onChange={(e) => setFaultyReport({...faultyReport, itemCode: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${faultyReportErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     placeholder='Enter item code'
                   />
-                  <p className='text-xs text-orange-300 mt-1'>Only items from your location can be reported</p>
+                  {faultyReportErrors.itemCode && (
+                    <p className="text-red-400 text-sm mt-1">{faultyReportErrors.itemCode}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1958,31 +2300,44 @@ export default function UserDashboard() {
                   <textarea
                     value={faultyReport.faultDescription}
                     onChange={(e) => setFaultyReport({...faultyReport, faultDescription: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-24'
+                    className={`w-full bg-white/10 border ${faultyReportErrors.faultDescription ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white h-24`}
                     placeholder='Describe the fault in detail...'
                   />
+                  {faultyReportErrors.faultDescription && (
+                    <p className="text-red-400 text-sm mt-1">{faultyReportErrors.faultDescription}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className='block text-white/70 text-sm mb-2'>Reported Cost (MWK)</label>
                   <input
                     type='number'
+                    min='0'
+                    step='0.01'
                     value={faultyReport.reportedCost}
                     onChange={(e) => setFaultyReport({...faultyReport, reportedCost: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${faultyReportErrors.reportedCost ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     placeholder='0'
                   />
+                  {faultyReportErrors.reportedCost && (
+                    <p className="text-red-400 text-sm mt-1">{faultyReportErrors.reportedCost}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className='block text-white/70 text-sm mb-2'>Estimated Repair Cost (MWK)</label>
                   <input
                     type='number'
+                    min='0'
+                    step='0.01'
                     value={faultyReport.estimatedRepairCost}
                     onChange={(e) => setFaultyReport({...faultyReport, estimatedRepairCost: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${faultyReportErrors.estimatedRepairCost ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     placeholder='0'
                   />
+                  {faultyReportErrors.estimatedRepairCost && (
+                    <p className="text-red-400 text-sm mt-1">{faultyReportErrors.estimatedRepairCost}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1996,6 +2351,31 @@ export default function UserDashboard() {
                       <option key={status} value={status}>{status}</option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Customer Name (Optional)</label>
+                  <input
+                    type='text'
+                    value={faultyReport.customerName}
+                    onChange={(e) => setFaultyReport({...faultyReport, customerName: e.target.value})}
+                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    placeholder='Enter customer name'
+                  />
+                </div>
+
+                <div>
+                  <label className='block text-white/70 text-sm mb-2'>Customer Phone (Optional)</label>
+                  <input
+                    type='tel'
+                    value={faultyReport.customerPhone}
+                    onChange={(e) => setFaultyReport({...faultyReport, customerPhone: e.target.value})}
+                    className={`w-full bg-white/10 border ${faultyReportErrors.customerPhone ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                    placeholder='e.g., 0881234567'
+                  />
+                  {faultyReportErrors.customerPhone && (
+                    <p className="text-red-400 text-sm mt-1">{faultyReportErrors.customerPhone}</p>
+                  )}
                 </div>
 
                 <div className='md:col-span-2'>
@@ -2039,7 +2419,7 @@ export default function UserDashboard() {
                 </div>
 
                 <div className='md:col-span-2'>
-                  <label className='block text-white/70 text-sm mb-2'>Notes</label>
+                  <label className='block text-white/70 text-sm mb-2'>Notes (Optional)</label>
                   <textarea
                     value={faultyReport.notes}
                     onChange={(e) => setFaultyReport({...faultyReport, notes: e.target.value})}
@@ -2048,6 +2428,12 @@ export default function UserDashboard() {
                   />
                 </div>
               </div>
+
+              {faultyReportErrors.submission && (
+                <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded">
+                  <p className="text-red-300 text-sm">{faultyReportErrors.submission}</p>
+                </div>
+              )}
 
               <div className='flex justify-end space-x-3 mt-6'>
                 <button
@@ -2058,9 +2444,10 @@ export default function UserDashboard() {
                 </button>
                 <button
                   onClick={handleReportFaulty}
-                  className='bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg transition-colors'
+                  disabled={isFaultyValidating}
+                  className='bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800 text-white px-6 py-2 rounded-lg transition-colors'
                 >
-                  Report Faulty
+                  {isFaultyValidating ? 'Validating...' : 'Report Faulty'}
                 </button>
               </div>
             </div>
@@ -2088,7 +2475,7 @@ export default function UserDashboard() {
 
               <div className='space-y-4'>
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Status</label>
+                  <label className='block text-white/70 text-sm mb-2'>Status *</label>
                   <select
                     value={selectedFaulty.status}
                     onChange={(e) => setSelectedFaulty({...selectedFaulty, status: e.target.value})}
@@ -2104,6 +2491,8 @@ export default function UserDashboard() {
                   <label className='block text-white/70 text-sm mb-2'>Actual Repair Cost (MWK)</label>
                   <input
                     type='number'
+                    min='0'
+                    step='0.01'
                     value={selectedFaulty.actualRepairCost || ''}
                     onChange={(e) => setSelectedFaulty({...selectedFaulty, actualRepairCost: e.target.value})}
                     className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
@@ -2204,53 +2593,70 @@ export default function UserDashboard() {
                     type='text'
                     value={installmentData.customerName}
                     onChange={(e) => setInstallmentData({...installmentData, customerName: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${installmentErrors.customerName ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     placeholder='Enter customer name'
                   />
+                  {installmentErrors.customerName && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.customerName}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Phone Number</label>
+                  <label className='block text-white/70 text-sm mb-2'>Phone Number (Optional)</label>
                   <input
                     type='tel'
                     value={installmentData.phoneNumber}
                     onChange={(e) => setInstallmentData({...installmentData, phoneNumber: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter phone number'
+                    className={`w-full bg-white/10 border ${installmentErrors.phoneNumber ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                    placeholder='e.g., 0881234567'
                   />
+                  {installmentErrors.phoneNumber && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.phoneNumber}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Total Amount (MWK)</label>
+                  <label className='block text-white/70 text-sm mb-2'>Total Amount (MWK) *</label>
                   <input
                     type='number'
+                    min='0'
+                    step='0.01'
                     value={installmentData.totalAmount}
                     onChange={(e) => setInstallmentData({...installmentData, totalAmount: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${installmentErrors.totalAmount ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     readOnly
                   />
+                  {installmentErrors.totalAmount && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.totalAmount}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className='block text-white/70 text-sm mb-2'>Down Payment (MWK)</label>
                   <input
                     type='number'
+                    min='0'
+                    step='0.01'
                     value={installmentData.downPayment}
                     onChange={(e) => {
                       const downPayment = parseFloat(e.target.value) || 0;
                       setInstallmentData({
                         ...installmentData,
                         downPayment: downPayment,
-                        remainingAmount: installmentData.totalAmount - downPayment
+                        remainingAmount: installmentData.totalAmount - downPayment,
+                        monthlyPayment: (installmentData.totalAmount - downPayment) / parseInt(installmentData.installmentPlan)
                       });
                     }}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${installmentErrors.downPayment ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                     placeholder='Enter down payment'
                   />
+                  {installmentErrors.downPayment && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.downPayment}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Installment Plan (Months)</label>
+                  <label className='block text-white/70 text-sm mb-2'>Installment Plan (Months) *</label>
                   <select
                     value={installmentData.installmentPlan}
                     onChange={(e) => {
@@ -2262,7 +2668,7 @@ export default function UserDashboard() {
                         monthlyPayment: monthlyPayment
                       });
                     }}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${installmentErrors.installmentPlan ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                   >
                     <option value='1'>1 Month</option>
                     <option value='2'>2 Months</option>
@@ -2271,13 +2677,18 @@ export default function UserDashboard() {
                     <option value='5'>5 Months</option>
                     <option value='6'>6 Months</option>
                   </select>
+                  {installmentErrors.installmentPlan && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.installmentPlan}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Monthly Payment (MWK)</label>
+                  <label className='block text-white/70 text-sm mb-2'>Monthly Payment (MWK) *</label>
                   <input
                     type='number'
-                    value={installmentData.monthlyPayment}
+                    min='0'
+                    step='0.01'
+                    value={installmentData.monthlyPayment.toFixed(2)}
                     onChange={(e) => setInstallmentData({...installmentData, monthlyPayment: e.target.value})}
                     className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
                     readOnly
@@ -2285,17 +2696,20 @@ export default function UserDashboard() {
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Next Payment Date</label>
+                  <label className='block text-white/70 text-sm mb-2'>Next Payment Date *</label>
                   <input
                     type='date'
                     value={installmentData.nextPaymentDate}
                     onChange={(e) => setInstallmentData({...installmentData, nextPaymentDate: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    className={`w-full bg-white/10 border ${installmentErrors.nextPaymentDate ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
                   />
+                  {installmentErrors.nextPaymentDate && (
+                    <p className="text-red-400 text-sm mt-1">{installmentErrors.nextPaymentDate}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className='block text-white/70 text-sm mb-2'>Notes</label>
+                  <label className='block text-white/70 text-sm mb-2'>Notes (Optional)</label>
                   <textarea
                     value={installmentData.notes}
                     onChange={(e) => setInstallmentData({...installmentData, notes: e.target.value})}
@@ -2304,6 +2718,12 @@ export default function UserDashboard() {
                   />
                 </div>
               </div>
+
+              {installmentErrors.submission && (
+                <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded">
+                  <p className="text-red-300 text-sm">{installmentErrors.submission}</p>
+                </div>
+              )}
 
               <div className='flex justify-end space-x-3 mt-6'>
                 <button
@@ -2317,9 +2737,10 @@ export default function UserDashboard() {
                 </button>
                 <button
                   onClick={handleProcessInstallment}
-                  className='bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg transition-colors'
+                  disabled={isInstallmentValidating}
+                  className='bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 text-white px-6 py-2 rounded-lg transition-colors'
                 >
-                  Create Installment
+                  {isInstallmentValidating ? 'Validating...' : 'Create Installment'}
                 </button>
               </div>
             </div>

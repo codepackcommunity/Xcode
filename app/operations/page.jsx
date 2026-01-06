@@ -21,166 +21,9 @@ import {
   FaPercent, FaCalendarPlus, FaClock, FaCalculator,
   FaRegMoneyBillAlt, FaChartLine, FaTachometerAlt,
   FaHandHoldingUsd, FaUserCheck, FaUserTimes, FaChartPie,
-  FaBoxes, FaDollarSign, FaShieldAlt, FaListAlt
+  FaBoxes, FaDollarSign, FaShieldAlt, FaListAlt,
+  FaShoppingCart, FaStore, FaReceipt, FaClipboardList
 } from 'react-icons/fa';
-
-// ==================== DATABASE STRUCTURE ====================
-/*
-ALL COLLECTIONS MUST MATCH THE FIRST DASHBOARD STRUCTURE:
-
-1. users (User Management) - SAME STRUCTURE
-   - id (auto)
-   - uid (Firebase Auth UID)
-   - email
-   - fullName
-   - role: 'superadmin' | 'manager' | 'sales' | 'dataEntry' | 'user'
-   - location: 'Lilongwe' | 'Blantyre' | 'Zomba' | 'Mzuzu' | 'Chitipa' | 'Salima'
-   - status: 'pending' | 'approved' | 'rejected'
-   - phone: string
-   - createdAt: timestamp
-   - updatedAt: timestamp
-   - approvedBy: uid
-   - approvedByName: string
-   - approvedAt: timestamp
-   - rejectedBy: uid
-   - rejectedByName: string
-   - rejectedAt: timestamp
-   - rejectionReason: string
-
-2. stocks (Inventory Management) - SAME STRUCTURE
-   - id (auto)
-   - itemCode: string (unique identifier)
-   - brand: string
-   - model: string
-   - category: 'Smartphone' | 'Tablet' | 'Laptop' | 'Accessory' | 'TV' | 'Audio' | 'Other'
-   - color: string
-   - storage: string
-   - quantity: number
-   - costPrice: number (in MWK)
-   - retailPrice: number (in MWK)
-   - wholesalePrice: number (in MWK)
-   - discountPercentage: number (0-100)
-   - minStockLevel: number
-   - reorderQuantity: number
-   - location: string
-   - supplier: string
-   - warrantyPeriod: number (months)
-   - description: string
-   - createdAt: timestamp
-   - updatedAt: timestamp
-   - addedBy: uid
-   - addedByName: string
-   - isActive: boolean (true)
-
-3. sales (Sales Records) - SAME STRUCTURE
-   - id (auto)
-   - itemCode: string
-   - brand: string
-   - model: string
-   - category: string
-   - color: string
-   - storage: string
-   - quantity: number
-   - costPrice: number
-   - salePrice: number
-   - discountPercentage: number
-   - finalSalePrice: number (salePrice - discount)
-   - profit: number (finalSalePrice - costPrice)
-   - paymentMethod: 'cash' | 'mobile_money' | 'bank_transfer' | 'installment'
-   - customerName: string
-   - customerPhone: string
-   - customerEmail: string
-   - customerAddress: string
-   - location: string
-   - soldBy: uid
-   - soldByName: string
-   - soldAt: timestamp
-   - receiptNumber: string
-   - notes: string
-
-4. installments (Installment Plans) - NEW COLLECTION
-   - id (auto)
-   - installmentNumber: string (e.g., INST-001)
-   - customerName: string
-   - customerPhone: string
-   - customerEmail: string
-   - customerAddress: string
-   - nationalId: string
-   - itemId: string (reference to stocks.id)
-   - itemCode: string
-   - itemName: string (brand + model)
-   - itemCategory: string
-   - location: string
-   - totalAmount: number (retail price)
-   - initialPayment: number (60% of totalAmount)
-   - initialPaymentDate: timestamp
-   - installmentAmount: number (monthly payment)
-   - totalInstallments: number (6, 12, 18, 24)
-   - paidInstallments: number
-   - remainingInstallments: number
-   - totalPaid: number (initial + all installments paid)
-   - totalPending: number (totalAmount - totalPaid)
-   - startDate: timestamp
-   - nextDueDate: timestamp
-   - lastPaymentDate: timestamp
-   - status: 'active' | 'completed' | 'defaulted' | 'cancelled'
-   - defaultDate: timestamp (if defaulted)
-   - completionDate: timestamp (if completed)
-   - guarantorName: string
-   - guarantorPhone: string
-   - guarantorAddress: string
-   - notes: string
-   - createdBy: uid
-   - createdByName: string
-   - createdAt: timestamp
-   - updatedAt: timestamp
-
-5. installmentPayments (Payment Records) - NEW COLLECTION
-   - id (auto)
-   - installmentId: string (reference to installments.id)
-   - installmentNumber: string
-   - customerName: string
-   - customerPhone: string
-   - paymentNumber: number (1, 2, 3...)
-   - paymentType: 'initial' | 'installment' | 'final' | 'penalty'
-   - amount: number
-   - paymentDate: timestamp
-   - paymentMethod: 'cash' | 'mobile_money' | 'bank_transfer'
-   - receiptNumber: string
-   - collectedBy: uid
-   - collectedByName: string
-   - recordedBy: uid
-   - recordedByName: string
-   - notes: string
-   - isLate: boolean
-   - lateFee: number
-   - createdAt: timestamp
-
-6. installmentSettings (System Settings) - NEW COLLECTION
-   - id: 'installment_settings' (single document)
-   - initialPaymentPercentage: number (60)
-   - latePaymentFee: number (percentage or fixed amount)
-   - gracePeriodDays: number (7)
-   - maxInstallmentPeriod: number (24)
-   - minInstallmentPeriod: number (6)
-   - allowedCategories: array ['Smartphone', 'Tablet', 'Laptop', 'TV']
-   - requireGuarantor: boolean
-   - requireNationalId: boolean
-   - updatedAt: timestamp
-   - updatedBy: uid
-
-7. installmentReports (Report History) - NEW COLLECTION
-   - id (auto)
-   - reportType: 'installment_summary' | 'payment_history' | 'default_report'
-   - period: 'daily' | 'weekly' | 'monthly' | 'custom'
-   - startDate: timestamp
-   - endDate: timestamp
-   - generatedBy: uid
-   - generatedByName: string
-   - fileName: string
-   - downloadCount: number
-   - createdAt: timestamp
-*/
 
 // Locations - MUST MATCH FIRST DASHBOARD
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
@@ -204,7 +47,10 @@ export default function InstallmentSuperAdminDashboard() {
     defaultedInstallments: 0,
     todayPayments: 0,
     todayRevenue: 0,
-    monthlyRevenue: 0
+    monthlyRevenue: 0,
+    totalSales: 0,
+    todaySales: 0,
+    monthlySales: 0
   });
 
   // Stocks State
@@ -230,6 +76,19 @@ export default function InstallmentSuperAdminDashboard() {
     supplier: '',
     warrantyPeriod: '12',
     description: ''
+  });
+
+  // Sales State
+  const [sales, setSales] = useState([]);
+  const [filteredSales, setFilteredSales] = useState([]);
+  const [salesSearch, setSalesSearch] = useState('');
+  const [salesFilter, setSalesFilter] = useState({
+    startDate: '',
+    endDate: '',
+    location: 'all',
+    paymentMethod: 'all',
+    minAmount: '',
+    maxAmount: ''
   });
 
   // Installments State
@@ -308,9 +167,133 @@ export default function InstallmentSuperAdminDashboard() {
   const [success, setSuccess] = useState(null);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Form Validation State
+  const [formErrors, setFormErrors] = useState({
+    stock: {},
+    installment: {},
+    payment: {}
+  });
+
+  // ==================== VALIDATION FUNCTIONS ====================
+
+  const validateStockForm = () => {
+    const errors = {};
+    let isValid = true;
+
+    // Required fields
+    if (!stockForm.brand.trim()) {
+      errors.brand = 'Brand is required';
+      isValid = false;
+    }
+    if (!stockForm.model.trim()) {
+      errors.model = 'Model is required';
+      isValid = false;
+    }
+    if (!stockForm.itemCode.trim()) {
+      errors.itemCode = 'Item Code is required';
+      isValid = false;
+    }
+
+    // Numeric validations
+    const quantity = parseInt(stockForm.quantity);
+    if (isNaN(quantity) || quantity < 0) {
+      errors.quantity = 'Quantity must be ≥ 0';
+      isValid = false;
+    }
+
+    const costPrice = parseFloat(stockForm.costPrice);
+    if (isNaN(costPrice) || costPrice < 0) {
+      errors.costPrice = 'Cost Price must be ≥ 0';
+      isValid = false;
+    }
+
+    const retailPrice = parseFloat(stockForm.retailPrice);
+    if (isNaN(retailPrice) || retailPrice < 0) {
+      errors.retailPrice = 'Retail Price must be ≥ 0';
+      isValid = false;
+    }
+
+    // Location validation
+    if (!stockForm.location) {
+      errors.location = 'Location is required';
+      isValid = false;
+    }
+
+    setFormErrors(prev => ({ ...prev, stock: errors }));
+    return isValid;
+  };
+
+  const validateInstallmentForm = () => {
+    const errors = {};
+    let isValid = true;
+
+    // Required fields
+    if (!newInstallment.customerName.trim()) {
+      errors.customerName = 'Customer Name is required';
+      isValid = false;
+    }
+    if (!newInstallment.customerPhone.trim()) {
+      errors.customerPhone = 'Phone Number is required';
+      isValid = false;
+    }
+
+    // Total amount validation
+    const totalAmount = parseFloat(newInstallment.totalAmount);
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      errors.totalAmount = 'Total Amount must be > 0';
+      isValid = false;
+    }
+
+    // Item selection validation
+    if (!newInstallment.itemId) {
+      errors.itemId = 'Please select an item';
+      isValid = false;
+    }
+
+    // Guarantor validation if required
+    if (installmentSettings.requireGuarantor) {
+      if (!newInstallment.guarantorName.trim()) {
+        errors.guarantorName = 'Guarantor Name is required';
+        isValid = false;
+      }
+      if (!newInstallment.guarantorPhone.trim()) {
+        errors.guarantorPhone = 'Guarantor Phone is required';
+        isValid = false;
+      }
+    }
+
+    // National ID validation if required
+    if (installmentSettings.requireNationalId && !newInstallment.nationalId.trim()) {
+      errors.nationalId = 'National ID is required';
+      isValid = false;
+    }
+
+    setFormErrors(prev => ({ ...prev, installment: errors }));
+    return isValid;
+  };
+
+  const validatePaymentForm = () => {
+    const errors = {};
+    let isValid = true;
+
+    if (!paymentForm.installmentId) {
+      errors.installmentId = 'Please select an installment';
+      isValid = false;
+    }
+
+    const amount = parseFloat(paymentForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      errors.amount = 'Amount must be > 0';
+      isValid = false;
+    }
+
+    setFormErrors(prev => ({ ...prev, payment: errors }));
+    return isValid;
+  };
 
   // Format currency - MUST MATCH FIRST DASHBOARD
   const formatCurrency = (amount) => {
@@ -406,6 +389,15 @@ export default function InstallmentSuperAdminDashboard() {
       }));
       setStocks(stocksData);
 
+      // Fetch sales
+      const salesQuery = query(collection(db, 'sales'), orderBy('soldAt', 'desc'));
+      const salesSnapshot = await getDocs(salesQuery);
+      const salesData = salesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSales(salesData);
+
       // Fetch installments
       const installmentsQuery = query(collection(db, 'installments'), orderBy('createdAt', 'desc'));
       const installmentsSnapshot = await getDocs(installmentsQuery);
@@ -434,7 +426,7 @@ export default function InstallmentSuperAdminDashboard() {
       setGeneratedReports(reportsData);
 
       // Calculate dashboard stats
-      calculateDashboardStats(stocksData, installmentsData, paymentsData);
+      calculateDashboardStats(stocksData, installmentsData, paymentsData, salesData);
 
     } catch (error) {
       setError('Failed to fetch data: ' + error.message);
@@ -442,7 +434,7 @@ export default function InstallmentSuperAdminDashboard() {
   }, []);
 
   // Calculate dashboard statistics
-  const calculateDashboardStats = (stocksData, installmentsData, paymentsData) => {
+  const calculateDashboardStats = (stocksData, installmentsData, paymentsData, salesData) => {
     try {
       // Stock stats
       const totalStockValue = stocksData.reduce((sum, stock) => 
@@ -475,7 +467,10 @@ export default function InstallmentSuperAdminDashboard() {
       const totalPending = installmentsData.reduce((sum, installment) => 
         sum + (parseFloat(installment.totalPending) || 0), 0);
 
-      // Today's payments
+      // Sales stats
+      const totalSales = salesData.length;
+      
+      // Today's stats
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
@@ -491,6 +486,11 @@ export default function InstallmentSuperAdminDashboard() {
         return paymentDate >= today && paymentDate < tomorrow;
       }).reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
 
+      const todaySales = salesData.filter(sale => {
+        const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        return saleDate >= today && saleDate < tomorrow;
+      }).length;
+
       // Monthly revenue (current month)
       const currentMonth = new Date().getMonth();
       const currentYear = new Date().getFullYear();
@@ -498,6 +498,11 @@ export default function InstallmentSuperAdminDashboard() {
         const paymentDate = payment.paymentDate.toDate ? payment.paymentDate.toDate() : new Date(payment.paymentDate);
         return paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear;
       }).reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
+
+      const monthlySales = salesData.filter(sale => {
+        const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        return saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear;
+      }).length;
 
       setDashboardStats({
         totalStockValue,
@@ -511,7 +516,10 @@ export default function InstallmentSuperAdminDashboard() {
         todayPayments,
         todayRevenue,
         monthlyRevenue,
-        completedInstallments
+        completedInstallments,
+        totalSales,
+        todaySales,
+        monthlySales
       });
     } catch (error) {
       console.error('Error calculating dashboard stats:', error);
@@ -576,7 +584,7 @@ export default function InstallmentSuperAdminDashboard() {
       const queryLower = searchQuery.toLowerCase();
       filtered = filtered.filter(installment =>
         installment.customerName?.toLowerCase().includes(queryLower) ||
-        installment.customerPhone?.includes(queryQuery) ||
+        installment.customerPhone?.includes(searchQuery) ||
         installment.installmentNumber?.toLowerCase().includes(queryLower) ||
         installment.itemName?.toLowerCase().includes(queryLower)
       );
@@ -585,14 +593,71 @@ export default function InstallmentSuperAdminDashboard() {
     setFilteredInstallments(filtered);
   }, [installments, selectedStatusFilter, reportFilters.location, searchQuery]);
 
-  // CRUD Operations for Stocks - USING SAME STRUCTURE AS FIRST DASHBOARD
-  const handleAddStock = async () => {
-    try {
-      if (!stockForm.brand || !stockForm.model || !stockForm.itemCode || !stockForm.quantity || !stockForm.location) {
-        setError('Please fill in required fields: Brand, Model, Item Code, Quantity, and Location.');
-        return;
-      }
+  // Filter sales
+  useEffect(() => {
+    let filtered = sales;
+    
+    // Filter by location
+    if (salesFilter.location !== 'all') {
+      filtered = filtered.filter(sale => sale.location === salesFilter.location);
+    }
+    
+    // Filter by payment method
+    if (salesFilter.paymentMethod !== 'all') {
+      filtered = filtered.filter(sale => sale.paymentMethod === salesFilter.paymentMethod);
+    }
+    
+    // Filter by date range
+    if (salesFilter.startDate) {
+      const startDate = new Date(salesFilter.startDate);
+      filtered = filtered.filter(sale => {
+        const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        return saleDate >= startDate;
+      });
+    }
+    
+    if (salesFilter.endDate) {
+      const endDate = new Date(salesFilter.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(sale => {
+        const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        return saleDate <= endDate;
+      });
+    }
+    
+    // Filter by amount range
+    if (salesFilter.minAmount) {
+      const minAmount = parseFloat(salesFilter.minAmount);
+      filtered = filtered.filter(sale => parseFloat(sale.finalSalePrice) >= minAmount);
+    }
+    
+    if (salesFilter.maxAmount) {
+      const maxAmount = parseFloat(salesFilter.maxAmount);
+      filtered = filtered.filter(sale => parseFloat(sale.finalSalePrice) <= maxAmount);
+    }
+    
+    // Filter by search
+    if (salesSearch) {
+      const searchLower = salesSearch.toLowerCase();
+      filtered = filtered.filter(sale =>
+        sale.customerName?.toLowerCase().includes(searchLower) ||
+        sale.customerPhone?.includes(salesSearch) ||
+        sale.receiptNumber?.toLowerCase().includes(searchLower) ||
+        sale.itemCode?.toLowerCase().includes(searchLower)
+      );
+    }
 
+    setFilteredSales(filtered);
+  }, [sales, salesFilter, salesSearch]);
+
+  // CRUD Operations for Stocks
+  const handleAddStock = async () => {
+    if (!validateStockForm()) {
+      setError('Please fix stock form errors before submitting');
+      return;
+    }
+
+    try {
       const stockData = {
         ...stockForm,
         costPrice: parseFloat(stockForm.costPrice) || 0,
@@ -631,6 +696,7 @@ export default function InstallmentSuperAdminDashboard() {
         description: ''
       });
       
+      setFormErrors(prev => ({ ...prev, stock: {} }));
       setSuccess('Stock added successfully!');
       fetchAllData();
     } catch (error) {
@@ -658,12 +724,18 @@ export default function InstallmentSuperAdminDashboard() {
       warrantyPeriod: stock.warrantyPeriod?.toString() || '12',
       description: stock.description || ''
     });
+    setFormErrors(prev => ({ ...prev, stock: {} }));
   };
 
   const handleUpdateStock = async () => {
-    try {
-      if (!editingStock) return;
+    if (!validateStockForm()) {
+      setError('Please fix stock form errors before updating');
+      return;
+    }
 
+    if (!editingStock) return;
+
+    try {
       const stockData = {
         ...stockForm,
         costPrice: parseFloat(stockForm.costPrice) || 0,
@@ -680,6 +752,7 @@ export default function InstallmentSuperAdminDashboard() {
       await updateDoc(doc(db, 'stocks', editingStock), stockData);
       
       setEditingStock(null);
+      setFormErrors(prev => ({ ...prev, stock: {} }));
       setSuccess('Stock updated successfully!');
       fetchAllData();
     } catch (error) {
@@ -724,29 +797,17 @@ export default function InstallmentSuperAdminDashboard() {
       warrantyPeriod: '12',
       description: ''
     });
+    setFormErrors(prev => ({ ...prev, stock: {} }));
   };
 
   // Installment Operations
   const handleCreateInstallment = async () => {
+    if (!validateInstallmentForm()) {
+      setError('Please fix installment form errors before submitting');
+      return;
+    }
+
     try {
-      // Validate required fields
-      if (!newInstallment.customerName || !newInstallment.customerPhone || !newInstallment.totalAmount || !newInstallment.itemId) {
-        setError('Please fill in required fields: Customer Name, Phone, Total Amount, and select an Item.');
-        return;
-      }
-
-      // Validate guarantor if required
-      if (installmentSettings.requireGuarantor && (!newInstallment.guarantorName || !newInstallment.guarantorPhone)) {
-        setError('Guarantor information is required.');
-        return;
-      }
-
-      // Validate national ID if required
-      if (installmentSettings.requireNationalId && !newInstallment.nationalId) {
-        setError('National ID is required.');
-        return;
-      }
-
       const selectedStock = stocks.find(s => s.id === newInstallment.itemId);
       if (!selectedStock) {
         setError('Selected item not found');
@@ -818,7 +879,7 @@ export default function InstallmentSuperAdminDashboard() {
         installmentNumber: installmentNumber,
         customerName: installmentData.customerName,
         customerPhone: installmentData.customerPhone,
-        paymentNumber: 0, // 0 indicates initial payment
+        paymentNumber: 0,
         paymentType: 'initial',
         amount: initialPayment,
         paymentDate: Timestamp.fromDate(new Date(newInstallment.startDate)),
@@ -889,6 +950,7 @@ export default function InstallmentSuperAdminDashboard() {
         notes: ''
       });
 
+      setFormErrors(prev => ({ ...prev, installment: {} }));
       setSuccess(`Installment plan created successfully! Installment Number: ${installmentNumber}`);
       fetchAllData();
     } catch (error) {
@@ -897,12 +959,12 @@ export default function InstallmentSuperAdminDashboard() {
   };
 
   const handleRecordPayment = async () => {
-    try {
-      if (!paymentForm.installmentId || !paymentForm.amount) {
-        setError('Please select installment and enter amount');
-        return;
-      }
+    if (!validatePaymentForm()) {
+      setError('Please fix payment form errors before submitting');
+      return;
+    }
 
+    try {
       const installment = installments.find(i => i.id === paymentForm.installmentId);
       if (!installment) {
         setError('Installment not found');
@@ -1023,6 +1085,7 @@ export default function InstallmentSuperAdminDashboard() {
         lateFee: 0
       });
 
+      setFormErrors(prev => ({ ...prev, payment: {} }));
       setSuccess(`Payment recorded successfully!${lateFee > 0 ? ` Late fee: ${formatCurrency(lateFee)}` : ''}`);
       fetchAllData();
     } catch (error) {
@@ -1471,6 +1534,127 @@ export default function InstallmentSuperAdminDashboard() {
     }
   };
 
+  // Generate Sales Report PDF
+  const generateSalesReportPDF = async () => {
+    setIsGeneratingReport(true);
+    try {
+      const doc = new jsPDF('landscape');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const today = new Date();
+
+      // Header
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 51, 102);
+      doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.text('Sales Report', pageWidth / 2, 30, { align: 'center' });
+
+      // Report Info
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Generated on: ${today.toLocaleString('en-MW')}`, 20, 45);
+      doc.text(`Period: ${salesFilter.startDate || 'Start'} to ${salesFilter.endDate || 'End'}`, 20, 52);
+      doc.text(`Location: ${salesFilter.location === 'all' ? 'All Locations' : salesFilter.location}`, 20, 59);
+      doc.text(`Payment Method: ${salesFilter.paymentMethod === 'all' ? 'All Methods' : salesFilter.paymentMethod}`, 20, 66);
+
+      // Summary Stats
+      const totalSales = filteredSales.length;
+      const totalRevenue = filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0);
+      const totalProfit = filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.profit) || 0), 0);
+      const installmentSales = filteredSales.filter(s => s.paymentMethod === 'installment').length;
+      const cashSales = filteredSales.filter(s => s.paymentMethod === 'cash').length;
+      const mobileSales = filteredSales.filter(s => s.paymentMethod === 'mobile_money').length;
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SUMMARY STATISTICS', 20, 80);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      // First column
+      doc.text(`Total Sales: ${totalSales}`, 20, 90);
+      doc.text(`Total Revenue: ${formatCurrency(totalRevenue)}`, 20, 97);
+      doc.text(`Total Profit: ${formatCurrency(totalProfit)}`, 20, 104);
+      
+      // Second column
+      doc.text(`Installment Sales: ${installmentSales}`, 100, 90);
+      doc.text(`Cash Sales: ${cashSales}`, 100, 97);
+      doc.text(`Mobile Money Sales: ${mobileSales}`, 100, 104);
+
+      // Sales Details Table
+      const tableData = filteredSales.map(sale => {
+        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        return [
+          sale.receiptNumber,
+          sale.customerName,
+          sale.customerPhone,
+          `${sale.brand} ${sale.model}`,
+          sale.paymentMethod,
+          sale.quantity || 1,
+          formatCurrency(sale.finalSalePrice),
+          formatCurrency(sale.profit),
+          saleDate.toLocaleDateString('en-MW'),
+          sale.location
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 115,
+        head: [['Receipt', 'Customer', 'Phone', 'Item', 'Method', 'Qty', 'Amount', 'Profit', 'Date', 'Location']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [0, 51, 102],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: 50
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        margin: { top: 115 }
+      });
+
+      // Footer
+      const finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Report generated by: ${user?.fullName || user?.email}`, 20, finalY);
+      doc.text(`Page 1 of 1`, pageWidth - 20, finalY, { align: 'right' });
+
+      // Save PDF
+      const filename = `KM_Sales_Report_${today.getTime()}.pdf`;
+      doc.save(filename);
+
+      // Record report generation
+      await addDoc(collection(db, 'installmentReports'), {
+        reportType: 'sales_summary',
+        period: salesFilter.startDate && salesFilter.endDate ? 'custom' : 'all',
+        startDate: salesFilter.startDate ? Timestamp.fromDate(new Date(salesFilter.startDate)) : null,
+        endDate: salesFilter.endDate ? Timestamp.fromDate(new Date(salesFilter.endDate)) : null,
+        generatedBy: user.uid,
+        generatedByName: user.fullName || user.email,
+        fileName: filename,
+        downloadCount: 1,
+        createdAt: serverTimestamp()
+      });
+
+      setSuccess('Sales report generated successfully!');
+    } catch (error) {
+      setError('Failed to generate sales report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   // Settings Management
   const saveInstallmentSettings = async () => {
     try {
@@ -1544,14 +1728,14 @@ export default function InstallmentSuperAdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 flex items-center justify-center">
         <div className="text-white">Loading Installment Dashboard...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+    <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 text-white">
       {/* Messages */}
       {error && (
         <div className="fixed top-4 right-4 z-50 animate-fade-in">
@@ -1579,7 +1763,7 @@ export default function InstallmentSuperAdminDashboard() {
           <div className="flex justify-between items-center py-4">
             <div>
               <h1 className="text-2xl font-bold">
-                KM ELECTRONICS <span className="text-blue-400">Installment System</span>
+                KM ELECTRONICS <span className="text-blue-400"></span>
               </h1>
               <p className="text-gray-400 text-sm">
                 Welcome, {user?.fullName || user?.email} | {user?.role?.toUpperCase()}
@@ -1617,6 +1801,7 @@ export default function InstallmentSuperAdminDashboard() {
               { id: 'dashboard', name: 'Dashboard', icon: FaTachometerAlt },
               { id: 'installments', name: 'Installments', icon: FaHandHoldingUsd },
               { id: 'stocks', name: 'Stock Management', icon: FaWarehouse },
+              { id: 'sales', name: 'Sales Management', icon: FaShoppingCart },
               { id: 'reports', name: 'Reports', icon: FaChartBar },
               { id: 'payments', name: 'Payment Records', icon: FaRegMoneyBillAlt },
               { id: 'settings', name: 'Settings', icon: FaShieldAlt }
@@ -1681,17 +1866,17 @@ export default function InstallmentSuperAdminDashboard() {
                 <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Stock Value</h3>
+                      <h3 className="text-gray-400 text-sm mb-2">Total Sales</h3>
                       <p className="text-2xl font-bold text-purple-400">
-                        {formatCurrency(dashboardStats.totalStockValue)}
+                        {dashboardStats.totalSales}
                       </p>
                     </div>
                     <div className="bg-purple-500/20 p-3 rounded-lg">
-                      <FaWarehouse className="text-purple-400 text-xl" />
+                      <FaShoppingCart className="text-purple-400 text-xl" />
                     </div>
                   </div>
                   <p className="text-gray-500 text-sm mt-2">
-                    {dashboardStats.lowStockItems} low stock items
+                    {dashboardStats.todaySales} sales today
                   </p>
                 </div>
                 
@@ -1759,11 +1944,11 @@ export default function InstallmentSuperAdminDashboard() {
                       <span className="text-sm">Record Payment</span>
                     </button>
                     <button
-                      onClick={generateInstallmentReportPDF}
+                      onClick={() => setActiveTab('sales')}
                       className="bg-purple-600 hover:bg-purple-700 p-4 rounded-lg transition-colors flex flex-col items-center"
                     >
-                      <FaFilePdf className="text-2xl mb-2" />
-                      <span className="text-sm">Generate Report</span>
+                      <FaShoppingCart className="text-2xl mb-2" />
+                      <span className="text-sm">View Sales</span>
                     </button>
                     <button
                       onClick={() => setActiveTab('stocks')}
@@ -1797,6 +1982,222 @@ export default function InstallmentSuperAdminDashboard() {
                     ))}
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sales Management Tab */}
+          {activeTab === 'sales' && (
+            <div className="space-y-6">
+              {/* Sales Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <div className="text-xl font-bold text-blue-400">{filteredSales.length}</div>
+                  <div className="text-gray-400 text-sm">Total Sales</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <div className="text-xl font-bold text-green-400">
+                    {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0))}
+                  </div>
+                  <div className="text-gray-400 text-sm">Total Revenue</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <div className="text-xl font-bold text-orange-400">
+                    {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.profit) || 0), 0))}
+                  </div>
+                  <div className="text-gray-400 text-sm">Total Profit</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <div className="text-xl font-bold text-red-400">
+                    {filteredSales.filter(s => s.paymentMethod === 'installment').length}
+                  </div>
+                  <div className="text-gray-400 text-sm">Installment Sales</div>
+                </div>
+              </div>
+
+              {/* Sales Filters */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">Search Sales</label>
+                    <div className="relative">
+                      <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                      <input
+                        type="text"
+                        value={salesSearch}
+                        onChange={(e) => setSalesSearch(e.target.value)}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2"
+                        placeholder="Search by customer, receipt, item..."
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">Location</label>
+                    <select
+                      value={salesFilter.location}
+                      onChange={(e) => setSalesFilter({...salesFilter, location: e.target.value})}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                    >
+                      <option value="all">All Locations</option>
+                      {LOCATIONS.map((location, index) => (
+                        <option key={index} value={location}>{location}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">Payment Method</label>
+                    <select
+                      value={salesFilter.paymentMethod}
+                      onChange={(e) => setSalesFilter({...salesFilter, paymentMethod: e.target.value})}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                    >
+                      <option value="all">All Methods</option>
+                      <option value="cash">Cash</option>
+                      <option value="mobile_money">Mobile Money</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="installment">Installment</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">Date Range</label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="date"
+                        value={salesFilter.startDate}
+                        onChange={(e) => setSalesFilter({...salesFilter, startDate: e.target.value})}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
+                        placeholder="Start"
+                      />
+                      <input
+                        type="date"
+                        value={salesFilter.endDate}
+                        onChange={(e) => setSalesFilter({...salesFilter, endDate: e.target.value})}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
+                        placeholder="End"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-gray-400 text-sm mb-2">Amount Range (MK)</label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="number"
+                        placeholder="Min"
+                        value={salesFilter.minAmount}
+                        onChange={(e) => setSalesFilter({...salesFilter, minAmount: e.target.value})}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Max"
+                        value={salesFilter.maxAmount}
+                        onChange={(e) => setSalesFilter({...salesFilter, maxAmount: e.target.value})}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-end space-x-2">
+                    <button
+                      onClick={() => {
+                        setSalesSearch('');
+                        setSalesFilter({
+                          startDate: '',
+                          endDate: '',
+                          location: 'all',
+                          paymentMethod: 'all',
+                          minAmount: '',
+                          maxAmount: ''
+                        });
+                      }}
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
+                    >
+                      Clear Filters
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-end space-x-2">
+                    <button
+                      onClick={generateSalesReportPDF}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <FaFilePdf />
+                      <span>Generate Report</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sales List */}
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-semibold">
+                    <FaShoppingCart className="inline mr-2" />
+                    Sales Records ({filteredSales.length})
+                  </h2>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-700">
+                        <th className="text-left py-2">Receipt No.</th>
+                        <th className="text-left py-2">Customer</th>
+                        <th className="text-left py-2">Item</th>
+                        <th className="text-left py-2">Method</th>
+                        <th className="text-left py-2">Quantity</th>
+                        <th className="text-left py-2">Amount</th>
+                        <th className="text-left py-2">Profit</th>
+                        <th className="text-left py-2">Date</th>
+                        <th className="text-left py-2">Location</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSales.map((sale, index) => (
+                        <tr key={index} className="border-b border-gray-700/50">
+                          <td className="py-2 font-mono text-sm">{sale.receiptNumber}</td>
+                          <td className="py-2">
+                            <div>{sale.customerName}</div>
+                            <div className="text-gray-400 text-xs">{sale.customerPhone}</div>
+                          </td>
+                          <td className="py-2">
+                            <div>{sale.brand} {sale.model}</div>
+                            <div className="text-gray-400 text-xs">{sale.itemCode}</div>
+                          </td>
+                          <td className="py-2">
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              sale.paymentMethod === 'cash' ? 'bg-green-900/50 text-green-300' :
+                              sale.paymentMethod === 'installment' ? 'bg-blue-900/50 text-blue-300' :
+                              sale.paymentMethod === 'mobile_money' ? 'bg-purple-900/50 text-purple-300' :
+                              'bg-gray-900/50 text-gray-300'
+                            }`}>
+                              {sale.paymentMethod}
+                            </span>
+                          </td>
+                          <td className="py-2 text-center">{sale.quantity || 1}</td>
+                          <td className="py-2 font-semibold">{formatCurrency(sale.finalSalePrice)}</td>
+                          <td className="py-2 text-green-400">{formatCurrency(sale.profit)}</td>
+                          <td className="py-2 text-sm">
+                            {sale.soldAt?.toDate?.().toLocaleDateString() || 'N/A'}
+                          </td>
+                          <td className="py-2">{sale.location}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {filteredSales.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No sales found matching your criteria
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1905,10 +2306,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="text"
                       value={newInstallment.customerName}
                       onChange={(e) => setNewInstallment({...newInstallment, customerName: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.installment.customerName ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="Full Name"
                       required
                     />
+                    {formErrors.installment.customerName && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.installment.customerName}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -1917,10 +2323,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="tel"
                       value={newInstallment.customerPhone}
                       onChange={(e) => setNewInstallment({...newInstallment, customerPhone: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.installment.customerPhone ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="0999 999 999"
                       required
                     />
+                    {formErrors.installment.customerPhone && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.installment.customerPhone}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -1929,10 +2340,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="text"
                       value={newInstallment.nationalId}
                       onChange={(e) => setNewInstallment({...newInstallment, nationalId: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.installment.nationalId ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="National ID Number"
                       required={installmentSettings.requireNationalId}
                     />
+                    {formErrors.installment.nationalId && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.installment.nationalId}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -1963,7 +2379,9 @@ export default function InstallmentSuperAdminDashboard() {
                           });
                         }
                       }}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.installment.itemId ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       required
                     >
                       <option value="">Select Product</option>
@@ -1975,6 +2393,9 @@ export default function InstallmentSuperAdminDashboard() {
                           </option>
                         ))}
                     </select>
+                    {formErrors.installment.itemId && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.installment.itemId}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -1999,9 +2420,14 @@ export default function InstallmentSuperAdminDashboard() {
                           installmentAmount: installmentAmt
                         });
                       }}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.installment.totalAmount ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       required
                     />
+                    {formErrors.installment.totalAmount && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.installment.totalAmount}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2079,10 +2505,15 @@ export default function InstallmentSuperAdminDashboard() {
                           type="text"
                           value={newInstallment.guarantorName}
                           onChange={(e) => setNewInstallment({...newInstallment, guarantorName: e.target.value})}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                          className={`w-full bg-gray-700 border ${
+                            formErrors.installment.guarantorName ? 'border-red-500' : 'border-gray-600'
+                          } rounded-lg px-3 py-2`}
                           placeholder="Guarantor Full Name"
                           required={installmentSettings.requireGuarantor}
                         />
+                        {formErrors.installment.guarantorName && (
+                          <p className="text-red-400 text-xs mt-1">{formErrors.installment.guarantorName}</p>
+                        )}
                       </div>
                       
                       <div>
@@ -2091,10 +2522,15 @@ export default function InstallmentSuperAdminDashboard() {
                           type="tel"
                           value={newInstallment.guarantorPhone}
                           onChange={(e) => setNewInstallment({...newInstallment, guarantorPhone: e.target.value})}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                          className={`w-full bg-gray-700 border ${
+                            formErrors.installment.guarantorPhone ? 'border-red-500' : 'border-gray-600'
+                          } rounded-lg px-3 py-2`}
                           placeholder="0999 999 999"
                           required={installmentSettings.requireGuarantor}
                         />
+                        {formErrors.installment.guarantorPhone && (
+                          <p className="text-red-400 text-xs mt-1">{formErrors.installment.guarantorPhone}</p>
+                        )}
                       </div>
                     </>
                   )}
@@ -2133,6 +2569,7 @@ export default function InstallmentSuperAdminDashboard() {
                         guarantorAddress: '',
                         notes: ''
                       });
+                      setFormErrors(prev => ({ ...prev, installment: {} }));
                     }}
                     className="bg-gray-700 hover:bg-gray-600 px-6 py-3 rounded-lg transition-colors"
                   >
@@ -2222,7 +2659,7 @@ export default function InstallmentSuperAdminDashboard() {
                           {/* Progress Bar */}
                           <div className="w-full bg-gray-700 rounded-full h-2 mb-4">
                             <div 
-                              className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-green-500"
+                              className="h-2 rounded-full bg-linear-to-r from-blue-500 to-green-500"
                               style={{ width: `${Math.min(paymentProgress, 100)}%` }}
                             ></div>
                           </div>
@@ -2427,10 +2864,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="text"
                       value={stockForm.brand}
                       onChange={(e) => setStockForm({...stockForm, brand: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.brand ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="Samsung"
                       required
                     />
+                    {formErrors.stock.brand && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.brand}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2439,10 +2881,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="text"
                       value={stockForm.model}
                       onChange={(e) => setStockForm({...stockForm, model: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.model ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="Galaxy S23"
                       required
                     />
+                    {formErrors.stock.model && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.model}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2451,10 +2898,15 @@ export default function InstallmentSuperAdminDashboard() {
                       type="text"
                       value={stockForm.itemCode}
                       onChange={(e) => setStockForm({...stockForm, itemCode: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.itemCode ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="SAM-GS23-BLK-256"
                       required
                     />
+                    {formErrors.stock.itemCode && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.itemCode}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2462,7 +2914,9 @@ export default function InstallmentSuperAdminDashboard() {
                     <select
                       value={stockForm.location}
                       onChange={(e) => setStockForm({...stockForm, location: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.location ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       required
                     >
                       <option value="">Select Location</option>
@@ -2470,6 +2924,9 @@ export default function InstallmentSuperAdminDashboard() {
                         <option key={index} value={location}>{location}</option>
                       ))}
                     </select>
+                    {formErrors.stock.location && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.location}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2479,10 +2936,15 @@ export default function InstallmentSuperAdminDashboard() {
                       min="0"
                       value={stockForm.quantity}
                       onChange={(e) => setStockForm({...stockForm, quantity: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.quantity ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="10"
                       required
                     />
+                    {formErrors.stock.quantity && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.quantity}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2493,10 +2955,15 @@ export default function InstallmentSuperAdminDashboard() {
                       min="0"
                       value={stockForm.costPrice}
                       onChange={(e) => setStockForm({...stockForm, costPrice: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.costPrice ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="500000"
                       required
                     />
+                    {formErrors.stock.costPrice && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.costPrice}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2507,10 +2974,15 @@ export default function InstallmentSuperAdminDashboard() {
                       min="0"
                       value={stockForm.retailPrice}
                       onChange={(e) => setStockForm({...stockForm, retailPrice: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.stock.retailPrice ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       placeholder="750000"
                       required
                     />
+                    {formErrors.stock.retailPrice && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.stock.retailPrice}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -2698,6 +3170,18 @@ export default function InstallmentSuperAdminDashboard() {
                     <FaWarehouse />
                     <span>Stock Balance Report</span>
                   </button>
+                  
+                  <button
+                    onClick={() => setReportType('sales')}
+                    className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+                      reportType === 'sales' 
+                        ? 'bg-blue-600' 
+                        : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
+                  >
+                    <FaShoppingCart />
+                    <span>Sales Report</span>
+                  </button>
                 </div>
 
                 {/* Report Filters */}
@@ -2822,6 +3306,45 @@ export default function InstallmentSuperAdminDashboard() {
                       </div>
                     </>
                   )}
+                  
+                  {reportType === 'sales' && (
+                    <>
+                      <div>
+                        <label className="block text-gray-400 text-sm mb-2">Start Date</label>
+                        <input
+                          type="date"
+                          value={salesFilter.startDate}
+                          onChange={(e) => setSalesFilter({...salesFilter, startDate: e.target.value})}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-gray-400 text-sm mb-2">End Date</label>
+                        <input
+                          type="date"
+                          value={salesFilter.endDate}
+                          onChange={(e) => setSalesFilter({...salesFilter, endDate: e.target.value})}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-gray-400 text-sm mb-2">Payment Method</label>
+                        <select
+                          value={salesFilter.paymentMethod}
+                          onChange={(e) => setSalesFilter({...salesFilter, paymentMethod: e.target.value})}
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                        >
+                          <option value="all">All Methods</option>
+                          <option value="cash">Cash</option>
+                          <option value="mobile_money">Mobile Money</option>
+                          <option value="bank_transfer">Bank Transfer</option>
+                          <option value="installment">Installment</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Generate Report Button */}
@@ -2870,7 +3393,7 @@ export default function InstallmentSuperAdminDashboard() {
                         </>
                       )}
                     </button>
-                  ) : (
+                  ) : reportType === 'stocks' ? (
                     <button
                       onClick={generateStockBalanceReportPDF}
                       disabled={isGeneratingReport}
@@ -2889,6 +3412,28 @@ export default function InstallmentSuperAdminDashboard() {
                         <>
                           <FaFilePdf />
                           <span>Generate Stock Balance Report PDF</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={generateSalesReportPDF}
+                      disabled={isGeneratingReport}
+                      className={`w-full px-6 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2 ${
+                        isGeneratingReport 
+                          ? 'bg-gray-600 cursor-not-allowed' 
+                          : 'bg-green-600 hover:bg-green-700'
+                      }`}
+                    >
+                      {isGeneratingReport ? (
+                        <>
+                          <FaSync className="animate-spin" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FaFilePdf />
+                          <span>Generate Sales Report PDF</span>
                         </>
                       )}
                     </button>
@@ -2964,14 +3509,16 @@ export default function InstallmentSuperAdminDashboard() {
                           });
                         }
                       }}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.payment.installmentId ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       required
                     >
                       <option value="">Select Installment</option>
                       {installments
                         .filter(i => i.status === 'active')
                         .map((installment, index) => {
-                          const dueDate = installment.nextDueDate?.toDate ? installment.nextDueDate.toDate() : new Date(installment.nextDueDate);
+                          const dueDate = installment.nextDueDate.toDate ? installment.nextDueDate.toDate() : new Date(installment.nextDueDate);
                           const isOverdue = dueDate && dueDate < new Date();
                           
                           return (
@@ -2983,6 +3530,9 @@ export default function InstallmentSuperAdminDashboard() {
                           );
                         })}
                     </select>
+                    {formErrors.payment.installmentId && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.payment.installmentId}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -3005,9 +3555,14 @@ export default function InstallmentSuperAdminDashboard() {
                       step="0.01"
                       value={paymentForm.amount}
                       onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className={`w-full bg-gray-700 border ${
+                        formErrors.payment.amount ? 'border-red-500' : 'border-gray-600'
+                      } rounded-lg px-3 py-2`}
                       required
                     />
+                    {formErrors.payment.amount && (
+                      <p className="text-red-400 text-xs mt-1">{formErrors.payment.amount}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -3331,9 +3886,9 @@ export default function InstallmentSuperAdminDashboard() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full fixed bottom-0 left-0 z-10 bg-gradient-to-br from-gray-900 to-gray-800 py-4 mt-8">
+      <footer className="w-full fixed bottom-0 left-0 z-10 bg-linear-to-br from-gray-900 to-gray-800 py-4 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-200 text-sm">
-          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK | INSTALLMENT SYSTEM v2.0
+          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK 
         </div>
       </footer>
     </div>

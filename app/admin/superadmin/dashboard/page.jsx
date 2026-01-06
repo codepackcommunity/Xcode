@@ -6,7 +6,7 @@ import { auth, db } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
   serverTimestamp, addDoc, orderBy, onSnapshot, getDoc,
-  Timestamp, deleteDoc, setDoc
+  Timestamp, deleteDoc, setDoc, writeBatch
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -246,6 +246,7 @@ export default function SuperAdminDashboard() {
     fromLocation: '',
     toLocation: ''
   });
+  const [transferErrors, setTransferErrors] = useState({});
 
   // Sales Analysis State
   const [sales, setSales] = useState([]);
@@ -287,6 +288,7 @@ export default function SuperAdminDashboard() {
     warrantyPeriod: '12',
     description: ''
   });
+  const [stockErrors, setStockErrors] = useState({});
 
   // Approval System State
   const [approvalSettings, setApprovalSettings] = useState({
@@ -1490,6 +1492,12 @@ export default function SuperAdminDashboard() {
         return;
       }
 
+      // Check quantity > 1 as per requirement
+      if (requestData.quantity <= 1) {
+        setError('Cannot approve: Quantity must be greater than 1');
+        return;
+      }
+
       // Find stock in source location
       const sourceStockQuery = query(
         collection(db, 'stocks'),
@@ -1539,8 +1547,11 @@ export default function SuperAdminDashboard() {
         return;
       }
 
+      // Use batch write for atomic operations to maintain database consistency
+      const batch = writeBatch(db);
+
       // Subtract quantity from source location
-      await updateDoc(doc(db, 'stocks', sourceStockDoc.id), {
+      batch.update(doc(db, 'stocks', sourceStockDoc.id), {
         quantity: sourceStock.quantity - requestData.quantity,
         updatedAt: serverTimestamp(),
         lastTransferOut: {
@@ -1562,9 +1573,10 @@ export default function SuperAdminDashboard() {
 
       const destStockSnapshot = await getDocs(destStockQuery);
 
-      if (destStockSnapshot.empty) {
+      if (destStockSnapshot.empty) { 
         // Create new stock entry in destination
-        await addDoc(collection(db, 'stocks'), {
+        const newStockRef = doc(collection(db, 'stocks'));
+        batch.set(newStockRef, {
           brand: sourceStock.brand,
           model: sourceStock.model,
           category: sourceStock.category || 'Smartphone',
@@ -1601,7 +1613,7 @@ export default function SuperAdminDashboard() {
         // Add quantity to existing stock in destination
         const destStockDoc = destStockSnapshot.docs[0];
         const destStock = destStockDoc.data();
-        await updateDoc(doc(db, 'stocks', destStockDoc.id), {
+        batch.update(doc(db, 'stocks', destStockDoc.id), {
           quantity: destStock.quantity + requestData.quantity,
           updatedAt: serverTimestamp(),
           lastTransferIn: {
@@ -1616,7 +1628,7 @@ export default function SuperAdminDashboard() {
       }
 
       // Update request status
-      await updateDoc(doc(db, 'stockRequests', requestId), {
+      batch.update(doc(db, 'stockRequests', requestId), {
         status: 'approved',
         approvedBy: user.uid,
         approvedByName: user.fullName || user.email,
@@ -1626,7 +1638,8 @@ export default function SuperAdminDashboard() {
       });
 
       // Record the transfer
-      await addDoc(collection(db, 'stockTransfers'), {
+      const transferRef = doc(collection(db, 'stockTransfers'));
+      batch.set(transferRef, {
         requestId: requestId,
         itemCode: requestData.itemCode,
         brand: sourceStock.brand,
@@ -1642,9 +1655,13 @@ export default function SuperAdminDashboard() {
         sourceStockAfter: sourceStock.quantity - requestData.quantity
       });
 
+      // Commit all operations atomically
+      await batch.commit();
+
       setSuccess('Stock request approved and quantities updated successfully!');
     } catch (error) {
-      setError('Failed to approve stock request');
+      console.error('Stock approval error:', error);
+      setError('Failed to approve stock request: ' + error.message);
       
       try {
         await updateDoc(doc(db, 'stockRequests', requestId), {
@@ -1706,7 +1723,7 @@ export default function SuperAdminDashboard() {
 
   const handleAutoApprove = async () => {
     const requestsToAutoApprove = stockRequests.filter(request => 
-      request.quantity <= approvalSettings.autoApproveBelow
+      request.quantity <= approvalSettings.autoApproveBelow && request.quantity > 1
     );
 
     if (requestsToAutoApprove.length === 0) {
@@ -1714,7 +1731,7 @@ export default function SuperAdminDashboard() {
       return;
     }
 
-    const confirmed = confirm(`Auto-approve ${requestsToAutoApprove.length} requests with quantity ≤ ${approvalSettings.autoApproveBelow}?`);
+    const confirmed = confirm(`Auto-approve ${requestsToAutoApprove.length} requests with quantity ≤ ${approvalSettings.autoApproveBelow} and > 1?`);
     if (!confirmed) return;
 
     for (const request of requestsToAutoApprove) {
@@ -1795,9 +1812,23 @@ export default function SuperAdminDashboard() {
   };
 
   // Stock Management Functions - UPDATED for compatibility
+  const validateStockForm = () => {
+    const errors = {};
+    if (!newStock.brand.trim()) errors.brand = 'Brand is required';
+    if (!newStock.model.trim()) errors.model = 'Model is required';
+    if (!newStock.itemCode.trim()) errors.itemCode = 'Item Code is required';
+    if (!newStock.quantity || parseInt(newStock.quantity) <= 0) errors.quantity = 'Quantity must be greater than 0';
+    if (!newStock.location) errors.location = 'Location is required';
+    if (!newStock.costPrice || parseFloat(newStock.costPrice) <= 0) errors.costPrice = 'Cost Price must be greater than 0';
+    if (!newStock.retailPrice || parseFloat(newStock.retailPrice) <= 0) errors.retailPrice = 'Retail Price must be greater than 0';
+    
+    setStockErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleAddStock = async () => {
-    if (!newStock.brand || !newStock.model || !newStock.itemCode || !newStock.quantity || !newStock.location) {
-      setError('Please fill in required fields: Brand, Model, Item Code, Quantity, and Location.');
+    if (!validateStockForm()) {
+      setError('Please fix the validation errors in the form');
       return;
     }
 
@@ -1823,6 +1854,7 @@ export default function SuperAdminDashboard() {
 
       await addDoc(collection(db, 'stocks'), stockData);
       
+      // Reset form
       setNewStock({
         brand: '',
         model: '',
@@ -1842,6 +1874,7 @@ export default function SuperAdminDashboard() {
         warrantyPeriod: '12',
         description: ''
       });
+      setStockErrors({});
       
       setSuccess('Stock added successfully!');
     } catch (error) {
@@ -1874,9 +1907,21 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  const validateTransferForm = () => {
+    const errors = {};
+    if (!transferStock.itemCode.trim()) errors.itemCode = 'Item Code is required';
+    if (!transferStock.quantity || parseInt(transferStock.quantity) <= 1) errors.quantity = 'Quantity must be greater than 1';
+    if (!transferStock.fromLocation) errors.fromLocation = 'Source Location is required';
+    if (!transferStock.toLocation) errors.toLocation = 'Destination Location is required';
+    if (transferStock.fromLocation === transferStock.toLocation) errors.toLocation = 'Source and Destination cannot be the same';
+    
+    setTransferErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleRequestStock = async () => {
-    if (!transferStock.itemCode || !transferStock.quantity || !transferStock.fromLocation || !transferStock.toLocation) {
-      setError('Please fill in all required fields.');
+    if (!validateTransferForm()) {
+      setError('Please fix the validation errors in the form');
       return;
     }
 
@@ -1894,16 +1939,18 @@ export default function SuperAdminDashboard() {
 
       await addDoc(collection(db, 'stockRequests'), requestData);
       
+      // Reset form
       setTransferStock({
         itemCode: '',
         quantity: '',
         fromLocation: '',
         toLocation: ''
       });
+      setTransferErrors({});
       
       setSuccess('Stock request sent successfully!');
     } catch (error) {
-      setError('Failed to request stock');
+      setError('Failed to request stock: ' + error.message);
     }
   };
 
@@ -2042,6 +2089,7 @@ export default function SuperAdminDashboard() {
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
                 className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                required
               >
                 <option value={'all'}>All Locations</option>
                 {LOCATIONS.map((location, index) => (
@@ -2221,6 +2269,7 @@ export default function SuperAdminDashboard() {
                   value={timePeriod}
                   onChange={(e) => setTimePeriod(e.target.value)}
                   className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                  required
                 >
                   <option value={'today'}>Today</option>
                   <option value={'week'}>This Week</option>
@@ -2463,88 +2512,171 @@ export default function SuperAdminDashboard() {
               <div className={'bg-white/5 rounded-lg p-4 mb-6'}>
                 <h3 className={'text-lg font-semibold text-white mb-4'}>Add New Stock</h3>
                 <div className={'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'}>
-                  <input
-                    type={'text'}
-                    placeholder={'Brand *'}
-                    value={newStock.brand}
-                    onChange={(e) => setNewStock({...newStock, brand: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'text'}
-                    placeholder={'Model *'}
-                    value={newStock.model}
-                    onChange={(e) => setNewStock({...newStock, model: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'text'}
-                    placeholder={'Item Code *'}
-                    value={newStock.itemCode}
-                    onChange={(e) => setNewStock({...newStock, itemCode: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <select
-                    value={newStock.category}
-                    onChange={(e) => setNewStock({...newStock, category: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                  >
-                    {CATEGORIES.map((category, index) => (
-                      <option key={generateSafeKey('category', index, category)} value={category}>{category}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={newStock.location}
-                    onChange={(e) => setNewStock({...newStock, location: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                  >
-                    <option value={''}>Select Location *</option>
-                    {LOCATIONS.map((location, index) => (
-                      <option key={generateSafeKey('newstock-location', index, location)} value={location}>{location}</option>
-                    ))}
-                  </select>
-                  <input
-                    type={'number'}
-                    placeholder={'Quantity *'}
-                    value={newStock.quantity}
-                    onChange={(e) => setNewStock({...newStock, quantity: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Cost Price (MK) *'}
-                    value={newStock.costPrice}
-                    onChange={(e) => setNewStock({...newStock, costPrice: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Retail Price (MK) *'}
-                    value={newStock.retailPrice}
-                    onChange={(e) => setNewStock({...newStock, retailPrice: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Wholesale Price (MK)'}
-                    value={newStock.wholesalePrice}
-                    onChange={(e) => setNewStock({...newStock, wholesalePrice: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Discount %'}
-                    value={newStock.discountPercentage}
-                    onChange={(e) => setNewStock({...newStock, discountPercentage: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
-                  <input
-                    type={'number'}
-                    placeholder={'Min Stock Level'}
-                    value={newStock.minStockLevel}
-                    onChange={(e) => setNewStock({...newStock, minStockLevel: e.target.value})}
-                    className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                  />
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Brand *'}
+                      value={newStock.brand}
+                      onChange={(e) => setNewStock({...newStock, brand: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.brand ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                    />
+                    {stockErrors.brand && <p className="text-red-400 text-xs mt-1">{stockErrors.brand}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Model *'}
+                      value={newStock.model}
+                      onChange={(e) => setNewStock({...newStock, model: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.model ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                    />
+                    {stockErrors.model && <p className="text-red-400 text-xs mt-1">{stockErrors.model}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Item Code *'}
+                      value={newStock.itemCode}
+                      onChange={(e) => setNewStock({...newStock, itemCode: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                    />
+                    {stockErrors.itemCode && <p className="text-red-400 text-xs mt-1">{stockErrors.itemCode}</p>}
+                  </div>
+                  <div>
+                    <select
+                      value={newStock.category}
+                      onChange={(e) => setNewStock({...newStock, category: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                      required
+                    >
+                      {CATEGORIES.map((category, index) => (
+                        <option key={generateSafeKey('category', index, category)} value={category}>{category}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <select
+                      value={newStock.location}
+                      onChange={(e) => setNewStock({...newStock, location: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.location ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                      required
+                    >
+                      <option value={''}>Select Location *</option>
+                      {LOCATIONS.map((location, index) => (
+                        <option key={generateSafeKey('newstock-location', index, location)} value={location}>{location}</option>
+                      ))}
+                    </select>
+                    {stockErrors.location && <p className="text-red-400 text-xs mt-1">{stockErrors.location}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Quantity *'}
+                      value={newStock.quantity}
+                      onChange={(e) => setNewStock({...newStock, quantity: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.quantity ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                      min="1"
+                    />
+                    {stockErrors.quantity && <p className="text-red-400 text-xs mt-1">{stockErrors.quantity}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Cost Price (MK) *'}
+                      value={newStock.costPrice}
+                      onChange={(e) => setNewStock({...newStock, costPrice: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.costPrice ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                      min="0"
+                      step="0.01"
+                    />
+                    {stockErrors.costPrice && <p className="text-red-400 text-xs mt-1">{stockErrors.costPrice}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Retail Price (MK) *'}
+                      value={newStock.retailPrice}
+                      onChange={(e) => setNewStock({...newStock, retailPrice: e.target.value})}
+                      className={`w-full bg-white/10 border ${stockErrors.retailPrice ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                      required
+                      min="0"
+                      step="0.01"
+                    />
+                    {stockErrors.retailPrice && <p className="text-red-400 text-xs mt-1">{stockErrors.retailPrice}</p>}
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Wholesale Price (MK)'}
+                      value={newStock.wholesalePrice}
+                      onChange={(e) => setNewStock({...newStock, wholesalePrice: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Discount %'}
+                      value={newStock.discountPercentage}
+                      onChange={(e) => setNewStock({...newStock, discountPercentage: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                      min="0"
+                      max="100"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'number'}
+                      placeholder={'Min Stock Level'}
+                      value={newStock.minStockLevel}
+                      onChange={(e) => setNewStock({...newStock, minStockLevel: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Supplier'}
+                      value={newStock.supplier}
+                      onChange={(e) => setNewStock({...newStock, supplier: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Color'}
+                      value={newStock.color}
+                      onChange={(e) => setNewStock({...newStock, color: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Storage'}
+                      value={newStock.storage}
+                      onChange={(e) => setNewStock({...newStock, storage: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type={'text'}
+                      placeholder={'Description'}
+                      value={newStock.description}
+                      onChange={(e) => setNewStock({...newStock, description: e.target.value})}
+                      className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
+                    />
+                  </div>
                 </div>
                 <button
                   onClick={handleAddStock}
@@ -2555,6 +2687,12 @@ export default function SuperAdminDashboard() {
                  <button
                   onClick={() => router.push('/operations')}
                   className={'mt-4 ml-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'}
+                >
+                  Operations
+                </button>
+                <button
+                  onClick={() => router.push('/manage')}
+                  className={'mt-4 ml-4 bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-2 rounded-lg transition-colors'}
                 >
                   Operations
                 </button>
@@ -2667,31 +2805,34 @@ export default function SuperAdminDashboard() {
                 
                 <div className={'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4'}>
                   <div>
-                    <label className={'block text-white/70 text-sm mb-2'}>Start Date</label>
+                    <label className={'block text-white/70 text-sm mb-2'}>Start Date *</label>
                     <input
                       type={'date'}
                       value={reportFilters.startDate}
                       onChange={(e) => setReportFilters({...reportFilters, startDate: e.target.value})}
                       className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                      required
                     />
                   </div>
                   
                   <div>
-                    <label className={'block text-white/70 text-sm mb-2'}>End Date</label>
+                    <label className={'block text-white/70 text-sm mb-2'}>End Date *</label>
                     <input
                       type={'date'}
                       value={reportFilters.endDate}
                       onChange={(e) => setReportFilters({...reportFilters, endDate: e.target.value})}
                       className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                      required
                     />
                   </div>
                   
                   <div>
-                    <label className={'block text-white/70 text-sm mb-2'}>Location</label>
+                    <label className={'block text-white/70 text-sm mb-2'}>Location *</label>
                     <select
                       value={reportFilters.location}
                       onChange={(e) => setReportFilters({...reportFilters, location: e.target.value})}
                       className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                      required
                     >
                       <option value={'all'}>All Locations</option>
                       {LOCATIONS.map((location, index) => (
@@ -2701,11 +2842,12 @@ export default function SuperAdminDashboard() {
                   </div>
                   
                   <div>
-                    <label className={'block text-white/70 text-sm mb-2'}>Report Type</label>
+                    <label className={'block text-white/70 text-sm mb-2'}>Report Type *</label>
                     <select
                       value={reportFilters.reportType}
                       onChange={(e) => setReportFilters({...reportFilters, reportType: e.target.value})}
                       className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                      required
                     >
                       <option value={'detailed'}>Detailed Report</option>
                       <option value={'summary'}>Summary Only</option>
@@ -2903,40 +3045,57 @@ export default function SuperAdminDashboard() {
               <h2 className={'text-xl font-semibold text-white mb-4'}>Stock Transfer (SuperAdmin)</h2>
               
               <div className={'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'}>
-                <input
-                  type={'text'}
-                  placeholder={'Item Code'}
-                  value={transferStock.itemCode}
-                  onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <input
-                  type={'number'}
-                  placeholder={'Quantity'}
-                  value={transferStock.quantity}
-                  onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <select
-                  value={transferStock.fromLocation}
-                  onChange={(e) => setTransferStock({...transferStock, fromLocation: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>Select Source Location</option>
-                  {LOCATIONS.map((location, index) => (
-                    <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
-                  ))}
-                </select>
-                <select
-                  value={transferStock.toLocation}
-                  onChange={(e) => setTransferStock({...transferStock, toLocation: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>Select Destination Location</option>
-                  {LOCATIONS.map((location, index) => (
-                    <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
-                  ))}
-                </select>
+                <div>
+                  <input
+                    type={'text'}
+                    placeholder={'Item Code *'}
+                    value={transferStock.itemCode}
+                    onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                    required
+                  />
+                  {transferErrors.itemCode && <p className="text-red-400 text-xs mt-1">{transferErrors.itemCode}</p>}
+                </div>
+                <div>
+                  <input
+                    type={'number'}
+                    placeholder={'Quantity * (must be > 1)'}
+                    value={transferStock.quantity}
+                    onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.quantity ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                    required
+                    min="2"
+                  />
+                  {transferErrors.quantity && <p className="text-red-400 text-xs mt-1">{transferErrors.quantity}</p>}
+                </div>
+                <div>
+                  <select
+                    value={transferStock.fromLocation}
+                    onChange={(e) => setTransferStock({...transferStock, fromLocation: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.fromLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                    required
+                  >
+                    <option value={''}>Select Source Location *</option>
+                    {LOCATIONS.map((location, index) => (
+                      <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
+                    ))}
+                  </select>
+                  {transferErrors.fromLocation && <p className="text-red-400 text-xs mt-1">{transferErrors.fromLocation}</p>}
+                </div>
+                <div>
+                  <select
+                    value={transferStock.toLocation}
+                    onChange={(e) => setTransferStock({...transferStock, toLocation: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.toLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                    required
+                  >
+                    <option value={''}>Select Destination Location *</option>
+                    {LOCATIONS.map((location, index) => (
+                      <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
+                    ))}
+                  </select>
+                  {transferErrors.toLocation && <p className="text-red-400 text-xs mt-1">{transferErrors.toLocation}</p>}
+                </div>
                 <button
                   onClick={handleRequestStock}
                   className={'bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg transition-colors col-span-2'}
@@ -2985,7 +3144,8 @@ export default function SuperAdminDashboard() {
                           <select
                             value={userItem.role}
                             onChange={(e) => handleAssignRole(userItem.id, e.target.value)}
-                            className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
+                            className={'w-full bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
+                            required
                           >
                             <option value={'superadmin'}>Super Admin</option>
                             <option value={'manager'}>Manager</option>
@@ -2998,7 +3158,8 @@ export default function SuperAdminDashboard() {
                           <select
                             value={userItem.location || ''}
                             onChange={(e) => handleUpdateUserLocation(userItem.id, e.target.value)}
-                            className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
+                            className={'w-full bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
+                            required
                           >
                             <option value={''}>Select Location</option>
                             {LOCATIONS.map((location, index) => (
@@ -3184,16 +3345,16 @@ export default function SuperAdminDashboard() {
               <div className={'flex justify-between items-center mb-6'}>
                 <h2 className={'text-xl font-semibold text-white'}>Stock Request Approval System</h2>
                 <div className={'flex space-x-2'}>
-                  {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow).length > 0 && (
+                  {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow && req.quantity > 1).length > 0 && (
                     <button
                       onClick={handleAutoApprove}
                       className={'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors'}
                     >
-                      Auto-Approve ({stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow).length})
+                      Auto-Approve ({stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow && req.quantity > 1).length})
                     </button>
                   )}
                   <button
-                    onClick={() => handleBulkApprove(stockRequests)}
+                    onClick={() => handleBulkApprove(stockRequests.filter(req => req.quantity > 1))}
                     className={'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'}
                   >
                     Bulk Approve All
@@ -3211,16 +3372,24 @@ export default function SuperAdminDashboard() {
                         <div className={'flex-1'}>
                           <div className={'flex items-center space-x-3 mb-2'}>
                             <h3 className={'font-semibold text-white'}>Item: {request.itemCode}</h3>
-                            {request.quantity <= approvalSettings.autoApproveBelow && (
+                            {request.quantity <= approvalSettings.autoApproveBelow && request.quantity > 1 && (
                               <span className={'bg-green-500/20 text-green-300 px-2 py-1 rounded text-xs'}>
                                 Auto-Approval Eligible
+                              </span>
+                            )}
+                            {request.quantity <= 1 && (
+                              <span className={'bg-red-500/20 text-red-300 px-2 py-1 rounded text-xs'}>
+                                Requires Manual Review (Quantity ≤ 1)
                               </span>
                             )}
                           </div>
                           <div className={'grid grid-cols-1 md:grid-cols-2 gap-2 text-sm'}>
                             <div>
                               <span className={'text-white/70'}>Quantity: </span>
-                              <span className={'text-white'}>{request.quantity}</span>
+                              <span className={`${request.quantity > 1 ? 'text-white' : 'text-red-400 font-semibold'}`}>
+                                {request.quantity}
+                                {request.quantity <= 1 && <span className="text-xs ml-1">Out of stock</span>}
+                              </span>
                             </div>
                             <div>
                               <span className={'text-white/70'}>From: </span>
@@ -3245,8 +3414,9 @@ export default function SuperAdminDashboard() {
                         <div className={'flex space-x-2'}>
                           <button
                             onClick={() => handleApproveStockRequest(request.id, request)}
-                            disabled={processingRequest === request.id}
-                            className={'bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors'}
+                            disabled={processingRequest === request.id || request.quantity <= 1}
+                            className={`${request.quantity <= 1 ? 'bg-gray-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors`}
+                            title={request.quantity <= 1 ? 'Quantity must be greater than 1 to approve' : 'Approve request'}
                           >
                             {processingRequest === request.id ? 'Processing...' : 'Approve'}
                           </button>
@@ -3271,7 +3441,7 @@ export default function SuperAdminDashboard() {
                 </div>
                 <div className={'bg-white/5 rounded-lg p-4 text-center'}>
                   <div className={'text-2xl font-bold text-green-400'}>
-                    {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow).length}
+                    {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow && req.quantity > 1).length}
                   </div>
                   <div className={'text-white/70 text-sm'}>Auto-Approval Eligible</div>
                 </div>
@@ -3282,10 +3452,10 @@ export default function SuperAdminDashboard() {
                   <div className={'text-white/70 text-sm'}>Manual Review Needed</div>
                 </div>
                 <div className={'bg-white/5 rounded-lg p-4 text-center'}>
-                  <div className={'text-2xl font-bold text-blue-400'}>
-                    {approvalSettings.autoApproveBelow}
+                  <div className={'text-2xl font-bold text-red-400'}>
+                    {stockRequests.filter(req => req.quantity <= 1).length}
                   </div>
-                  <div className={'text-white/70 text-sm'}>Auto-Approve Limit</div>
+                  <div className={'text-white/70 text-sm'}>Quantity ≤ 1</div>
                 </div>
               </div>
             </div>
@@ -3317,22 +3487,23 @@ export default function SuperAdminDashboard() {
                     <div>
                       <label className={'block text-white/70 text-sm mb-2'}>
                         Auto-Approve Quantity Limit
-                        <span className={'text-white/50 text-xs ml-1'}>- Requests below this quantity will be auto-approved</span>
+                        <span className={'text-white/50 text-xs ml-1'}>- Requests below this quantity will be auto-approved (0)</span>
                       </label>
                       <input
                         type={'number'}
-                        min={'1'}
+                        min={'2'}
                         value={approvalSettings.autoApproveBelow}
                         onChange={(e) => setApprovalSettings({
                           ...approvalSettings,
-                          autoApproveBelow: parseInt(e.target.value) || 1
+                          autoApproveBelow: parseInt(e.target.value) || 2
                         })}
                         className={'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                        required
                       />
                     </div>
                     
                     <div>
-                      <label className={'block text-white/70 text-sm mb-2'}>Allowed Transfer Locations</label>
+                      <label className={'block text-white/70 text-sm mb-2'}>Allowed Transfer Locations *</label>
                       <div className={'grid grid-cols-2 md:grid-cols-3 gap-2'}>
                         {LOCATIONS.map((location, index) => (
                           <label key={generateSafeKey('location-option', index, location)} className={'flex items-center space-x-2'}>
@@ -3349,6 +3520,7 @@ export default function SuperAdminDashboard() {
                                 });
                               }}
                               className={'w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500'}
+                              required={approvalSettings.allowedLocations.length === 1 && !e.target.checked}
                             />
                             <span className={'text-white text-sm'}>{location}</span>
                           </label>
@@ -3370,7 +3542,7 @@ export default function SuperAdminDashboard() {
                   <div className={'grid grid-cols-2 gap-4'}>
                     <div className={'text-center'}>
                       <div className={'text-2xl font-bold text-green-400'}>
-                        {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow).length}
+                        {stockRequests.filter(req => req.quantity <= approvalSettings.autoApproveBelow && req.quantity > 1).length}
                       </div>
                       <div className={'text-white/70 text-sm'}>Auto-Approval Eligible</div>
                     </div>

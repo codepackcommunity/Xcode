@@ -57,6 +57,8 @@ export default function ManagerDashboard() {
     fromLocation: '',
     toLocation: ''
   });
+  const [transferErrors, setTransferErrors] = useState({});
+  const [isTransferValidating, setIsTransferValidating] = useState(false);
 
   // Sales Analysis State
   const [sales, setSales] = useState([]);
@@ -197,11 +199,10 @@ export default function ManagerDashboard() {
       }));
       setStocksTable(stocksData);
 
-      // Fetch sales table
+      // Fetch sales table - ALL sales data
       const salesQuery = query(
         collection(db, 'sales'),
-        orderBy('soldAt', 'desc'),
-        limit(100)
+        orderBy('soldAt', 'desc')
       );
       const salesSnapshot = await getDocs(salesQuery);
       const salesData = salesSnapshot.docs.map(doc => ({
@@ -238,7 +239,6 @@ export default function ManagerDashboard() {
       // Fetch stock transfers
       const transfersQuery = query(
         collection(db, 'stockTransfers'),
-        where('location', '==', managerLocation),
         orderBy('transferredAt', 'desc')
       );
       const transfersSnapshot = await getDocs(transfersQuery);
@@ -371,7 +371,7 @@ export default function ManagerDashboard() {
     try {
       const q = query(
         collection(db, 'stockRequests'),
-        where('status', '==', 'pending')
+        orderBy('requestedAt', 'desc')
       );
       const querySnapshot = await getDocs(q);
       const requestsData = querySnapshot.docs.map(doc => ({
@@ -558,7 +558,7 @@ export default function ManagerDashboard() {
     // Real-time stock requests
     const requestsQuery = query(
       collection(db, 'stockRequests'),
-      where('status', '==', 'pending')
+      orderBy('requestedAt', 'desc')
     );
 
     const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
@@ -1474,205 +1474,143 @@ export default function ManagerDashboard() {
     }
   };
 
-  // Stock Request Functions
-  const handleRequestStock = async () => {
-    if (!transferStock.itemCode || !transferStock.quantity || !transferStock.fromLocation || !transferStock.toLocation) {
-      alert('Please fill in all required fields.');
-      return;
+  // VALIDATION FUNCTIONS FOR STOCK TRANSFER
+  const validateStockTransfer = async () => {
+    const errors = {};
+    
+    // Check for empty fields
+    if (!transferStock.itemCode.trim()) {
+      errors.itemCode = 'Item Code is required';
     }
-
+    
+    if (!transferStock.quantity) {
+      errors.quantity = 'Quantity is required';
+    } else if (parseInt(transferStock.quantity) <= 0) {
+      errors.quantity = 'Quantity must be greater than 0';
+    }
+    
+    if (!transferStock.fromLocation) {
+      errors.fromLocation = 'Source location is required';
+    }
+    
+    if (!transferStock.toLocation) {
+      errors.toLocation = 'Destination location is required';
+    }
+    
+    // Check if source and destination are different
+    if (transferStock.fromLocation === transferStock.toLocation) {
+      errors.toLocation = 'Source and destination locations must be different';
+    }
+    
+    // If there are basic validation errors, return them
+    if (Object.keys(errors).length > 0) {
+      return { errors, isValid: false };
+    }
+    
+    // Validate stock availability in source location
     try {
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', transferStock.itemCode.trim()),
+        where('location', '==', transferStock.fromLocation)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        errors.itemCode = `Item not found in ${transferStock.fromLocation}`;
+        return { errors, isValid: false };
+      }
+      
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
+      const requestedQuantity = parseInt(transferStock.quantity);
+      
+      if (stock.quantity < requestedQuantity) {
+        errors.quantity = `Insufficient stock! Only ${stock.quantity} units available in ${transferStock.fromLocation}`;
+        return { errors, isValid: false };
+      }
+      
+      // Check if item exists in destination location (for validation only)
+      const destStockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', transferStock.itemCode.trim()),
+        where('location', '==', transferStock.toLocation)
+      );
+      
+      const destStockSnapshot = await getDocs(destStockQuery);
+      if (destStockSnapshot.empty) {
+        // Item doesn't exist in destination - this is okay, it will be created
+        console.log('Item will be created in destination location');
+      }
+      
+      return { errors, isValid: true };
+      
+    } catch (error) {
+      console.error('Validation error:', error);
+      errors.validation = 'Error validating stock availability';
+      return { errors, isValid: false };
+    }
+  };
+
+  // Stock Request Functions - Manager can only INITIATE, cannot approve
+  const handleRequestStock = async () => {
+    // Clear previous errors
+    setTransferErrors({});
+    setIsTransferValidating(true);
+    
+    try {
+      // Validate all fields
+      const validation = await validateStockTransfer();
+      
+      if (!validation.isValid) {
+        setTransferErrors(validation.errors);
+        setIsTransferValidating(false);
+        return;
+      }
+      
+      // All validations passed, create the request
       const requestData = {
-        ...transferStock,
+        itemCode: transferStock.itemCode.trim(),
         quantity: parseInt(transferStock.quantity),
+        fromLocation: transferStock.fromLocation,
+        toLocation: transferStock.toLocation,
         status: 'pending',
         requestedBy: user.uid,
         requestedByName: user.fullName,
-        requestedAt: serverTimestamp()
+        requestedByLocation: user.location,
+        requestedAt: serverTimestamp(),
+        // Add validation timestamp
+        validatedAt: serverTimestamp(),
+        validatedBy: user.uid,
+        validatedByName: user.fullName
       };
 
       await addDoc(collection(db, 'stockRequests'), requestData);
       
+      // Reset form
       setTransferStock({
         itemCode: '',
         quantity: '',
         fromLocation: '',
         toLocation: ''
       });
+      setTransferErrors({});
       
-      alert('Stock request sent successfully!');
+      alert('Stock transfer request submitted successfully! Awaiting approval from admin/superadmin.');
     } catch (error) {
-      handleFirestoreError(error, 'request-stock');
+      console.error('Error requesting stock:', error);
+      setTransferErrors({ 
+        submission: 'Error submitting request. Please try again.' 
+      });
       alert('Error requesting stock. Please try again.');
-    }
-  };
-
-  const handleApproveStockRequest = async (requestId, requestData) => {
-    if (processingRequest === requestId) return;
-    
-    setProcessingRequest(requestId);
-    
-    try {
-      if (!requestData.itemCode || !requestData.quantity || !requestData.fromLocation || !requestData.toLocation) {
-        alert('Invalid request data. Missing required fields.');
-        return;
-      }
-
-      const stockQuery = query(
-        collection(db, 'stocks'),
-        where('itemCode', '==', requestData.itemCode),
-        where('location', '==', requestData.fromLocation)
-      );
-      
-      const stockSnapshot = await getDocs(stockQuery);
-      
-      if (stockSnapshot.empty) {
-        await updateDoc(doc(db, 'stockRequests', requestId), {
-          status: 'rejected',
-          rejectionReason: 'Item not found in source location',
-          rejectedBy: user.uid,
-          rejectedByName: user.fullName,
-          rejectedAt: serverTimestamp()
-        });
-        alert('Request rejected: Item not found in source location!');
-        return;
-      }
-
-      const stockDoc = stockSnapshot.docs[0];
-      const stock = stockDoc.data();
-
-      if (stock.quantity < requestData.quantity) {
-        await updateDoc(doc(db, 'stockRequests', requestId), {
-          status: 'rejected',
-          rejectionReason: 'Insufficient stock in source location',
-          rejectedBy: user.uid,
-          rejectedByName: user.fullName,
-          rejectedAt: serverTimestamp()
-        });
-        alert('Request rejected: Insufficient stock in source location!');
-        return;
-      }
-
-      await updateDoc(doc(db, 'stocks', stockDoc.id), {
-        quantity: stock.quantity - requestData.quantity,
-        updatedAt: serverTimestamp(),
-        lastTransfer: {
-          toLocation: requestData.toLocation,
-          quantity: requestData.quantity,
-          transferredAt: serverTimestamp(),
-          transferredBy: user.uid
-        }
-      });
-
-      const destStockQuery = query(
-        collection(db, 'stocks'),
-        where('itemCode', '==', requestData.itemCode),
-        where('location', '==', requestData.toLocation)
-      );
-
-      const destStockSnapshot = await getDocs(destStockQuery);
-
-      if (destStockSnapshot.empty) {
-        await addDoc(collection(db, 'stocks'), {
-          ...stock,
-          quantity: requestData.quantity,
-          location: requestData.toLocation,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          transferredFrom: requestData.fromLocation,
-          originalStockId: stockDoc.id
-        });
-      } else {
-        const destStockDoc = destStockSnapshot.docs[0];
-        const destStock = destStockDoc.data();
-        await updateDoc(doc(db, 'stocks', destStockDoc.id), {
-          quantity: destStock.quantity + requestData.quantity,
-          updatedAt: serverTimestamp(),
-          lastRestock: {
-            fromLocation: requestData.fromLocation,
-            quantity: requestData.quantity,
-            restockedAt: serverTimestamp(),
-            restockedBy: user.uid
-          }
-        });
-      }
-
-      await updateDoc(doc(db, 'stockRequests', requestId), {
-        status: 'approved',
-        approvedBy: user.uid,
-        approvedByName: user.fullName,
-        approvedAt: serverTimestamp(),
-        sourceStockId: stockDoc.id,
-        processedAt: serverTimestamp()
-      });
-
-      await addDoc(collection(db, 'stockTransfers'), {
-        requestId: requestId,
-        itemCode: requestData.itemCode,
-        brand: stock.brand,
-        model: stock.model,
-        quantity: requestData.quantity,
-        fromLocation: requestData.fromLocation,
-        toLocation: requestData.toLocation,
-        transferredBy: user.uid,
-        transferredByName: user.fullName,
-        transferredAt: serverTimestamp(),
-        type: 'approved_transfer'
-      });
-
-      alert('Stock request approved and transferred successfully!');
-    } catch (error) {
-      handleFirestoreError(error, 'approve-stock-request');
-      
-      try {
-        await updateDoc(doc(db, 'stockRequests', requestId), {
-          status: 'failed',
-          error: error.message,
-          failedAt: serverTimestamp()
-        });
-      } catch (updateError) {
-        // Silent fail on update error
-      }
-      
-      alert('Error approving stock request. Please try again.');
     } finally {
-      setProcessingRequest(null);
+      setIsTransferValidating(false);
     }
   };
 
-  const handleRejectStockRequest = async (requestId, requestData) => {
-    const reason = prompt('Please enter rejection reason:', 'Insufficient stock');
-    
-    if (reason === null) return;
-
-    try {
-      await updateDoc(doc(db, 'stockRequests', requestId), {
-        status: 'rejected',
-        rejectionReason: reason || 'No reason provided',
-        rejectedBy: user.uid,
-        rejectedByName: user.fullName,
-        rejectedAt: serverTimestamp()
-      });
-
-      await addDoc(collection(db, 'stockTransfers'), {
-        requestId: requestId,
-        itemCode: requestData.itemCode,
-        quantity: requestData.quantity,
-        fromLocation: requestData.fromLocation,
-        toLocation: requestData.toLocation,
-        rejectedBy: user.uid,
-        rejectedByName: user.fullName,
-        rejectedAt: serverTimestamp(),
-        rejectionReason: reason,
-        type: 'rejected_transfer'
-      });
-
-      alert('Stock request rejected!');
-    } catch (error) {
-      handleFirestoreError(error, 'reject-stock-request');
-      alert('Error rejecting stock request. Please try again.');
-    }
-  };
+  // Manager CANNOT approve or reject requests - removed these functions
+  // Only showing them in view-only mode
 
   // Sales Report Functions
   const generateSalesReport = useCallback(async () => {
@@ -1853,7 +1791,9 @@ export default function ManagerDashboard() {
       return stockRequests;
     }
     return stockRequests.filter(request => 
-      request.fromLocation === selectedLocation || request.toLocation === selectedLocation
+      request.fromLocation === selectedLocation || 
+      request.toLocation === selectedLocation ||
+      request.requestedByLocation === selectedLocation
     );
   };
 
@@ -1871,11 +1811,11 @@ export default function ManagerDashboard() {
   // Helper functions
   const getStatusBadgeColor = (status) => {
     switch (status) {
-      case 'Reported': return 'bg-yellow-500/20 text-yellow-300';
-      case 'In Repair': return 'bg-blue-500/20 text-blue-300';
-      case 'Fixed': return 'bg-green-500/20 text-green-300';
-      case 'EOS (End of Service)': return 'bg-red-500/20 text-red-300';
-      case 'Scrapped': return 'bg-gray-500/20 text-gray-300';
+      case 'pending': return 'bg-yellow-500/20 text-yellow-300';
+      case 'approved': return 'bg-green-500/20 text-green-300';
+      case 'rejected': return 'bg-red-500/20 text-red-300';
+      case 'failed': return 'bg-red-500/20 text-red-300';
+      case 'completed': return 'bg-blue-500/20 text-blue-300';
       default: return 'bg-gray-500/20 text-gray-300';
     }
   };
@@ -1959,7 +1899,7 @@ export default function ManagerDashboard() {
               { id: 'salesAnalysis', name: 'Sales Analysis' },
               { id: 'transfer', name: 'Stock Transfer' },
               { id: 'personnel', name: 'Personnel' },
-              { id: 'requests', name: 'Requests', count: getFilteredStockRequests().length }
+              { id: 'requests', name: 'Requests', count: getFilteredStockRequests().filter(r => r.status === 'pending').length }
             ].map((tab, index) => (
               <button
                 key={generateSafeKey('tab', index, tab.id)}
@@ -2777,56 +2717,93 @@ export default function ManagerDashboard() {
           {activeTab === 'transfer' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>Request Stock Transfer</h2>
+              <p className="text-white/70 mb-6">Managers can initiate transfer requests. All fields are required and will be validated before submission.</p>
               
               <div className={'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'}>
-                <input
-                  type={'text'}
-                  placeholder={'Item Code'}
-                  value={transferStock.itemCode}
-                  onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <input
-                  type={'number'}
-                  placeholder={'Quantity'}
-                  value={transferStock.quantity}
-                  onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <select
-                  value={transferStock.fromLocation}
-                  onChange={(e) => setTransferStock({...transferStock, fromLocation: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>Select Source Location</option>
-                  {LOCATIONS.map((location, index) => (
-                    <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
-                  ))}
-                </select>
-                <select
-                  value={transferStock.toLocation}
-                  onChange={(e) => setTransferStock({...transferStock, toLocation: e.target.value})}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>Select Destination Location</option>
-                  {LOCATIONS.map((location, index) => (
-                    <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-white/70 text-sm mb-2">Item Code *</label>
+                  <input
+                    type={'text'}
+                    placeholder={'Enter item code'}
+                    value={transferStock.itemCode}
+                    onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                  />
+                  {transferErrors.itemCode && (
+                    <p className="text-red-400 text-sm mt-1">{transferErrors.itemCode}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-white/70 text-sm mb-2">Quantity *</label>
+                  <input
+                    type={'number'}
+                    min="1"
+                    placeholder={'Enter quantity'}
+                    value={transferStock.quantity}
+                    onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.quantity ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
+                  />
+                  {transferErrors.quantity && (
+                    <p className="text-red-400 text-sm mt-1">{transferErrors.quantity}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-white/70 text-sm mb-2">Source Location *</label>
+                  <select
+                    value={transferStock.fromLocation}
+                    onChange={(e) => setTransferStock({...transferStock, fromLocation: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.fromLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                  >
+                    <option value={''}>Select Source Location</option>
+                    {LOCATIONS.map((location, index) => (
+                      <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
+                    ))}
+                  </select>
+                  {transferErrors.fromLocation && (
+                    <p className="text-red-400 text-sm mt-1">{transferErrors.fromLocation}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-white/70 text-sm mb-2">Destination Location *</label>
+                  <select
+                    value={transferStock.toLocation}
+                    onChange={(e) => setTransferStock({...transferStock, toLocation: e.target.value})}
+                    className={`w-full bg-white/10 border ${transferErrors.toLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
+                  >
+                    <option value={''}>Select Destination Location</option>
+                    {LOCATIONS.map((location, index) => (
+                      <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
+                    ))}
+                  </select>
+                  {transferErrors.toLocation && (
+                    <p className="text-red-400 text-sm mt-1">{transferErrors.toLocation}</p>
+                  )}
+                </div>
+                
+                {transferErrors.submission && (
+                  <div className="col-span-2">
+                    <p className="text-red-400 text-sm">{transferErrors.submission}</p>
+                  </div>
+                )}
+                
                 <button
                   onClick={handleRequestStock}
-                  className={'bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg transition-colors col-span-2'}
+                  disabled={isTransferValidating}
+                  className={'bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800 text-white px-6 py-3 rounded-lg transition-colors col-span-2 font-semibold'}
                 >
-                  Request Stock Transfer
+                  {isTransferValidating ? 'Validating...' : 'Request Stock Transfer'}
                 </button>
+                <p className="text-white/50 text-sm col-span-2 text-center">
+                  Note: All transfer requests require approval from Admin/SuperAdmin
+                </p>
               </div>
 
-              {/* Pending Requests */}
-              {stockRequests.length > 0 && (
-                <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-white mb-4">Pending Stock Requests</h3>
+              {/* Recent Transfer Requests */}
+              <div className="mt-8">
+                <h3 className="text-lg font-semibold text-white mb-4">Recent Transfer Requests</h3>
+                {getFilteredStockRequests().length > 0 ? (
                   <div className="space-y-4">
-                    {stockRequests.map((request, index) => (
+                    {getFilteredStockRequests().slice(0, 5).map((request, index) => (
                       <div key={generateSafeKey('request', index, request.id)} className="bg-white/5 rounded-lg p-4">
                         <div className="flex justify-between items-start">
                           <div>
@@ -2836,28 +2813,30 @@ export default function ManagerDashboard() {
                             </div>
                             <div className="text-white/70 text-sm">Quantity: {request.quantity}</div>
                             <div className="text-white/70 text-sm">Requested by: {request.requestedByName}</div>
+                            <div className="text-white/70 text-sm mt-1">
+                              Status: <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(request.status)}`}>
+                                {request.status}
+                              </span>
+                            </div>
                           </div>
-                          <div className="space-x-2">
-                            <button
-                              onClick={() => handleApproveStockRequest(request.id, request)}
-                              disabled={processingRequest === request.id}
-                              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm"
-                            >
-                              {processingRequest === request.id ? 'Processing...' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => handleRejectStockRequest(request.id, request)}
-                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
-                            >
-                              Reject
-                            </button>
+                          <div className="text-right">
+                            <div className="text-white/50 text-sm">
+                              {request.requestedAt?.toDate().toLocaleDateString()}
+                            </div>
+                            <div className="text-white/70 text-sm">
+                              {request.status === 'pending' ? 'Awaiting Approval' : 
+                               request.status === 'approved' ? 'Approved' : 
+                               request.status === 'rejected' ? 'Rejected' : ''}
+                            </div>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-white/70">No transfer requests found.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -2925,23 +2904,27 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Stock Requests Tab */}
+          {/* Stock Requests Tab (View Only - Cannot Approve) */}
           {activeTab === 'requests' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>
-                Stock Request Approval
+                Stock Transfer Requests (View Only)
               </h2>
+              <p className="text-white/70 mb-6">You can view all transfer requests. Only Admin/SuperAdmin can approve requests.</p>
               
-              {stockRequests.length === 0 ? (
-                <p className={'text-white/70'}>No pending stock requests.</p>
+              {getFilteredStockRequests().length === 0 ? (
+                <p className={'text-white/70'}>No stock transfer requests found.</p>
               ) : (
                 <div className={'space-y-4'}>
-                  {stockRequests.map((request, index) => (
+                  {getFilteredStockRequests().map((request, index) => (
                     <div key={generateSafeKey('stock-request', index, request.id)} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
                       <div className={'flex justify-between items-start'}>
                         <div className={'flex-1'}>
                           <div className={'flex items-center space-x-3 mb-2'}>
                             <h3 className={'font-semibold text-white'}>Item: {request.itemCode}</h3>
+                            <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(request.status)}`}>
+                              {request.status}
+                            </span>
                           </div>
                           <div className={'grid grid-cols-1 md:grid-cols-2 gap-2 text-sm'}>
                             <div>
@@ -2966,22 +2949,38 @@ export default function ManagerDashboard() {
                                 {request.requestedAt?.toDate().toLocaleString() || 'Unknown date'}
                               </span>
                             </div>
+                            {request.validatedAt && (
+                              <div>
+                                <span className={'text-white/70'}>Validated by Manager: </span>
+                                <span className={'text-white'}>{request.validatedByName || 'N/A'}</span>
+                              </div>
+                            )}
+                            {request.approvedByName && (
+                              <div>
+                                <span className={'text-white/70'}>Approved by: </span>
+                                <span className={'text-green-300'}>{request.approvedByName}</span>
+                              </div>
+                            )}
+                            {request.rejectedByName && (
+                              <div>
+                                <span className={'text-white/70'}>Rejected by: </span>
+                                <span className={'text-red-300'}>{request.rejectedByName}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div className={'flex flex-col space-y-2'}>
-                          <button
-                            onClick={() => handleApproveStockRequest(request.id, request)}
-                            disabled={processingRequest === request.id}
-                            className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors'}
-                          >
-                            {processingRequest === request.id ? 'Processing...' : 'Approve'}
-                          </button>
-                          <button
-                            onClick={() => handleRejectStockRequest(request.id, request)}
-                            className={'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm transition-colors'}
-                          >
-                            Reject
-                          </button>
+                        <div className={'text-right'}>
+                          <div className={'text-white/50 text-sm mb-2'}>
+                            {request.status === 'pending' ? '⏳ Pending Approval' : 
+                             request.status === 'approved' ? '✅ Approved' : 
+                             request.status === 'rejected' ? '❌ Rejected' : 
+                             request.status === 'failed' ? '⚠️ Failed' : ''}
+                          </div>
+                          {request.status === 'pending' && (
+                            <div className="text-orange-300 text-sm font-semibold">
+                              Awaiting Admin/SuperAdmin
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
