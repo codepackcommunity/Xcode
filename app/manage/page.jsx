@@ -22,7 +22,8 @@ import {
   FaShoppingCart, FaStore, FaReceipt, FaClipboardList,
   FaUserCog, FaUserSlash, FaUserPlus, FaKey, FaTachometerAlt,
   FaBox, FaBoxes, FaDollarSign, FaCreditCard, FaMobileAlt,
-  FaBan, FaUndo, FaEye, FaEyeSlash, FaArchive, FaTrashAlt
+  FaBan, FaUndo, FaEye, FaEyeSlash, FaArchive, FaTrashAlt,
+  FaUserCheck
 } from 'react-icons/fa';
 
 // Locations
