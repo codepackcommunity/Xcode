@@ -316,10 +316,10 @@ export default function DeletionManagementDashboard() {
           action: 'permanent_delete',
           recordId: saleId,
           recordData: {
-            receiptNumber: sale.receiptNumber,
-            customerName: sale.customerName,
-            amount: sale.finalSalePrice,
-            date: sale.soldAt
+            receiptNumber: sale.receiptNumber || 'NO-RECEIPT-' + saleId.slice(0, 8),
+            customerName: sale.customerName || 'Walk-in Customer',
+            amount: sale.finalSalePrice || 0,
+            date: sale.soldAt || serverTimestamp()
           },
           deletedBy: user.uid,
           deletedByName: user.fullName || user.email,
