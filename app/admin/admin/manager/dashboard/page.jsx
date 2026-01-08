@@ -1850,13 +1850,13 @@ export default function ManagerDashboard() {
           <div className={'flex justify-between items-center py-4'}>
             <div>
               <h1 className={'text-2xl font-bold text-white'}>
-                KM ELECTRONICS <span className={'text-orange-500'}>Manager</span>
+                KM ELECTRONICS <span className={'text-orange-500'}>MANAGEMENT</span>
               </h1>
               <p className={'text-white/70 text-sm'}>
                 Welcome, {user?.fullName} | Assigned Location: {user?.location}
-                <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getRoleBadgeColor('manager')}`}>
+                {/* <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getRoleBadgeColor('manager')}`}>
                   Manager
-                </span>
+                </span> */}
               </p>
             </div>
             

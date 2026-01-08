@@ -2696,6 +2696,12 @@ export default function SuperAdminDashboard() {
                 >
                   Manage
                 </button>
+                <button
+                  onClick={() => router.push('/shops')}
+                  className={'mt-4 ml-4 bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition-colors'}
+                >
+                  Manage
+                </button>
               </div>
 
               {/* Stocks Table */}
