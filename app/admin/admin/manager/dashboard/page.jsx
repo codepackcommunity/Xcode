@@ -80,19 +80,27 @@ export default function ManagerDashboard() {
     liveSales: []
   });
 
-  // New Stock State
+  // New Stock State (updated for compatibility with superadmin)
   const [newStock, setNewStock] = useState({
     brand: '',
     model: '',
-    storage: '',
+    category: 'Smartphone',
     color: '',
-    orderPrice: '',
-    salePrice: '',
-    discountPercentage: '',
-    quantity: '',
+    storage: '',
     itemCode: '',
-    location: ''
+    quantity: '',
+    costPrice: '',
+    retailPrice: '',
+    wholesalePrice: '',
+    discountPercentage: '',
+    minStockLevel: '5',
+    reorderQuantity: '10',
+    location: '',
+    supplier: '',
+    warrantyPeriod: '12',
+    description: ''
   });
+  const [stockErrors, setStockErrors] = useState({});
 
   // Sales Report Download State
   const [reportFilters, setReportFilters] = useState({
@@ -707,41 +715,68 @@ export default function ManagerDashboard() {
     }
   };
 
-  // Stock Management Functions
+  // Stock Management Functions - UPDATED for compatibility with superadmin
+  const validateStockForm = () => {
+    const errors = {};
+    if (!newStock.brand.trim()) errors.brand = 'Brand is required';
+    if (!newStock.model.trim()) errors.model = 'Model is required';
+    if (!newStock.itemCode.trim()) errors.itemCode = 'Item Code is required';
+    if (!newStock.quantity || parseInt(newStock.quantity) <= 0) errors.quantity = 'Quantity must be greater than 0';
+    if (!newStock.location) errors.location = 'Location is required';
+    if (!newStock.costPrice || parseFloat(newStock.costPrice) <= 0) errors.costPrice = 'Cost Price must be greater than 0';
+    if (!newStock.retailPrice || parseFloat(newStock.retailPrice) <= 0) errors.retailPrice = 'Retail Price must be greater than 0';
+
+    setStockErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleAddStock = async () => {
-    if (!newStock.brand || !newStock.model || !newStock.itemCode || !newStock.quantity || !newStock.location) {
-      alert('Please fill in required fields: Brand, Model, Item Code, Quantity, and Location.');
+    if (!validateStockForm()) {
+      alert('Please fix the validation errors in the form');
       return;
     }
 
     try {
       const stockData = {
         ...newStock,
-        orderPrice: parseFloat(newStock.orderPrice) || 0,
-        salePrice: parseFloat(newStock.salePrice) || 0,
+        costPrice: parseFloat(newStock.costPrice) || 0,
+        retailPrice: parseFloat(newStock.retailPrice) || 0,
+        wholesalePrice: parseFloat(newStock.wholesalePrice) || (parseFloat(newStock.retailPrice) * 0.8) || 0,
         discountPercentage: parseFloat(newStock.discountPercentage) || 0,
         quantity: parseInt(newStock.quantity) || 0,
+        minStockLevel: parseInt(newStock.minStockLevel) || 5,
+        reorderQuantity: parseInt(newStock.reorderQuantity) || 10,
+        warrantyPeriod: parseInt(newStock.warrantyPeriod) || 12,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         addedBy: user.uid,
-        addedByName: user.fullName
+        addedByName: user.fullName,
+        isActive: true
       };
 
       await addDoc(collection(db, 'stocks'), stockData);
-      
+
       setNewStock({
         brand: '',
         model: '',
-        storage: '',
+        category: 'Smartphone',
         color: '',
-        orderPrice: '',
-        salePrice: '',
-        discountPercentage: '',
-        quantity: '',
+        storage: '',
         itemCode: '',
-        location: ''
+        quantity: '',
+        costPrice: '',
+        retailPrice: '',
+        wholesalePrice: '',
+        discountPercentage: '',
+        minStockLevel: '5',
+        reorderQuantity: '10',
+        location: '',
+        supplier: '',
+        warrantyPeriod: '12',
+        description: ''
       });
-      
+      setStockErrors({});
+
       alert('Stock added successfully!');
     } catch (error) {
       handleFirestoreError(error, 'add-stock');
@@ -805,9 +840,9 @@ export default function ManagerDashboard() {
           return;
         }
       } else {
-        const salePrice = parseFloat(stock.salePrice) || 0;
+        const retailPrice = parseFloat(stock.retailPrice) || 0;
         const discountPercentage = parseFloat(stock.discountPercentage) || 0;
-        finalPrice = salePrice * (1 - discountPercentage / 100) * quickSale.quantity;
+        finalPrice = retailPrice * (1 - discountPercentage / 100) * quickSale.quantity;
       }
 
       const batch = writeBatch(db);
@@ -820,24 +855,29 @@ export default function ManagerDashboard() {
         lastSold: serverTimestamp()
       });
 
+      const costPrice = parseFloat(stock.costPrice) || 0;
+      const profit = finalPrice - (costPrice * quickSale.quantity);
+
       const saleData = {
         itemCode: stock.itemCode,
         brand: stock.brand,
         model: stock.model,
-        storage: stock.storage,
+        category: stock.category || 'Smartphone',
         color: stock.color,
-        stockId: stockDoc.id,
+        storage: stock.storage,
         quantity: quickSale.quantity,
-        originalPrice: parseFloat(stock.salePrice) || 0,
-        finalSalePrice: finalPrice,
-        customPrice: quickSale.customPrice ? parseFloat(quickSale.customPrice) : null,
+        costPrice: costPrice,
+        salePrice: finalPrice / quickSale.quantity, // price per unit
         discountPercentage: parseFloat(stock.discountPercentage) || 0,
-        soldAt: serverTimestamp(),
+        finalSalePrice: finalPrice,
+        profit: profit,
+        paymentMethod: 'cash',
+        location: user.location,
         soldBy: user.uid,
         soldByName: user.fullName,
-        location: user.location,
-        saleType: quickSale.customPrice ? 'custom_price' : 'standard',
-        status: 'completed'
+        soldAt: serverTimestamp(),
+        receiptNumber: `RCP-${Date.now()}`,
+        notes: quickSale.customPrice ? `Custom price sale: MK ${quickSale.customPrice}` : 'Standard sale'
       };
 
       const salesRef = doc(collection(db, 'sales'));
@@ -884,9 +924,9 @@ export default function ManagerDashboard() {
         return;
       }
 
-      const salePrice = parseFloat(stockData.salePrice) || 0;
+      const retailPrice = parseFloat(stockData.retailPrice) || 0;
       const discountPercentage = parseFloat(stockData.discountPercentage) || 0;
-      const finalPrice = salePrice * (1 - discountPercentage / 100) * quantity;
+      const finalPrice = retailPrice * (1 - discountPercentage / 100) * quantity;
 
       const batch = writeBatch(db);
 
@@ -898,23 +938,29 @@ export default function ManagerDashboard() {
         lastSold: serverTimestamp()
       });
 
+      const costPrice = parseFloat(stockData.costPrice) || 0;
+      const profit = finalPrice - (costPrice * quantity);
+
       const saleData = {
         itemCode: stockData.itemCode,
         brand: stockData.brand,
         model: stockData.model,
-        storage: stockData.storage,
+        category: stockData.category || 'Smartphone',
         color: stockData.color,
-        stockId: stockId,
+        storage: stockData.storage,
         quantity: quantity,
-        originalPrice: salePrice,
-        finalSalePrice: finalPrice,
+        costPrice: costPrice,
+        salePrice: finalPrice / quantity, // price per unit
         discountPercentage: discountPercentage,
-        soldAt: serverTimestamp(),
+        finalSalePrice: finalPrice,
+        profit: profit,
+        paymentMethod: 'cash',
+        location: user.location,
         soldBy: user.uid,
         soldByName: user.fullName,
-        location: user.location,
-        saleType: 'standard',
-        status: 'completed'
+        soldAt: serverTimestamp(),
+        receiptNumber: `RCP-${Date.now()}`,
+        notes: 'Standard sale'
       };
 
       const salesRef = doc(collection(db, 'sales'));
@@ -1799,7 +1845,7 @@ export default function ManagerDashboard() {
 
   const calculateTotalStockValue = (stocksArray) => {
     return stocksArray.reduce((total, stock) => {
-      return total + ((stock.orderPrice || 0) * (stock.quantity || 0));
+      return total + ((stock.costPrice || 0) * (stock.quantity || 0));
     }, 0);
   };
 
@@ -1847,9 +1893,9 @@ export default function ManagerDashboard() {
       {/* Header */}
       <header className={'bg-white/10 backdrop-blur-lg border-b border-white/20'}>
         <div className={'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}>
-          <div className={'flex justify-between items-center py-4'}>
+          <div className={'flex flex-col sm:flex-row sm:justify-between sm:items-center py-4 space-y-4 sm:space-y-0'}>
             <div>
-              <h1 className={'text-2xl font-bold text-white'}>
+              <h1 className={'text-xl sm:text-2xl font-bold text-white'}>
                 KM ELECTRONICS <span className={'text-orange-500'}>MANAGEMENT</span>
               </h1>
               <p className={'text-white/70 text-sm'}>
@@ -1860,11 +1906,11 @@ export default function ManagerDashboard() {
               </p>
             </div>
             
-            <div className={'flex items-center space-x-4'}>
+            <div className={'flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4'}>
               <select
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
-                className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
+                className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm'}
               >
                 <option value={'all'}>All Locations (View Only)</option>
                 <option value={user?.location}>My Location: {user?.location} (Sell)</option>
@@ -1875,7 +1921,7 @@ export default function ManagerDashboard() {
               
               <button
                 onClick={() => signOut(auth).then(() => router.push('/login'))}
-                className={'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors'}
+                className={'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors text-sm'}
               >
                 Logout
               </button>
@@ -1887,32 +1933,33 @@ export default function ManagerDashboard() {
       {/* Navigation Tabs */}
       <div className={'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}>
         <div className={'border-b border-white/20'}>
-          <nav className={'-mb-px flex space-x-8 overflow-x-auto'}>
+          <nav className={'-mb-px flex flex-wrap space-x-4 sm:space-x-8 overflow-x-auto'}>
             {[
-              { id: 'dashboard', name: 'Dashboard' },
-              { id: 'allStocks', name: 'View All Stocks' },
-              { id: 'myStocks', name: 'My Location Stocks' },
-              { id: 'quickSale', name: 'Quick Sale' },
-              { id: 'salesHistory', name: 'Sales History' },
-              { id: 'faultyPhones', name: 'Faulty Phones' },
-              { id: 'installments', name: 'Installments' },
-              { id: 'salesAnalysis', name: 'Sales Analysis' },
-              { id: 'transfer', name: 'Stock Transfer' },
-              { id: 'personnel', name: 'Personnel' },
-              { id: 'requests', name: 'Requests', count: getFilteredStockRequests().filter(r => r.status === 'pending').length }
+              { id: 'dashboard', name: 'Dashboard', mobileName: 'Dashboard' },
+              { id: 'allStocks', name: 'View All Stocks', mobileName: 'All Stocks' },
+              { id: 'myStocks', name: 'My Location Stocks', mobileName: 'My Stocks' },
+              { id: 'quickSale', name: 'Quick Sale', mobileName: 'Quick Sale' },
+              { id: 'salesHistory', name: 'Sales History', mobileName: 'Sales Hist.' },
+              { id: 'faultyPhones', name: 'Faulty Phones', mobileName: 'Faulty' },
+              { id: 'installments', name: 'Installments', mobileName: 'Installments' },
+              { id: 'salesAnalysis', name: 'Sales Analysis', mobileName: 'Analysis' },
+              { id: 'transfer', name: 'Stock Transfer', mobileName: 'Transfer' },
+              { id: 'personnel', name: 'Personnel', mobileName: 'Personnel' },
+              { id: 'requests', name: 'Requests', mobileName: 'Requests', count: getFilteredStockRequests().filter(r => r.status === 'pending').length }
             ].map((tab, index) => (
               <button
                 key={generateSafeKey('tab', index, tab.id)}
                 onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
+                className={`whitespace-nowrap py-2 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm ${
                   activeTab === tab.id
                     ? 'border-orange-500 text-orange-400'
                     : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
                 }`}
               >
-                {tab.name}
+                <span className="hidden sm:inline">{tab.name}</span>
+                <span className="sm:hidden">{tab.mobileName}</span>
                 {tab.count > 0 && (
-                  <span className={'ml-2 bg-orange-500 text-white py-0.5 px-2 rounded-full text-xs'}>
+                  <span className={'ml-1 sm:ml-2 bg-orange-500 text-white py-0.5 px-1 sm:px-2 rounded-full text-xs'}>
                     {tab.count}
                   </span>
                 )}
@@ -1927,48 +1974,48 @@ export default function ManagerDashboard() {
           {activeTab === 'dashboard' && (
             <div className={'space-y-6'}>
               {/* Analytics Cards */}
-              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6'>
-                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>Total Stock Value (All Locations)</h3>
-                  <p className='text-2xl font-bold text-green-400'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6'>
+                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-xs sm:text-sm'>Total Stock Value (All Locations)</h3>
+                  <p className='text-xl sm:text-2xl font-bold text-green-400'>
                     MK {calculateTotalStockValue(stocksTable).toLocaleString()}
                   </p>
                 </div>
-                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>My Location Stock Value</h3>
-                  <p className='text-2xl font-bold text-blue-400'>
+                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-xs sm:text-sm'>My Location Stock Value</h3>
+                  <p className='text-xl sm:text-2xl font-bold text-blue-400'>
                     MK {calculateTotalStockValue(locationStocks).toLocaleString()}
                   </p>
                 </div>
-                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>Total Sales (All)</h3>
-                  <p className='text-2xl font-bold text-purple-400'>
+                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-xs sm:text-sm'>Total Sales (All)</h3>
+                  <p className='text-xl sm:text-2xl font-bold text-purple-400'>
                     {salesAnalysis.totalSales}
                   </p>
                 </div>
-                <div className='bg-white/5 rounded-lg p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-sm'>Faulty Phones (My Location)</h3>
-                  <p className='text-2xl font-bold text-orange-400'>
+                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
+                  <h3 className='text-white/70 text-xs sm:text-sm'>Faulty Phones (My Location)</h3>
+                  <p className='text-xl sm:text-2xl font-bold text-orange-400'>
                     {faultyTable.length}
                   </p>
                 </div>
               </div>
 
-              <div className={'grid grid-cols-1 lg:grid-cols-2 gap-6'}>
+              <div className={'grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6'}>
                 {/* Live Sales Feed */}
-                <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-                  <h2 className={'text-xl font-semibold text-white mb-4'}>Live Sales Feed</h2>
+                <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-4 sm:p-6'}>
+                  <h2 className={'text-lg sm:text-xl font-semibold text-white mb-4'}>Live Sales Feed</h2>
                   <div className={'space-y-3 max-h-80 overflow-y-auto'}>
                     {realTimeSales.liveSales.slice(0, 5).map((sale, index) => (
-                      <div key={generateSafeKey('live-sale', index, sale.id)} className={'flex justify-between items-center p-3 bg-white/5 rounded-lg'}>
+                      <div key={generateSafeKey('live-sale', index, sale.id)} className={'flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 bg-white/5 rounded-lg space-y-2 sm:space-y-0'}>
                         <div>
-                          <div className={'text-white font-medium'}>{sale.brand} {sale.model}</div>
-                          <div className={'text-white/70 text-sm'}>
+                          <div className={'text-white font-medium text-sm sm:text-base'}>{sale.brand} {sale.model}</div>
+                          <div className={'text-white/70 text-xs sm:text-sm'}>
                             {sale.location} • {sale.soldByName}
                           </div>
                         </div>
-                        <div className={'text-right'}>
-                          <div className={'text-green-400 font-semibold'}>MK {sale.finalSalePrice || 0}</div>
+                        <div className={'text-left sm:text-right'}>
+                          <div className={'text-green-400 font-semibold text-sm sm:text-base'}>MK {sale.finalSalePrice || 0}</div>
                           <div className={'text-white/50 text-xs'}>
                             {sale.soldAt?.toDate().toLocaleTimeString() || 'Just now'}
                           </div>
@@ -1982,29 +2029,29 @@ export default function ManagerDashboard() {
                 </div>
 
                 {/* Quick Actions */}
-                <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-                  <h2 className='text-xl font-semibold text-white mb-4'>Quick Actions</h2>
+                <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-4 sm:p-6'>
+                  <h2 className='text-lg sm:text-xl font-semibold text-white mb-4'>Quick Actions</h2>
                   <div className='space-y-3'>
                     <button
                       onClick={() => setActiveTab('quickSale')}
                       className='w-full bg-blue-600 hover:bg-blue-700 text-blue-200 px-4 py-3 rounded-lg transition-colors text-left'
                     >
-                      <div className='font-semibold'>Quick Sale</div>
-                      <div className='text-sm'>Process a sale from your location</div>
+                      <div className='font-semibold text-sm sm:text-base'>Quick Sale</div>
+                      <div className='text-xs sm:text-sm'>Process a sale from your location</div>
                     </button>
                     <button
                       onClick={() => setActiveTab('myStocks')}
                       className='w-full bg-green-600 hover:bg-green-700 text-green-200 px-4 py-3 rounded-lg transition-colors text-left'
                     >
-                      <div className='font-semibold'>Sell from My Location</div>
-                      <div className='text-sm'>Browse and sell items from {user?.location}</div>
+                      <div className='font-semibold text-sm sm:text-base'>Sell from My Location</div>
+                      <div className='text-xs sm:text-sm'>Browse and sell items from {user?.location}</div>
                     </button>
                     <button
                       onClick={() => setReportModal(true)}
                       className='w-full bg-orange-600 hover:bg-orange-700 text-orange-200 px-4 py-3 rounded-lg transition-colors text-left'
                     >
-                      <div className='font-semibold'>Report Faulty Phone</div>
-                      <div className='text-sm'>Report a faulty device from your location</div>
+                      <div className='font-semibold text-sm sm:text-base'>Report Faulty Phone</div>
+                      <div className='text-xs sm:text-sm'>Report a faulty device from your location</div>
                     </button>
                   </div>
                 </div>
@@ -2019,7 +2066,7 @@ export default function ManagerDashboard() {
                       <tr className={'border-b border-white/20'}>
                         <th className={'text-left py-2'}>Item Code</th>
                         <th className={'text-left py-2'}>Brand & Model</th>
-                        <th className={'text-left py-2'}>Sale Price</th>
+                        <th className={'text-left py-2 hidden sm:table-cell'}>Sale Price</th>
                         <th className={'text-left py-2'}>Available</th>
                         <th className={'text-left py-2'}>Actions</th>
                       </tr>
@@ -2034,7 +2081,7 @@ export default function ManagerDashboard() {
                               {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
                               {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
                             </td>
-                            <td className={'py-2'}>
+                            <td className={'py-2 hidden sm:table-cell'}>
                               <div className={'text-green-400'}>MK {stock.salePrice || 0}</div>
                               {stock.discountPercentage > 0 && (
                                 <div className={'text-orange-400 text-sm'}>
@@ -2047,11 +2094,11 @@ export default function ManagerDashboard() {
                                 {stock.quantity || 0} units
                               </span>
                             </td>
-                            <td className={'py-2 space-x-2'}>
+                            <td className={'py-2'}>
                               <button
                                 onClick={() => handleSellItem(stock.id, stock, 1)}
                                 disabled={!stock.quantity || stock.quantity === 0}
-                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'}
+                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
                               >
                                 Sell 1
                               </button>
@@ -2061,7 +2108,7 @@ export default function ManagerDashboard() {
                       })}
                       {locationStocks.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="text-center py-4 text-white/70">
+                          <td colSpan={4} className="text-center py-4 text-white/70">
                             No stocks available in your location
                           </td>
                         </tr>
@@ -2121,10 +2168,10 @@ export default function ManagerDashboard() {
                       <th className={'text-left py-2'}>Location</th>
                       <th className={'text-left py-2'}>Item Code</th>
                       <th className={'text-left py-2'}>Brand & Model</th>
-                      <th className={'text-left py-2'}>Order Price</th>
-                      <th className={'text-left py-2'}>Sale Price</th>
+                      <th className={'text-left py-2'}>Cost Price</th>
+                      <th className={'text-left py-2'}>Retail Price</th>
                       <th className={'text-left py-2'}>Quantity</th>
-                      <th className={'text-left py-2'}>Total Value</th>
+                      <th className={'text-left py-2'}>Min Level</th>
                       <th className={'text-left py-2'}>Status</th>
                     </tr>
                   </thead>
@@ -2143,10 +2190,10 @@ export default function ManagerDashboard() {
                         </td>
                         <td className={'py-2 font-mono'}>{stock.itemCode}</td>
                         <td className={'py-2'}>{stock.brand} {stock.model}</td>
-                        <td className={'py-2'}>MK {stock.orderPrice || 0}</td>
-                        <td className={'py-2'}>MK {stock.salePrice || 0}</td>
+                        <td className={'py-2'}>MK {stock.costPrice || 0}</td>
+                        <td className={'py-2'}>MK {stock.retailPrice || 0}</td>
                         <td className={'py-2'}>{stock.quantity || 0}</td>
-                        <td className={'py-2'}>MK {((stock.orderPrice || 0) * (stock.quantity || 0)).toLocaleString()}</td>
+                        <td className={'py-2'}>{stock.minStockLevel || 0}</td>
                         <td className={'py-2'}>
                           <span className={`px-2 py-1 rounded-full text-xs ${
                             stock.location === user?.location 
@@ -2218,8 +2265,8 @@ export default function ManagerDashboard() {
                     <tr className={'border-b border-white/20'}>
                       <th className={'text-left py-2'}>Item Code</th>
                       <th className={'text-left py-2'}>Brand & Model</th>
-                      <th className={'text-left py-2'}>Sale Price</th>
-                      <th className={'text-left py-2'}>Discount</th>
+                      <th className={'text-left py-2 hidden sm:table-cell'}>Retail Price</th>
+                      <th className={'text-left py-2 hidden md:table-cell'}>Discount</th>
                       <th className={'text-left py-2'}>Available</th>
                       <th className={'text-left py-2'}>Actions</th>
                     </tr>
@@ -2234,15 +2281,15 @@ export default function ManagerDashboard() {
                             {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
                             {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
                           </td>
-                          <td className={'py-2'}>
-                            <div className={'text-green-400'}>MK {stock.salePrice || 0}</div>
+                          <td className={'py-2 hidden sm:table-cell'}>
+                            <div className={'text-green-400'}>MK {stock.retailPrice || 0}</div>
                             {stock.discountPercentage > 0 && (
                               <div className={'text-orange-400 text-sm'}>
-                                After discount: MK {(stock.salePrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
+                                After discount: MK {(stock.retailPrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
                               </div>
                             )}
                           </td>
-                          <td className={'py-2'}>
+                          <td className={'py-2 hidden md:table-cell'}>
                             {stock.discountPercentage > 0 ? (
                               <span className={'text-orange-400'}>{stock.discountPercentage}% OFF</span>
                             ) : (
@@ -2254,34 +2301,36 @@ export default function ManagerDashboard() {
                               {stock.quantity || 0} units
                             </span>
                           </td>
-                          <td className={'py-2 space-x-2'}>
-                            <button
-                              onClick={() => handleSellItem(stock.id, stock, 1)}
-                              disabled={!stock.quantity || stock.quantity === 0}
-                              className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-3 py-1 rounded text-sm transition-colors'}
-                            >
-                              Sell 1
-                            </button>
-                            {stock.quantity > 1 && (
+                          <td className={'py-2'}>
+                            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
                               <button
-                                onClick={() => {
-                                  const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
-                                  if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
-                                    handleSellItem(stock.id, stock, parseInt(quantity));
-                                  }
-                                }}
-                                className={'bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'}
+                                onClick={() => handleSellItem(stock.id, stock, 1)}
+                                disabled={!stock.quantity || stock.quantity === 0}
+                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
                               >
-                                Sell Multiple
+                                Sell 1
                               </button>
-                            )}
+                              {stock.quantity > 1 && (
+                                <button
+                                  onClick={() => {
+                                    const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
+                                    if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
+                                      handleSellItem(stock.id, stock, parseInt(quantity));
+                                    }
+                                  }}
+                                  className={'bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
+                                >
+                                  Sell Multiple
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
                     })}
                     {getFilteredLocationStocks().length === 0 && (
                       <tr>
-                        <td colSpan={6} className="text-center py-8 text-white/70">
+                        <td colSpan={4} className="text-center py-8 text-white/70">
                           No stocks available in your location matching your search criteria.
                         </td>
                       </tr>
@@ -2361,7 +2410,7 @@ export default function ManagerDashboard() {
                           <div className='text-white/70 text-xs'>{stock.brand} {stock.model}</div>
                         </div>
                         <div className='text-right'>
-                          <div className='text-green-400 text-sm'>MK {stock.salePrice || 0}</div>
+                          <div className='text-green-400 text-sm'>MK {stock.retailPrice || 0}</div>
                           <div className='text-white/50 text-xs'>{stock.quantity} available</div>
                         </div>
                       </div>
@@ -2512,10 +2561,10 @@ export default function ManagerDashboard() {
                     <tr className='border-b border-white/20'>
                       <th className='text-left py-2'>Item Code</th>
                       <th className='text-left py-2'>Brand & Model</th>
-                      <th className='text-left py-2'>Fault Description</th>
+                      <th className='text-left py-2 hidden sm:table-cell'>Fault Description</th>
                       <th className='text-left py-2'>Status</th>
-                      <th className='text-left py-2'>Cost</th>
-                      <th className='text-left py-2'>Reported Date</th>
+                      <th className='text-left py-2 hidden md:table-cell'>Cost</th>
+                      <th className='text-left py-2 hidden lg:table-cell'>Reported Date</th>
                       <th className='text-left py-2'>Actions</th>
                     </tr>
                   </thead>
@@ -2527,45 +2576,47 @@ export default function ManagerDashboard() {
                           <div className='font-semibold'>{faulty.brand} {faulty.model}</div>
                           {faulty.imei && <div className='text-white/70 text-sm'>IMEI: {faulty.imei}</div>}
                         </td>
-                        <td className='py-2'>{faulty.faultDescription}</td>
+                        <td className='py-2 hidden sm:table-cell'>{faulty.faultDescription}</td>
                         <td className='py-2'>
                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(faulty.status)}`}>
                             {faulty.status}
                           </span>
                         </td>
-                        <td className='py-2'>
+                        <td className='py-2 hidden md:table-cell'>
                           <div className='text-orange-400'>MK {faulty.reportedCost?.toLocaleString() || 0}</div>
                           {faulty.estimatedRepairCost > 0 && (
                             <div className='text-white/70 text-sm'>Est. Repair: MK {faulty.estimatedRepairCost}</div>
                           )}
                         </td>
-                        <td className='py-2'>
+                        <td className='py-2 hidden lg:table-cell'>
                           {faulty.reportedAt?.toDate().toLocaleDateString() || 'Unknown'}
                         </td>
-                        <td className='py-2 space-x-2'>
-                          <button
-                            onClick={() => generateFaultyPhonePDFReport(faulty)}
-                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
-                            title='Generate PDF Report'
-                          >
-                            PDF
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedFaulty(faulty);
-                              setEditModal(true);
-                            }}
-                            className='bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition-colors'
-                            title='Update Status'
-                          >
-                            Update
-                          </button>
+                        <td className='py-2'>
+                          <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                            <button
+                              onClick={() => generateFaultyPhonePDFReport(faulty)}
+                              className='bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'
+                              title='Generate PDF Report'
+                            >
+                              PDF
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedFaulty(faulty);
+                                setEditModal(true);
+                              }}
+                              className='bg-green-600 hover:bg-green-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'
+                              title='Update Status'
+                            >
+                              Update
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                     {getFilteredFaultyPhones().length === 0 && (
                       <tr>
-                        <td colSpan='7' className='text-center py-8 text-white/70'>
+                        <td colSpan='4' className='text-center py-8 text-white/70'>
                           No faulty phones found.
                         </td>
                       </tr>
@@ -2581,17 +2632,17 @@ export default function ManagerDashboard() {
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
               <h2 className='text-xl font-semibold text-white mb-6'>Installment Plans - {user?.location}</h2>
               
-              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'>
                 {getFilteredSales().filter(sale => !sale.paymentType || sale.paymentType === 'full').slice(0, 6).map((sale) => (
                   <div key={sale.id} className='bg-white/5 rounded-lg p-4 border border-white/10'>
-                    <div className='flex justify-between items-start mb-3'>
+                    <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 space-y-2 sm:space-y-0'>
                       <div>
-                        <div className='font-semibold text-white'>{sale.brand} {sale.model}</div>
-                        <div className='text-white/70 text-sm'>{sale.itemCode}</div>
+                        <div className='font-semibold text-white text-sm sm:text-base'>{sale.brand} {sale.model}</div>
+                        <div className='text-white/70 text-xs sm:text-sm'>{sale.itemCode}</div>
                       </div>
-                      <div className='text-green-400 font-semibold'>MK {sale.finalSalePrice}</div>
+                      <div className='text-green-400 font-semibold text-sm sm:text-base'>MK {sale.finalSalePrice}</div>
                     </div>
-                    <div className='text-white/70 text-sm mb-3'>
+                    <div className='text-white/70 text-xs sm:text-sm mb-3'>
                       Sold on: {sale.soldAt?.toDate().toLocaleDateString()}
                     </div>
                     <button
@@ -2621,7 +2672,7 @@ export default function ManagerDashboard() {
               {/* Report Filters */}
               <div className="bg-white/5 rounded-lg p-6 mb-6">
                 <h3 className="text-lg font-semibold text-white mb-4">Report Filters</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                   <div>
                     <label className="block text-white/70 text-sm mb-2">Start Date</label>
                     <input
@@ -2689,22 +2740,22 @@ export default function ManagerDashboard() {
                   {/* Report Summary */}
                   <div className="bg-white/5 rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-white mb-4">Report Summary</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-blue-400">{reportData.summary.totalSales}</div>
-                        <div className="text-white/70">Total Sales</div>
+                        <div className="text-xl sm:text-2xl font-bold text-blue-400">{reportData.summary.totalSales}</div>
+                        <div className="text-white/70 text-sm">Total Sales</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-green-400">
+                        <div className="text-xl sm:text-2xl font-bold text-green-400">
                           MK {reportData.summary.totalRevenue.toFixed(2)}
                         </div>
-                        <div className="text-white/70">Total Revenue</div>
+                        <div className="text-white/70 text-sm">Total Revenue</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-purple-400">
+                        <div className="text-xl sm:text-2xl font-bold text-purple-400">
                           MK {reportData.summary.averageSaleValue.toFixed(2)}
                         </div>
-                        <div className="text-white/70">Average Sale Value</div>
+                        <div className="text-white/70 text-sm">Average Sale Value</div>
                       </div>
                     </div>
                   </div>
@@ -2719,7 +2770,7 @@ export default function ManagerDashboard() {
               <h2 className={'text-xl font-semibold text-white mb-4'}>Request Stock Transfer</h2>
               <p className="text-white/70 mb-6">Managers can initiate transfer requests. All fields are required and will be validated before submission.</p>
               
-              <div className={'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6'}>
+              <div className={'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6'}>
                 <div>
                   <label className="block text-white/70 text-sm mb-2">Item Code *</label>
                   <input
@@ -2849,19 +2900,21 @@ export default function ManagerDashboard() {
                 <table className={'w-full text-white'}>
                   <thead>
                     <tr className={'border-b border-white/20'}>
-                      <th className={'text-left py-2'}>Name</th>
-                      <th className={'text-left py-2'}>Email</th>
-                      <th className={'text-left py-2'}>Current Role</th>
-                      <th className={'text-left py-2'}>Location</th>
-                      <th className={'text-left py-2'}>Assign Role</th>
-                      <th className={'text-left py-2'}>Update Location</th>
+                      <th className={'text-left py-2 text-xs sm:text-sm'}>Name</th>
+                      <th className={'text-left py-2 hidden sm:table-cell text-xs sm:text-sm'}>Email</th>
+                      <th className={'text-left py-2 text-xs sm:text-sm'}>Role</th>
+                      <th className={'text-left py-2 text-xs sm:text-sm'}>Location</th>
+                      <th className={'text-left py-2 text-xs sm:text-sm'}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {getFilteredUsers().map((userItem, index) => (
                       <tr key={generateSafeKey('user', index, userItem.id)} className={'border-b border-white/10'}>
-                        <td className={'py-2'}>{userItem.fullName}</td>
-                        <td className={'py-2'}>{userItem.email}</td>
+                        <td className={'py-2'}>
+                          <div className="font-medium text-sm sm:text-base">{userItem.fullName}</div>
+                          <div className="text-white/70 text-xs sm:hidden">{userItem.email}</div>
+                        </td>
+                        <td className={'py-2 hidden sm:table-cell text-sm'}>{userItem.email}</td>
                         <td className={'py-2'}>
                           <span className={`px-2 py-1 rounded-full text-xs ${
                             userItem.role === 'manager' ? 'bg-orange-500/20 text-orange-300' :
@@ -2872,29 +2925,29 @@ export default function ManagerDashboard() {
                             {userItem.role}
                           </span>
                         </td>
-                        <td className={'py-2'}>{userItem.location || 'Not assigned'}</td>
+                        <td className={'py-2 text-sm'}>{userItem.location || 'Not assigned'}</td>
                         <td className={'py-2'}>
-                          <select
-                            value={userItem.role}
-                            onChange={(e) => handleAssignRole(userItem.id, e.target.value, userItem.role)}
-                            className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
-                          >
-                            <option value={'sales'}>Sales Personnel</option>
-                            <option value={'dataEntry'}>Data Entry Clerk</option>
-                            <option value={'user'}>Regular User</option>
-                          </select>
-                        </td>
-                        <td className={'py-2'}>
-                          <select
-                            value={userItem.location || ''}
-                            onChange={(e) => handleUpdateUserLocation(userItem.id, e.target.value, userItem.role)}
-                            className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-sm'}
-                          >
-                            <option value={''}>Select Location</option>
-                            {LOCATIONS.map((location, index) => (
-                              <option key={generateSafeKey('user-location', index, location)} value={location}>{location}</option>
-                            ))}
-                          </select>
+                          <div className="flex flex-col gap-2">
+                            <select
+                              value={userItem.role}
+                              onChange={(e) => handleAssignRole(userItem.id, e.target.value, userItem.role)}
+                              className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs sm:text-sm w-full'}
+                            >
+                              <option value={'sales'}>Sales Personnel</option>
+                              <option value={'dataEntry'}>Data Entry Clerk</option>
+                              <option value={'user'}>Regular User</option>
+                            </select>
+                            <select
+                              value={userItem.location || ''}
+                              onChange={(e) => handleUpdateUserLocation(userItem.id, e.target.value, userItem.role)}
+                              className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs sm:text-sm w-full'}
+                            >
+                              <option value={''}>Select Location</option>
+                              {LOCATIONS.map((location, index) => (
+                                <option key={generateSafeKey('user-location', index, location)} value={location}>{location}</option>
+                              ))}
+                            </select>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2926,7 +2979,7 @@ export default function ManagerDashboard() {
                               {request.status}
                             </span>
                           </div>
-                          <div className={'grid grid-cols-1 md:grid-cols-2 gap-2 text-sm'}>
+                          <div className={'grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm'}>
                             <div>
                               <span className={'text-white/70'}>Quantity: </span>
                               <span className={'text-white'}>{request.quantity}</span>
@@ -3007,7 +3060,7 @@ export default function ManagerDashboard() {
                 </button>
               </div>
 
-              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                 <div>
                   <label className='block text-white/70 text-sm mb-2'>Item Code *</label>
                   <input
@@ -3031,7 +3084,7 @@ export default function ManagerDashboard() {
                   />
                 </div>
 
-                <div className='md:col-span-2'>
+                <div className='sm:col-span-2'>
                   <label className='block text-white/70 text-sm mb-2'>Fault Description *</label>
                   <textarea
                     value={faultyReport.faultDescription}
@@ -3076,9 +3129,9 @@ export default function ManagerDashboard() {
                   </select>
                 </div>
 
-                <div className='md:col-span-2'>
+                <div className='sm:col-span-2'>
                   <label className='block text-white/70 text-sm mb-2'>Spares Needed</label>
-                  <div className='grid grid-cols-2 md:grid-cols-4 gap-2'>
+                  <div className='grid grid-cols-2 sm:grid-cols-4 gap-2'>
                     {SPARES_OPTIONS.map(spare => (
                       <label key={spare} className='flex items-center'>
                         <input

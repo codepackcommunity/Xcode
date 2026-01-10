@@ -319,6 +319,7 @@ export default function DeletionManagementDashboard() {
             receiptNumber: sale.receiptNumber || 'NO-RECEIPT-' + saleId.slice(0, 8),
             customerName: sale.customerName || 'Walk-in Customer',
             amount: sale.finalSalePrice || 0,
+            profit: sale.profit || 0,
             date: sale.soldAt || serverTimestamp()
           },
           deletedBy: user.uid,
@@ -347,6 +348,7 @@ export default function DeletionManagementDashboard() {
             receiptNumber: sale.receiptNumber,
             customerName: sale.customerName,
             amount: sale.finalSalePrice,
+            profit: sale.profit || 0,
             date: sale.soldAt
           },
           deletedBy: user.uid,
@@ -666,6 +668,7 @@ export default function DeletionManagementDashboard() {
                 <p><strong>Receipt:</strong> {data.receiptNumber}</p>
                 <p><strong>Customer:</strong> {data.customerName}</p>
                 <p><strong>Amount:</strong> {formatCurrency(data.finalSalePrice)}</p>
+                <p><strong>Profit:</strong> {formatCurrency(data.profit || 0)}</p>
                 <p><strong>Date:</strong> {formatDate(data.soldAt)}</p>
               </div>
             )}
@@ -797,7 +800,7 @@ export default function DeletionManagementDashboard() {
       {/* Header */}
       <header className="bg-gray-800/80 backdrop-blur-lg border-b border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 space-y-4 sm:space-y-0">
             <div>
               <h1 className="text-2xl font-bold">
                 KM ELECTRONICS <span className="text-red-400">Deletion Management</span>
@@ -807,11 +810,11 @@ export default function DeletionManagementDashboard() {
               </p>
             </div>
             
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
               <button
                 onClick={generateDeletionReportPDF}
                 disabled={isGeneratingReport}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm w-full sm:w-auto ${
                   isGeneratingReport 
                     ? 'bg-gray-600 cursor-not-allowed' 
                     : 'bg-purple-600 hover:bg-purple-700'
@@ -825,14 +828,15 @@ export default function DeletionManagementDashboard() {
                 ) : (
                   <>
                     <FaFilePdf />
-                    <span>Generate Report</span>
+                    <span className="hidden sm:inline">Generate Report</span>
+                    <span className="sm:hidden">Report</span>
                   </>
                 )}
               </button>
               
               <button
                 onClick={() => signOut(auth).then(() => router.push('/login'))}
-                className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors"
+                className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors text-sm w-full sm:w-auto"
               >
                 Logout
               </button>
@@ -844,7 +848,7 @@ export default function DeletionManagementDashboard() {
       {/* Navigation */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="border-b border-gray-700">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto">
+          <nav className="flex flex-wrap gap-1 sm:gap-0 sm:space-x-8 overflow-x-auto py-2">
             {[
               { id: 'dashboard', name: 'Dashboard', icon: FaTachometerAlt },
               { id: 'sales', name: 'Sales Deletion', icon: FaShoppingCart },
@@ -854,14 +858,15 @@ export default function DeletionManagementDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                className={`shrink-0 whitespace-nowrap py-3 px-2 sm:px-1 border-b-2 font-medium text-sm flex items-center space-x-2 rounded-t-lg sm:rounded-none transition-colors ${
                   activeTab === tab.id
-                    ? 'border-red-500 text-red-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                    ? 'border-red-500 text-red-400 bg-red-500/10 sm:bg-transparent'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 hover:bg-gray-700/30 sm:hover:bg-transparent'
                 }`}
               >
-                <tab.icon />
-                <span>{tab.name}</span>
+                <tab.icon className="text-sm sm:text-base" />
+                <span className="hidden xs:inline sm:inline">{tab.name}</span>
+                <span className="xs:hidden sm:hidden">{tab.name.split(' ')[0]}</span>
               </button>
             ))}
           </nav>
@@ -873,107 +878,107 @@ export default function DeletionManagementDashboard() {
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Total Sales Records</h3>
-                      <p className="text-2xl font-bold text-blue-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Total Sales Records</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-blue-400 truncate">
                         {dashboardStats.totalSales}
                       </p>
                     </div>
-                    <div className="bg-blue-500/20 p-3 rounded-lg">
-                      <FaShoppingCart className="text-blue-400 text-xl" />
+                    <div className="bg-blue-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaShoppingCart className="text-blue-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {dashboardStats.deletedSales} deleted
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">User Accounts</h3>
-                      <p className="text-2xl font-bold text-green-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">User Accounts</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-green-400 truncate">
                         {dashboardStats.totalUsers}
                       </p>
                     </div>
-                    <div className="bg-green-500/20 p-3 rounded-lg">
-                      <FaUsers className="text-green-400 text-xl" />
+                    <div className="bg-green-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaUsers className="text-green-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {dashboardStats.activeUsers} active • {dashboardStats.inactiveUsers} inactive
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Today's Sales</h3>
-                      <p className="text-2xl font-bold text-purple-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Today's Sales</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-purple-400 truncate">
                         {dashboardStats.todaySales}
                       </p>
                     </div>
-                    <div className="bg-purple-500/20 p-3 rounded-lg">
-                      <FaDollarSign className="text-purple-400 text-xl" />
+                    <div className="bg-purple-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaDollarSign className="text-purple-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     This month: {dashboardStats.monthlySales}
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-red-700/50 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-red-700/50 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Deletion Actions</h3>
-                      <p className="text-2xl font-bold text-red-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Deletion Actions</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-red-400 truncate">
                         {deletionHistory.length}
                       </p>
                     </div>
-                    <div className="bg-red-500/20 p-3 rounded-lg">
-                      <FaTrash className="text-red-400 text-xl" />
+                    <div className="bg-red-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaTrash className="text-red-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                    <p className="text-gray-500 text-sm mt-2">
+                    <p className="text-gray-500 text-xs sm:text-sm mt-2">
                       Total deletion records
                     </p>
                   </div>
                 </div>
 
               {/* Quick Actions */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700">
+                <h2 className="text-lg sm:text-xl font-semibold mb-4">Quick Actions</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                   <button
                     onClick={() => setActiveTab('sales')}
-                    className="bg-blue-600 hover:bg-blue-700 p-4 rounded-lg transition-colors flex flex-col items-center"
+                    className="bg-blue-600 hover:bg-blue-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
                   >
-                    <FaShoppingCart className="text-2xl mb-2" />
-                    <span className="text-sm">Manage Sales</span>
+                    <FaShoppingCart className="text-xl sm:text-2xl mb-2" />
+                    <span className="text-xs sm:text-sm">Manage Sales</span>
                   </button>
                   <button
                     onClick={() => setActiveTab('users')}
-                    className="bg-green-600 hover:bg-green-700 p-4 rounded-lg transition-colors flex flex-col items-center"
+                    className="bg-green-600 hover:bg-green-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
                   >
-                    <FaUsers className="text-2xl mb-2" />
-                    <span className="text-sm">Manage Users</span>
+                    <FaUsers className="text-xl sm:text-2xl mb-2" />
+                    <span className="text-xs sm:text-sm">Manage Users</span>
                   </button>
                   <button
                     onClick={() => setActiveTab('history')}
-                    className="bg-purple-600 hover:bg-purple-700 p-4 rounded-lg transition-colors flex flex-col items-center"
+                    className="bg-purple-600 hover:bg-purple-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
                   >
-                    <FaHistory className="text-2xl mb-2" />
-                    <span className="text-sm">View History</span>
+                    <FaHistory className="text-xl sm:text-2xl mb-2" />
+                    <span className="text-xs sm:text-sm">View History</span>
                   </button>
                   <button
                     onClick={generateDeletionReportPDF}
-                    className="bg-orange-600 hover:bg-orange-700 p-4 rounded-lg transition-colors flex flex-col items-center"
+                    className="bg-orange-600 hover:bg-orange-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
                   >
-                    <FaFilePdf className="text-2xl mb-2" />
-                    <span className="text-sm">Generate Report</span>
+                    <FaFilePdf className="text-xl sm:text-2xl mb-2" />
+                    <span className="text-xs sm:text-sm">Generate Report</span>
                   </button>
                 </div>
               </div>
@@ -1015,7 +1020,7 @@ export default function DeletionManagementDashboard() {
           {activeTab === 'sales' && (
             <div className="space-y-6">
               {/* Sales Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="bg-gray-800/50 rounded-lg p-4 text-center">
                   <div className="text-xl font-bold text-blue-400">{filteredSales.length}</div>
                   <div className="text-gray-400 text-sm">Filtered Sales</div>
@@ -1025,6 +1030,12 @@ export default function DeletionManagementDashboard() {
                     {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0))}
                   </div>
                   <div className="text-gray-400 text-sm">Total Value</div>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
+                  <div className="text-xl font-bold text-yellow-400">
+                    {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.profit) || 0), 0))}
+                  </div>
+                  <div className="text-gray-400 text-sm">Total Profit</div>
                 </div>
                 <div className="bg-gray-800/50 rounded-lg p-4 text-center">
                   <div className="text-xl font-bold text-red-400">
@@ -1078,7 +1089,7 @@ export default function DeletionManagementDashboard() {
 
               {/* Sales Filters */}
               <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Search Sales</label>
                     <div className="relative">
@@ -1124,7 +1135,7 @@ export default function DeletionManagementDashboard() {
                   
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Date Range</label>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                       <input
                         type="date"
                         value={salesFilter.startDate}
@@ -1143,10 +1154,10 @@ export default function DeletionManagementDashboard() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Amount Range (MK)</label>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                       <input
                         type="number"
                         placeholder="Min"
@@ -1176,7 +1187,7 @@ export default function DeletionManagementDashboard() {
                     </label>
                   </div>
                   
-                  <div className="flex items-end space-x-2">
+                  <div className="flex items-end">
                     <button
                       onClick={() => {
                         setSalesSearch('');
@@ -1191,7 +1202,7 @@ export default function DeletionManagementDashboard() {
                         });
                         setSelectedDeletions([]);
                       }}
-                      className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
+                      className="w-full bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
                     >
                       Clear Filters
                     </button>
@@ -1240,10 +1251,11 @@ export default function DeletionManagementDashboard() {
                         </th>
                         <th className="text-left py-2">Receipt No.</th>
                         <th className="text-left py-2">Customer</th>
-                        <th className="text-left py-2">Item</th>
+                        <th className="text-left py-2 hidden sm:table-cell">Item</th>
                         <th className="text-left py-2">Amount</th>
-                        <th className="text-left py-2">Date</th>
-                        <th className="text-left py-2">Location</th>
+                        <th className="text-left py-2 hidden md:table-cell">Profit</th>
+                        <th className="text-left py-2 hidden lg:table-cell">Date</th>
+                        <th className="text-left py-2 hidden md:table-cell">Location</th>
                         <th className="text-left py-2">Status</th>
                         <th className="text-left py-2">Actions</th>
                       </tr>
@@ -1272,15 +1284,16 @@ export default function DeletionManagementDashboard() {
                             <div>{sale.customerName || 'Walk-in'}</div>
                             <div className="text-gray-400 text-xs">{sale.customerPhone}</div>
                           </td>
-                          <td className="py-2">
+                          <td className="py-2 hidden sm:table-cell">
                             <div>{sale.brand} {sale.model}</div>
                             <div className="text-gray-400 text-xs">{sale.itemCode}</div>
                           </td>
                           <td className="py-2 font-semibold">{formatCurrency(sale.finalSalePrice)}</td>
-                          <td className="py-2 text-sm">
+                          <td className="py-2 font-semibold text-green-400 hidden md:table-cell">{formatCurrency(sale.profit || 0)}</td>
+                          <td className="py-2 text-sm hidden lg:table-cell">
                             {formatDate(sale.soldAt)}
                           </td>
-                          <td className="py-2">{sale.location}</td>
+                          <td className="py-2 hidden md:table-cell">{sale.location}</td>
                           <td className="py-2">
                             {sale.isDeleted ? (
                               <span className="px-2 py-1 rounded-full text-xs bg-red-900/50 text-red-300">
@@ -1293,11 +1306,11 @@ export default function DeletionManagementDashboard() {
                             )}
                           </td>
                           <td className="py-2">
-                            <div className="flex space-x-2">
+                            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
                               {sale.isDeleted ? (
                                 <button
                                   onClick={() => handleRestoreSale(sale.id)}
-                                  className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
+                                  className="bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
                                 >
                                   <FaUndo size={12} />
                                   <span>Restore</span>
@@ -1312,7 +1325,7 @@ export default function DeletionManagementDashboard() {
                                       data: sale,
                                       permanent: false
                                     })}
-                                    className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
+                                    className="bg-red-600 hover:bg-red-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
                                   >
                                     <FaTrash size={12} />
                                     <span>Delete</span>
@@ -1325,7 +1338,7 @@ export default function DeletionManagementDashboard() {
                                       data: sale,
                                       permanent: true
                                     })}
-                                    className="bg-red-800 hover:bg-red-900 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
+                                    className="bg-red-800 hover:bg-red-900 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
                                   >
                                     <FaTrashAlt size={12} />
                                     <span>Perm. Delete</span>
@@ -1353,28 +1366,28 @@ export default function DeletionManagementDashboard() {
           {activeTab === 'users' && (
             <div className="space-y-6">
               {/* User Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-blue-400">{filteredUsers.length}</div>
-                  <div className="text-gray-400 text-sm">Filtered Users</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-blue-400">{filteredUsers.length}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Filtered Users</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-green-400">
                     {filteredUsers.filter(u => u.isActive !== false && !u.deletedAt).length}
                   </div>
-                  <div className="text-gray-400 text-sm">Active</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Active</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-orange-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-orange-400">
                     {filteredUsers.filter(u => u.isActive === false && !u.deletedAt).length}
                   </div>
-                  <div className="text-gray-400 text-sm">Inactive</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Inactive</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-red-400">
                     {filteredUsers.filter(u => u.deletedAt).length}
                   </div>
-                  <div className="text-gray-400 text-sm">Deleted</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Deleted</div>
                 </div>
               </div>
 

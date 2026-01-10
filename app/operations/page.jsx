@@ -1760,21 +1760,21 @@ export default function InstallmentSuperAdminDashboard() {
       {/* Header */}
       <header className="bg-gray-800/80 backdrop-blur-lg border-b border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 space-y-4 sm:space-y-0">
             <div>
               <h1 className="text-2xl font-bold">
-                KM ELECTRONICS <span className="text-blue-400"></span>
+                KM ELECTRONICS <span className="text-blue-400">Operations</span>
               </h1>
               <p className="text-gray-400 text-sm">
                 Welcome, {user?.fullName || user?.email} | {user?.role?.toUpperCase()}
               </p>
             </div>
             
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
               <select
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
-                className="bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                className="bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm w-full sm:w-auto"
               >
                 <option value="all">All Locations</option>
                 {LOCATIONS.map((location, index) => (
@@ -1784,7 +1784,7 @@ export default function InstallmentSuperAdminDashboard() {
               
               <button
                 onClick={() => signOut(auth).then(() => router.push('/login'))}
-                className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors"
+                className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors text-sm w-full sm:w-auto"
               >
                 Logout
               </button>
@@ -1796,7 +1796,7 @@ export default function InstallmentSuperAdminDashboard() {
       {/* Navigation */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="border-b border-gray-700">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto">
+          <nav className="flex flex-wrap gap-1 sm:gap-0 sm:space-x-8 overflow-x-auto py-2">
             {[
               { id: 'dashboard', name: 'Dashboard', icon: FaTachometerAlt },
               { id: 'installments', name: 'Installments', icon: FaHandHoldingUsd },
@@ -1809,14 +1809,15 @@ export default function InstallmentSuperAdminDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                className={`shrink-0 whitespace-nowrap py-3 px-2 sm:px-1 border-b-2 font-medium text-sm flex items-center space-x-2 rounded-t-lg sm:rounded-none transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                    ? 'border-blue-500 text-blue-400 bg-blue-500/10 sm:bg-transparent'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 hover:bg-gray-700/30 sm:hover:bg-transparent'
                 }`}
               >
-                <tab.icon />
-                <span>{tab.name}</span>
+                <tab.icon className="text-sm sm:text-base" />
+                <span className="hidden xs:inline sm:inline">{tab.name}</span>
+                <span className="xs:hidden sm:hidden">{tab.name.split(' ')[0]}</span>
               </button>
             ))}
           </nav>
@@ -1828,71 +1829,71 @@ export default function InstallmentSuperAdminDashboard() {
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Total Installment Value</h3>
-                      <p className="text-2xl font-bold text-blue-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Total Installment Value</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-blue-400 truncate">
                         {formatCurrency(dashboardStats.totalInstallmentValue)}
                       </p>
                     </div>
-                    <div className="bg-blue-500/20 p-3 rounded-lg">
-                      <FaHandHoldingUsd className="text-blue-400 text-xl" />
+                    <div className="bg-blue-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaHandHoldingUsd className="text-blue-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {dashboardStats.activeInstallments} active plans
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Installment Payments</h3>
-                      <p className="text-2xl font-bold text-green-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Installment Payments</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-green-400 truncate">
                         {formatCurrency(dashboardStats.totalPaid)}
                       </p>
                     </div>
-                    <div className="bg-green-500/20 p-3 rounded-lg">
-                      <FaMoneyBillWave className="text-green-400 text-xl" />
+                    <div className="bg-green-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaMoneyBillWave className="text-green-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {formatCurrency(dashboardStats.totalPending)} pending
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Total Sales</h3>
-                      <p className="text-2xl font-bold text-purple-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Total Sales</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-purple-400 truncate">
                         {dashboardStats.totalSales}
                       </p>
                     </div>
-                    <div className="bg-purple-500/20 p-3 rounded-lg">
-                      <FaShoppingCart className="text-purple-400 text-xl" />
+                    <div className="bg-purple-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaShoppingCart className="text-purple-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {dashboardStats.todaySales} sales today
                   </p>
                 </div>
                 
-                <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-gray-400 text-sm mb-2">Today's Revenue</h3>
-                      <p className="text-2xl font-bold text-orange-400">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Today's Revenue</h3>
+                      <p className="text-xl sm:text-2xl font-bold text-orange-400 truncate">
                         {formatCurrency(dashboardStats.todayRevenue)}
                       </p>
                     </div>
-                    <div className="bg-orange-500/20 p-3 rounded-lg">
-                      <FaChartLine className="text-orange-400 text-xl" />
+                    <div className="bg-orange-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
+                      <FaChartLine className="text-orange-400 text-lg sm:text-xl" />
                     </div>
                   </div>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
                     {dashboardStats.todayPayments} payments today
                   </p>
                 </div>
@@ -1990,34 +1991,34 @@ export default function InstallmentSuperAdminDashboard() {
           {activeTab === 'sales' && (
             <div className="space-y-6">
               {/* Sales Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-blue-400">{filteredSales.length}</div>
-                  <div className="text-gray-400 text-sm">Total Sales</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-blue-400">{filteredSales.length}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Total Sales</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-green-400">
                     {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0))}
                   </div>
-                  <div className="text-gray-400 text-sm">Total Revenue</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Total Revenue</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-orange-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-orange-400">
                     {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.profit) || 0), 0))}
                   </div>
-                  <div className="text-gray-400 text-sm">Total Profit</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Total Profit</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-400">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-red-400">
                     {filteredSales.filter(s => s.paymentMethod === 'installment').length}
                   </div>
-                  <div className="text-gray-400 text-sm">Installment Sales</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Installment Sales</div>
                 </div>
               </div>
 
               {/* Sales Filters */}
               <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Search Sales</label>
                     <div className="relative">
@@ -2026,7 +2027,7 @@ export default function InstallmentSuperAdminDashboard() {
                         type="text"
                         value={salesSearch}
                         onChange={(e) => setSalesSearch(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2 text-sm"
                         placeholder="Search by customer, receipt, item..."
                       />
                     </div>
@@ -2037,7 +2038,7 @@ export default function InstallmentSuperAdminDashboard() {
                     <select
                       value={salesFilter.location}
                       onChange={(e) => setSalesFilter({...salesFilter, location: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="all">All Locations</option>
                       {LOCATIONS.map((location, index) => (
@@ -2051,7 +2052,7 @@ export default function InstallmentSuperAdminDashboard() {
                     <select
                       value={salesFilter.paymentMethod}
                       onChange={(e) => setSalesFilter({...salesFilter, paymentMethod: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="all">All Methods</option>
                       <option value="cash">Cash</option>
@@ -2063,7 +2064,7 @@ export default function InstallmentSuperAdminDashboard() {
                   
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Date Range</label>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                       <input
                         type="date"
                         value={salesFilter.startDate}
@@ -2082,7 +2083,7 @@ export default function InstallmentSuperAdminDashboard() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Amount Range (MK)</label>
                     <div className="flex space-x-2">
@@ -2091,14 +2092,14 @@ export default function InstallmentSuperAdminDashboard() {
                         placeholder="Min"
                         value={salesFilter.minAmount}
                         onChange={(e) => setSalesFilter({...salesFilter, minAmount: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm"
                       />
                       <input
                         type="number"
                         placeholder="Max"
                         value={salesFilter.maxAmount}
                         onChange={(e) => setSalesFilter({...salesFilter, maxAmount: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm"
                       />
                     </div>
                   </div>
@@ -2116,7 +2117,7 @@ export default function InstallmentSuperAdminDashboard() {
                           maxAmount: ''
                         });
                       }}
-                      className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors text-sm"
                     >
                       Clear Filters
                     </button>
@@ -2125,7 +2126,7 @@ export default function InstallmentSuperAdminDashboard() {
                   <div className="flex items-end space-x-2">
                     <button
                       onClick={generateSalesReportPDF}
-                      className="flex-1 bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm"
                     >
                       <FaFilePdf />
                       <span>Generate Report</span>
@@ -2135,67 +2136,71 @@ export default function InstallmentSuperAdminDashboard() {
               </div>
 
               {/* Sales List */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">
+              <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                  <h2 className="text-lg sm:text-xl font-semibold">
                     <FaShoppingCart className="inline mr-2" />
                     Sales Records ({filteredSales.length})
                   </h2>
                 </div>
                 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-2">Receipt No.</th>
-                        <th className="text-left py-2">Customer</th>
-                        <th className="text-left py-2">Item</th>
-                        <th className="text-left py-2">Method</th>
-                        <th className="text-left py-2">Quantity</th>
-                        <th className="text-left py-2">Amount</th>
-                        <th className="text-left py-2">Profit</th>
-                        <th className="text-left py-2">Date</th>
-                        <th className="text-left py-2">Location</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSales.map((sale, index) => (
-                        <tr key={index} className="border-b border-gray-700/50">
-                          <td className="py-2 font-mono text-sm">{sale.receiptNumber}</td>
-                          <td className="py-2">
-                            <div>{sale.customerName}</div>
-                            <div className="text-gray-400 text-xs">{sale.customerPhone}</div>
-                          </td>
-                          <td className="py-2">
-                            <div>{sale.brand} {sale.model}</div>
-                            <div className="text-gray-400 text-xs">{sale.itemCode}</div>
-                          </td>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              sale.paymentMethod === 'cash' ? 'bg-green-900/50 text-green-300' :
-                              sale.paymentMethod === 'installment' ? 'bg-blue-900/50 text-blue-300' :
-                              sale.paymentMethod === 'mobile_money' ? 'bg-purple-900/50 text-purple-300' :
-                              'bg-gray-900/50 text-gray-300'
-                            }`}>
-                              {sale.paymentMethod}
-                            </span>
-                          </td>
-                          <td className="py-2 text-center">{sale.quantity || 1}</td>
-                          <td className="py-2 font-semibold">{formatCurrency(sale.finalSalePrice)}</td>
-                          <td className="py-2 text-green-400">{formatCurrency(sale.profit)}</td>
-                          <td className="py-2 text-sm">
-                            {sale.soldAt?.toDate?.().toLocaleDateString() || 'N/A'}
-                          </td>
-                          <td className="py-2">{sale.location}</td>
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="inline-block min-w-full align-middle">
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="border-b border-gray-700">
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Receipt No.</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Customer</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden sm:table-cell">Item</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Method</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden lg:table-cell">Quantity</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Amount</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Profit</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden xl:table-cell">Date</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden lg:table-cell">Location</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {filteredSales.map((sale, index) => (
+                          <tr key={index} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                            <td className="py-2 px-2 sm:px-4 font-mono text-xs sm:text-sm">{sale.receiptNumber}</td>
+                            <td className="py-2 px-2 sm:px-4">
+                              <div className="font-medium text-xs sm:text-sm truncate max-w-24 sm:max-w-none">{sale.customerName}</div>
+                              <div className="text-gray-400 text-xs truncate max-w-24 sm:max-w-none">{sale.customerPhone}</div>
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden sm:table-cell">
+                              <div className="text-xs sm:text-sm truncate max-w-32">{sale.brand} {sale.model}</div>
+                              <div className="text-gray-400 text-xs truncate max-w-32">{sale.itemCode}</div>
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden md:table-cell">
+                              <span className={`px-2 py-1 rounded-full text-xs ${
+                                sale.paymentMethod === 'cash' ? 'bg-green-900/50 text-green-300' :
+                                sale.paymentMethod === 'installment' ? 'bg-blue-900/50 text-blue-300' :
+                                sale.paymentMethod === 'mobile_money' ? 'bg-purple-900/50 text-purple-300' :
+                                'bg-gray-900/50 text-gray-300'
+                              }`}>
+                                {sale.paymentMethod}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden lg:table-cell text-center text-xs sm:text-sm">{sale.quantity || 1}</td>
+                            <td className="py-2 px-2 sm:px-4 font-semibold text-xs sm:text-sm">{formatCurrency(sale.finalSalePrice)}</td>
+                            <td className="py-2 px-2 sm:px-4 text-green-400 hidden md:table-cell text-xs sm:text-sm">{formatCurrency(sale.profit)}</td>
+                            <td className="py-2 px-2 sm:px-4 text-xs hidden xl:table-cell">
+                              {sale.soldAt?.toDate?.().toLocaleDateString() || 'N/A'}
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden lg:table-cell text-xs sm:text-sm">{sale.location}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
                 
                 {filteredSales.length === 0 && (
                   <div className="text-center py-8 text-gray-500">
-                    No sales found matching your criteria
+                    <FaSearch className="text-3xl mx-auto mb-4 opacity-50" />
+                    <p className="text-sm sm:text-base">No sales found matching your criteria</p>
+                    <p className="text-xs sm:text-sm mt-2">Try changing your filters or search term</p>
                   </div>
                 )}
               </div>
@@ -2206,36 +2211,36 @@ export default function InstallmentSuperAdminDashboard() {
           {activeTab === 'installments' && (
             <div className="space-y-6">
               {/* Installment Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-blue-400">{dashboardStats.activeInstallments}</div>
-                  <div className="text-gray-400 text-sm">Active</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-blue-400">{dashboardStats.activeInstallments}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Active</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-400">{formatCurrency(dashboardStats.totalPaid)}</div>
-                  <div className="text-gray-400 text-sm">Paid</div>
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-green-400">{formatCurrency(dashboardStats.totalPaid)}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Paid</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-orange-400">{formatCurrency(dashboardStats.totalPending)}</div>
-                  <div className="text-gray-400 text-sm">Pending</div>
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-orange-400">{formatCurrency(dashboardStats.totalPending)}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Pending</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-400">{dashboardStats.overdueInstallments}</div>
-                  <div className="text-gray-400 text-sm">Overdue</div>
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-red-400">{dashboardStats.overdueInstallments}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Overdue</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-500">{dashboardStats.defaultedInstallments}</div>
-                  <div className="text-gray-400 text-sm">Defaulted</div>
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-red-500">{dashboardStats.defaultedInstallments}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Defaulted</div>
                 </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-500">{dashboardStats.completedInstallments}</div>
-                  <div className="text-gray-400 text-sm">Completed</div>
+                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
+                  <div className="text-lg sm:text-xl font-bold text-green-500">{dashboardStats.completedInstallments}</div>
+                  <div className="text-gray-400 text-xs sm:text-sm">Completed</div>
                 </div>
               </div>
 
               {/* Filters */}
               <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Search Installments</label>
                     <div className="relative">
@@ -2244,7 +2249,7 @@ export default function InstallmentSuperAdminDashboard() {
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2 text-sm"
                         placeholder="Search by customer, phone, installment number..."
                       />
                     </div>
@@ -2254,7 +2259,7 @@ export default function InstallmentSuperAdminDashboard() {
                     <select
                       value={selectedStatusFilter}
                       onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="all">All Statuses</option>
                       <option value="active">Active</option>
@@ -2265,22 +2270,23 @@ export default function InstallmentSuperAdminDashboard() {
                   </div>
                   <div>
                     <label className="block text-gray-400 text-sm mb-2">Actions</label>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                       <button
                         onClick={() => {
                           setSearchQuery('');
                           setSelectedStatusFilter('all');
                         }}
-                        className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
+                        className="flex-1 bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors text-sm"
                       >
                         Clear Filters
                       </button>
                       <button
                         onClick={generateInstallmentReportPDF}
-                        className="flex-1 bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 px-3 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm"
                       >
                         <FaFilePdf />
-                        <span>Export PDF</span>
+                        <span className="hidden sm:inline">Export PDF</span>
+                        <span className="sm:hidden">PDF</span>
                       </button>
                     </div>
                   </div>
@@ -2536,10 +2542,10 @@ export default function InstallmentSuperAdminDashboard() {
                   )}
                 </div>
                 
-                <div className="flex space-x-4">
+                <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
                   <button
                     onClick={handleCreateInstallment}
-                    className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                    className="bg-green-600 hover:bg-green-700 px-4 sm:px-6 py-3 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm sm:text-base"
                   >
                     <FaHandHoldingUsd />
                     <span>Create Installment Plan</span>
@@ -2571,7 +2577,7 @@ export default function InstallmentSuperAdminDashboard() {
                       });
                       setFormErrors(prev => ({ ...prev, installment: {} }));
                     }}
-                    className="bg-gray-700 hover:bg-gray-600 px-6 py-3 rounded-lg transition-colors"
+                    className="bg-gray-700 hover:bg-gray-600 px-4 sm:px-6 py-3 rounded-lg transition-colors text-sm sm:text-base"
                   >
                     Clear Form
                   </button>
@@ -2694,101 +2700,103 @@ export default function InstallmentSuperAdminDashboard() {
                   </div>
                 ) : (
                   // List View
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-700">
-                          <th className="text-left py-3 px-2">Inst. No.</th>
-                          <th className="text-left py-3 px-2">Customer</th>
-                          <th className="text-left py-3 px-2">Item</th>
-                          <th className="text-left py-3 px-2">Total</th>
-                          <th className="text-left py-3 px-2">Paid</th>
-                          <th className="text-left py-3 px-2">Pending</th>
-                          <th className="text-left py-3 px-2">Progress</th>
-                          <th className="text-left py-3 px-2">Status</th>
-                          <th className="text-left py-3 px-2">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredInstallments.map((installment, index) => {
-                          const paymentProgress = calculatePercentage(installment.totalPaid || 0, installment.totalAmount);
-                          const dueDate = installment.nextDueDate?.toDate ? installment.nextDueDate.toDate() : new Date(installment.nextDueDate);
-                          const isOverdue = dueDate && dueDate < new Date();
-                          
-                          return (
-                            <tr key={index} className={`border-b border-gray-700/50 ${
-                              isOverdue ? 'bg-orange-900/20' : ''
-                            }`}>
-                              <td className="py-3 px-2">
-                                <div className="font-mono text-sm">{installment.installmentNumber}</div>
-                              </td>
-                              <td className="py-3 px-2">
-                                <div className="font-medium">{installment.customerName}</div>
-                                <div className="text-gray-400 text-xs">{installment.customerPhone}</div>
-                              </td>
-                              <td className="py-3 px-2">
-                                <div>{installment.itemName}</div>
-                                <div className="text-gray-400 text-xs">{installment.location}</div>
-                              </td>
-                              <td className="py-3 px-2">{formatCurrency(installment.totalAmount)}</td>
-                              <td className="py-3 px-2 text-green-400">{formatCurrency(installment.totalPaid || 0)}</td>
-                              <td className="py-3 px-2 text-orange-400">{formatCurrency(installment.totalPending || 0)}</td>
-                              <td className="py-3 px-2">
-                                <div className="w-24 bg-gray-700 rounded-full h-2">
-                                  <div 
-                                    className={`h-2 rounded-full ${
-                                      paymentProgress >= 80 ? 'bg-green-500' :
-                                      paymentProgress >= 50 ? 'bg-yellow-500' :
-                                      paymentProgress >= 25 ? 'bg-orange-500' : 'bg-red-500'
-                                    }`}
-                                    style={{ width: `${paymentProgress}%` }}
-                                  ></div>
-                                </div>
-                                <div className="text-xs text-gray-400 mt-1">{paymentProgress}%</div>
-                              </td>
-                              <td className="py-3 px-2">
-                                <span className={`px-2 py-1 rounded-full text-xs ${
-                                  installment.status === 'completed' ? 'bg-green-900/50 text-green-300' :
-                                  isOverdue ? 'bg-orange-900/50 text-orange-300' :
-                                  installment.status === 'defaulted' ? 'bg-red-900/50 text-red-300' :
-                                  'bg-blue-900/50 text-blue-300'
-                                }`}>
-                                  {installment.status} {isOverdue ? '(Overdue)' : ''}
-                                </span>
-                              </td>
-                              <td className="py-3 px-2">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => {
-                                      setPaymentForm({
-                                        ...paymentForm,
-                                        installmentId: installment.id,
-                                        installmentNumber: installment.installmentNumber,
-                                        customerName: installment.customerName,
-                                        customerPhone: installment.customerPhone,
-                                        amount: installment.installmentAmount?.toString() || ''
-                                      });
-                                      setActiveTab('payments');
-                                    }}
-                                    className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors"
-                                  >
-                                    Payment
-                                  </button>
-                                  {installment.status === 'active' && (
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <div className="inline-block min-w-full align-middle">
+                      <table className="min-w-full">
+                        <thead>
+                          <tr className="border-b border-gray-700">
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Inst. No.</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Customer</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden sm:table-cell">Item</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Total</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden lg:table-cell">Paid</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden lg:table-cell">Pending</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Progress</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Status</th>
+                            <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInstallments.map((installment, index) => {
+                            const paymentProgress = calculatePercentage(installment.totalPaid || 0, installment.totalAmount);
+                            const dueDate = installment.nextDueDate?.toDate ? installment.nextDueDate.toDate() : new Date(installment.nextDueDate);
+                            const isOverdue = dueDate && dueDate < new Date();
+                            
+                            return (
+                              <tr key={index} className={`border-b border-gray-700/50 ${
+                                isOverdue ? 'bg-orange-900/20' : ''
+                              } hover:bg-gray-700/30`}>
+                                <td className="py-3 px-2 sm:px-4">
+                                  <div className="font-mono text-xs sm:text-sm">{installment.installmentNumber}</div>
+                                </td>
+                                <td className="py-3 px-2 sm:px-4">
+                                  <div className="font-medium text-xs sm:text-sm truncate max-w-24 sm:max-w-none">{installment.customerName}</div>
+                                  <div className="text-gray-400 text-xs truncate max-w-24 sm:max-w-none">{installment.customerPhone}</div>
+                                </td>
+                                <td className="py-3 px-2 sm:px-4 hidden sm:table-cell">
+                                  <div className="text-xs sm:text-sm truncate max-w-32">{installment.itemName}</div>
+                                  <div className="text-gray-400 text-xs truncate max-w-32">{installment.location}</div>
+                                </td>
+                                <td className="py-3 px-2 sm:px-4 hidden md:table-cell text-xs sm:text-sm">{formatCurrency(installment.totalAmount)}</td>
+                                <td className="py-3 px-2 sm:px-4 text-green-400 hidden lg:table-cell text-xs sm:text-sm">{formatCurrency(installment.totalPaid || 0)}</td>
+                                <td className="py-3 px-2 sm:px-4 text-orange-400 hidden lg:table-cell text-xs sm:text-sm">{formatCurrency(installment.totalPending || 0)}</td>
+                                <td className="py-3 px-2 sm:px-4">
+                                  <div className="w-16 sm:w-24 bg-gray-700 rounded-full h-2 mb-1">
+                                    <div 
+                                      className={`h-2 rounded-full ${
+                                        paymentProgress >= 80 ? 'bg-green-500' :
+                                        paymentProgress >= 50 ? 'bg-yellow-500' :
+                                        paymentProgress >= 25 ? 'bg-orange-500' : 'bg-red-500'
+                                      }`}
+                                      style={{ width: `${paymentProgress}%` }}
+                                    ></div>
+                                  </div>
+                                  <div className="text-xs text-gray-400">{paymentProgress}%</div>
+                                </td>
+                                <td className="py-3 px-2 sm:px-4 hidden md:table-cell">
+                                  <span className={`px-2 py-1 rounded-full text-xs ${
+                                    installment.status === 'completed' ? 'bg-green-900/50 text-green-300' :
+                                    isOverdue ? 'bg-orange-900/50 text-orange-300' :
+                                    installment.status === 'defaulted' ? 'bg-red-900/50 text-red-300' :
+                                    'bg-blue-900/50 text-blue-300'
+                                  }`}>
+                                    {installment.status} {isOverdue ? '(Overdue)' : ''}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-2 sm:px-4">
+                                  <div className="flex flex-col space-y-1">
                                     <button
-                                      onClick={() => handleMarkAsDefaulted(installment.id)}
-                                      className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors"
+                                      onClick={() => {
+                                        setPaymentForm({
+                                          ...paymentForm,
+                                          installmentId: installment.id,
+                                          installmentNumber: installment.installmentNumber,
+                                          customerName: installment.customerName,
+                                          customerPhone: installment.customerPhone,
+                                          amount: installment.installmentAmount?.toString() || ''
+                                        });
+                                        setActiveTab('payments');
+                                      }}
+                                      className="bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors"
                                     >
-                                      Default
+                                      Payment
                                     </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                    {installment.status === 'active' && (
+                                      <button
+                                        onClick={() => handleMarkAsDefaulted(installment.id)}
+                                        className="bg-red-600 hover:bg-red-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors"
+                                      >
+                                        Default
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2998,19 +3006,19 @@ export default function InstallmentSuperAdminDashboard() {
                   </div>
                 </div>
                 
-                <div className="flex space-x-4">
+                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
                   {editingStock ? (
                     <>
                       <button
                         onClick={handleUpdateStock}
-                        className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        className="bg-green-600 hover:bg-green-700 px-4 sm:px-6 py-3 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm sm:text-base"
                       >
                         <FaSave />
                         <span>Update Stock</span>
                       </button>
                       <button
                         onClick={handleCancelEdit}
-                        className="bg-gray-700 hover:bg-gray-600 px-6 py-3 rounded-lg transition-colors"
+                        className="bg-gray-700 hover:bg-gray-600 px-4 sm:px-6 py-3 rounded-lg transition-colors text-sm sm:text-base"
                       >
                         Cancel
                       </button>
@@ -3018,7 +3026,7 @@ export default function InstallmentSuperAdminDashboard() {
                   ) : (
                     <button
                       onClick={handleAddStock}
-                      className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                      className="bg-blue-600 hover:bg-blue-700 px-4 sm:px-6 py-3 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm sm:text-base"
                     >
                       <span>+</span>
                       <span>Add Stock</span>
@@ -3028,16 +3036,16 @@ export default function InstallmentSuperAdminDashboard() {
               </div>
 
               {/* Stocks List */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">
+              <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                  <h2 className="text-lg sm:text-xl font-semibold">
                     <FaBoxes className="inline mr-2" />
                     Stock Inventory ({filteredStocks.length} items)
                   </h2>
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleSort('quantity')}
-                      className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors flex items-center space-x-2"
+                      className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 text-sm"
                     >
                       {sortConfig.key === 'quantity' && sortConfig.direction === 'asc' ? (
                         <FaSortAmountUp />
@@ -3049,76 +3057,78 @@ export default function InstallmentSuperAdminDashboard() {
                   </div>
                 </div>
                 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-3 px-2">Item Code</th>
-                        <th className="text-left py-3 px-2">Product</th>
-                        <th className="text-left py-3 px-2">Location</th>
-                        <th className="text-left py-3 px-2">Quantity</th>
-                        <th className="text-left py-3 px-2">Cost</th>
-                        <th className="text-left py-3 px-2">Retail</th>
-                        <th className="text-left py-3 px-2">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredStocks.map((stock, index) => {
-                        const isLowStock = (parseInt(stock.quantity) || 0) <= (parseInt(stock.minStockLevel) || 5) && (parseInt(stock.quantity) || 0) > 0;
-                        const isOutOfStock = (parseInt(stock.quantity) || 0) <= 0;
-                        
-                        return (
-                          <tr key={index} className={`border-b border-gray-700/50 ${
-                            isOutOfStock ? 'bg-red-900/20' :
-                            isLowStock ? 'bg-orange-900/20' : ''
-                          }`}>
-                            <td className="py-3 px-2">
-                              <div className="font-mono text-sm">{stock.itemCode}</div>
-                            </td>
-                            <td className="py-3 px-2">
-                              <div className="font-medium">{stock.brand} {stock.model}</div>
-                              <div className="text-gray-400 text-xs">{stock.category}</div>
-                            </td>
-                            <td className="py-3 px-2">{stock.location}</td>
-                            <td className="py-3 px-2">
-                              <div className={`font-semibold ${
-                                isOutOfStock ? 'text-red-400' :
-                                isLowStock ? 'text-orange-400' : ''
-                              }`}>
-                                {stock.quantity || 0}
-                              </div>
-                              {isLowStock && !isOutOfStock && (
-                                <div className="text-orange-400 text-xs">Low Stock</div>
-                              )}
-                              {isOutOfStock && (
-                                <div className="text-red-400 text-xs">Out of Stock</div>
-                              )}
-                            </td>
-                            <td className="py-3 px-2">{formatCurrency(parseFloat(stock.costPrice) || 0)}</td>
-                            <td className="py-3 px-2">{formatCurrency(parseFloat(stock.retailPrice) || 0)}</td>
-                            <td className="py-3 px-2">
-                              <div className="flex space-x-2">
-                                <button
-                                  onClick={() => handleEditStock(stock)}
-                                  className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                >
-                                  <FaEdit size={12} />
-                                  <span>Edit</span>
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteStock(stock.id)}
-                                  className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                >
-                                  <FaTrash size={12} />
-                                  <span>Delete</span>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="inline-block min-w-full align-middle">
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="border-b border-gray-700">
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Item Code</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Product</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden sm:table-cell">Location</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Quantity</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Cost</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Retail</th>
+                          <th className="text-left py-3 px-2 sm:px-4 text-xs sm:text-sm">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredStocks.map((stock, index) => {
+                          const isLowStock = (parseInt(stock.quantity) || 0) <= (parseInt(stock.minStockLevel) || 5) && (parseInt(stock.quantity) || 0) > 0;
+                          const isOutOfStock = (parseInt(stock.quantity) || 0) <= 0;
+                          
+                          return (
+                            <tr key={index} className={`border-b border-gray-700/50 ${
+                              isOutOfStock ? 'bg-red-900/20' :
+                              isLowStock ? 'bg-orange-900/20' : ''
+                            } hover:bg-gray-700/30`}>
+                              <td className="py-3 px-2 sm:px-4">
+                                <div className="font-mono text-xs sm:text-sm">{stock.itemCode}</div>
+                              </td>
+                              <td className="py-3 px-2 sm:px-4">
+                                <div className="font-medium text-xs sm:text-sm truncate max-w-32">{stock.brand} {stock.model}</div>
+                                <div className="text-gray-400 text-xs truncate max-w-32">{stock.category}</div>
+                              </td>
+                              <td className="py-3 px-2 sm:px-4 hidden sm:table-cell text-xs sm:text-sm">{stock.location}</td>
+                              <td className="py-3 px-2 sm:px-4">
+                                <div className={`font-semibold text-xs sm:text-sm ${
+                                  isOutOfStock ? 'text-red-400' :
+                                  isLowStock ? 'text-orange-400' : ''
+                                }`}>
+                                  {stock.quantity || 0}
+                                </div>
+                                {isLowStock && !isOutOfStock && (
+                                  <div className="text-orange-400 text-xs">Low Stock</div>
+                                )}
+                                {isOutOfStock && (
+                                  <div className="text-red-400 text-xs">Out of Stock</div>
+                                )}
+                              </td>
+                              <td className="py-3 px-2 sm:px-4 hidden md:table-cell text-xs sm:text-sm">{formatCurrency(parseFloat(stock.costPrice) || 0)}</td>
+                              <td className="py-3 px-2 sm:px-4 hidden md:table-cell text-xs sm:text-sm">{formatCurrency(parseFloat(stock.retailPrice) || 0)}</td>
+                              <td className="py-3 px-2 sm:px-4">
+                                <div className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => handleEditStock(stock)}
+                                    className="bg-yellow-600 hover:bg-yellow-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
+                                  >
+                                    <FaEdit size={12} />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteStock(stock.id)}
+                                    className="bg-red-600 hover:bg-red-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
+                                  >
+                                    <FaTrash size={12} />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3134,10 +3144,10 @@ export default function InstallmentSuperAdminDashboard() {
                   Generate Reports
                 </h2>
                 
-                <div className="flex space-x-4 mb-6">
+                <div className="flex flex-wrap gap-2 sm:gap-4 mb-6">
                   <button
                     onClick={() => setReportType('installments')}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+                    className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 text-sm sm:text-base ${
                       reportType === 'installments' 
                         ? 'bg-blue-600' 
                         : 'bg-gray-700 hover:bg-gray-600'
@@ -3149,7 +3159,7 @@ export default function InstallmentSuperAdminDashboard() {
                   
                   <button
                     onClick={() => setReportType('payments')}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+                    className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 text-sm sm:text-base ${
                       reportType === 'payments' 
                         ? 'bg-blue-600' 
                         : 'bg-gray-700 hover:bg-gray-600'
@@ -3161,7 +3171,7 @@ export default function InstallmentSuperAdminDashboard() {
                   
                   <button
                     onClick={() => setReportType('stocks')}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+                    className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 text-sm sm:text-base ${
                       reportType === 'stocks' 
                         ? 'bg-blue-600' 
                         : 'bg-gray-700 hover:bg-gray-600'
@@ -3173,7 +3183,7 @@ export default function InstallmentSuperAdminDashboard() {
                   
                   <button
                     onClick={() => setReportType('sales')}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 ${
+                    className={`px-4 sm:px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2 text-sm sm:text-base ${
                       reportType === 'sales' 
                         ? 'bg-blue-600' 
                         : 'bg-gray-700 hover:bg-gray-600'
@@ -3622,54 +3632,59 @@ export default function InstallmentSuperAdminDashboard() {
                   </button>
                 </div>
                 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-2">Receipt No.</th>
-                        <th className="text-left py-2">Customer</th>
-                        <th className="text-left py-2">Installment No.</th>
-                        <th className="text-left py-2">Amount</th>
-                        <th className="text-left py-2">Date</th>
-                        <th className="text-left py-2">Method</th>
-                        <th className="text-left py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {installmentPayments.slice(0, 20).map((payment, index) => (
-                        <tr key={index} className={`border-b border-gray-700/50 ${payment.isLate ? 'bg-orange-900/20' : ''}`}>
-                          <td className="py-2 font-mono text-sm">{payment.receiptNumber}</td>
-                          <td className="py-2">{payment.customerName}</td>
-                          <td className="py-2 font-mono text-sm">{payment.installmentNumber}</td>
-                          <td className="py-2">
-                            <div className="text-green-400 font-semibold">{formatCurrency(payment.amount)}</div>
-                            {payment.lateFee > 0 && (
-                              <div className="text-red-400 text-xs">Late fee: {formatCurrency(payment.lateFee)}</div>
-                            )}
-                          </td>
-                          <td className="py-2">
-                            {payment.paymentDate?.toDate?.().toLocaleDateString() || 'Today'}
-                          </td>
-                          <td className="py-2">
-                            <span className="px-2 py-1 rounded-full text-xs bg-gray-700">
-                              {payment.paymentMethod}
-                            </span>
-                          </td>
-                          <td className="py-2">
-                            {payment.isLate ? (
-                              <span className="px-2 py-1 rounded-full text-xs bg-orange-900/50 text-orange-300">
-                                Late
-                              </span>
-                            ) : (
-                              <span className="px-2 py-1 rounded-full text-xs bg-green-900/50 text-green-300">
-                                On Time
-                              </span>
-                            )}
-                          </td>
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="inline-block min-w-full align-middle">
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="border-b border-gray-700">
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Receipt No.</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Customer</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden sm:table-cell">Installment No.</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm">Amount</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Date</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden lg:table-cell">Method</th>
+                          <th className="text-left py-2 px-2 sm:px-4 text-xs sm:text-sm hidden md:table-cell">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {installmentPayments.slice(0, 20).map((payment, index) => (
+                          <tr key={index} className={`border-b border-gray-700/50 ${payment.isLate ? 'bg-orange-900/20' : ''} hover:bg-gray-700/30`}>
+                            <td className="py-2 px-2 sm:px-4 font-mono text-xs sm:text-sm">{payment.receiptNumber}</td>
+                            <td className="py-2 px-2 sm:px-4">
+                              <div className="font-medium text-xs sm:text-sm truncate max-w-24 sm:max-w-none">{payment.customerName}</div>
+                              <div className="text-gray-400 text-xs truncate max-w-24 sm:max-w-none">{payment.customerPhone}</div>
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden sm:table-cell font-mono text-xs sm:text-sm">{payment.installmentNumber}</td>
+                            <td className="py-2 px-2 sm:px-4">
+                              <div className="text-green-400 font-semibold text-xs sm:text-sm">{formatCurrency(payment.amount)}</div>
+                              {payment.lateFee > 0 && (
+                                <div className="text-red-400 text-xs">Late fee: {formatCurrency(payment.lateFee)}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden md:table-cell text-xs sm:text-sm">
+                              {payment.paymentDate?.toDate?.().toLocaleDateString() || 'Today'}
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden lg:table-cell">
+                              <span className="px-2 py-1 rounded-full text-xs bg-gray-700">
+                                {payment.paymentMethod}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 sm:px-4 hidden md:table-cell">
+                              {payment.isLate ? (
+                                <span className="px-2 py-1 rounded-full text-xs bg-orange-900/50 text-orange-300">
+                                  Late
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 rounded-full text-xs bg-green-900/50 text-green-300">
+                                  On Time
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
