@@ -1645,11 +1645,10 @@ export default function ManagerDashboard() {
       
       alert('Stock transfer request submitted successfully! Awaiting approval from admin/superadmin.');
     } catch (error) {
-      console.error('Error requesting stock:', error);
       setTransferErrors({ 
         submission: 'Error submitting request. Please try again.' 
       });
-      alert('Error requesting stock. Please try again.');
+      alert('Error requesting stock. Please try again.', error);
     } finally {
       setIsTransferValidating(false);
     }
