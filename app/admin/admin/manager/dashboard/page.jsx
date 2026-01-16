@@ -185,19 +185,30 @@ export default function ManagerDashboard() {
 
   // Error handling function
   const handleFirestoreError = useCallback((error, context) => {
+    console.error(`Firestore error in ${context}:`, error);
     if (error.code === 'permission-denied') {
       const currentUser = auth.currentUser;
       if (!currentUser) {
         setTimeout(() => router.push('/login'), 100);
         return;
       }
+      alert(`Permission denied in ${context}. Please check your permissions.`);
       return;
     }
+    
+    if (error.code === 'failed-precondition') {
+      alert(`Operation failed. Please refresh and try again. Context: ${context}`);
+      return;
+    }
+    
+    alert(`Error in ${context}: ${error.message}`);
   }, [router]);
 
   // Fetch all tables from Admin Dashboard
   const fetchAllTables = useCallback(async (managerLocation) => {
     try {
+      console.log('Fetching all tables for location:', managerLocation);
+      
       // Fetch stocks table
       const stocksQuery = query(collection(db, 'stocks'));
       const stocksSnapshot = await getDocs(stocksQuery);
@@ -205,6 +216,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Stocks fetched:', stocksData.length);
       setStocksTable(stocksData);
 
       // Fetch sales table - ALL sales data
@@ -217,6 +229,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Sales fetched:', salesData.length);
       setSalesTable(salesData);
 
       // Fetch faulty phones table for manager's location
@@ -230,6 +243,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Faulty phones fetched:', faultyData.length);
       setFaultyTable(faultyData);
 
       // Fetch users table (excluding managers/admins)
@@ -242,6 +256,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Users fetched:', usersData.length);
       setUsersTable(usersData);
 
       // Fetch stock transfers
@@ -254,6 +269,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Transfers fetched:', transfersData.length);
       setTransfersTable(transfersData);
 
       // Fetch installments
@@ -267,6 +283,7 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Installments fetched:', installmentsData.length);
       setInstallmentsTable(installmentsData);
 
       // Fetch repairs
@@ -280,9 +297,11 @@ export default function ManagerDashboard() {
         id: doc.id,
         ...doc.data()
       }));
+      console.log('Repairs fetched:', repairsData.length);
       setRepairsTable(repairsData);
 
     } catch (error) {
+      console.error('Error fetching all tables:', error);
       handleFirestoreError(error, 'fetch-all-tables');
     }
   }, [handleFirestoreError]);
@@ -388,6 +407,7 @@ export default function ManagerDashboard() {
       }));
       setStockRequests(requestsData);
     } catch (error) {
+      console.error('Error fetching stock requests:', error);
       handleFirestoreError(error, 'fetch-stock-requests');
       setStockRequests([]);
     }
@@ -424,7 +444,7 @@ export default function ManagerDashboard() {
       topProducts: {},
       salesByUser: {},
       revenueByLocation: {},
-      locationPerformance: salesAnalysis.locationPerformance
+      locationPerformance: {}
     };
 
     const currentMonth = new Date().getMonth();
@@ -434,7 +454,7 @@ export default function ManagerDashboard() {
       analysis.totalRevenue += sale.finalSalePrice || 0;
       analysis.totalSales++;
 
-      const saleDate = sale.soldAt?.toDate();
+      const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
       if (saleDate && saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear) {
         analysis.monthlyRevenue += sale.finalSalePrice || 0;
       }
@@ -442,7 +462,7 @@ export default function ManagerDashboard() {
       const productKey = `${sale.brand}-${sale.model}`;
       analysis.topProducts[productKey] = (analysis.topProducts[productKey] || 0) + 1;
 
-      const userName = sale.soldByName || sale.soldBy;
+      const userName = sale.soldByName || sale.soldBy || 'Unknown';
       analysis.salesByUser[userName] = (analysis.salesByUser[userName] || 0) + (sale.finalSalePrice || 0);
 
       const location = sale.location || 'Unknown';
@@ -450,7 +470,7 @@ export default function ManagerDashboard() {
     });
 
     setSalesAnalysis(analysis);
-  }, [salesAnalysis.locationPerformance]);
+  }, []);
 
   const fetchAllSalesAnalysis = useCallback(async () => {
     try {
@@ -474,7 +494,7 @@ export default function ManagerDashboard() {
     today.setHours(0, 0, 0, 0);
     
     const todaySales = salesData.filter(sale => {
-      const saleDate = sale.soldAt?.toDate();
+      const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
       return saleDate && saleDate >= today;
     });
 
@@ -482,7 +502,7 @@ export default function ManagerDashboard() {
     const liveSales = todaySales.slice(0, 10);
 
     todaySales.forEach(sale => {
-      const saleDate = sale.soldAt?.toDate();
+      const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
       if (saleDate) {
         const hour = saleDate.getHours();
         hourlySales[hour] = (hourlySales[hour] || 0) + (sale.finalSalePrice || 0);
@@ -498,6 +518,7 @@ export default function ManagerDashboard() {
   }, []);
 
   const setupRealtimeListeners = useCallback((managerLocation) => {
+    console.log('Setting up real-time listeners for location:', managerLocation);
     // Cleanup function for listeners
     const cleanupFunctions = [];
 
@@ -601,13 +622,14 @@ export default function ManagerDashboard() {
     cleanupFunctions.push(unsubscribeUsers);
 
     return () => {
+      console.log('Cleaning up real-time listeners');
       cleanupFunctions.forEach(unsubscribe => {
         try {
           if (unsubscribe && typeof unsubscribe === 'function') {
             unsubscribe();
           }
         } catch (error) {
-          // Silent fail on unsubscribe errors
+          console.error('Error unsubscribing:', error);
         }
       });
     };
@@ -615,6 +637,7 @@ export default function ManagerDashboard() {
 
   const initializeDashboard = useCallback(async (userData) => {
     try {
+      console.log('Initializing dashboard for:', userData);
       setSelectedLocation(userData.location);
       await Promise.all([
         fetchAllUsers(),
@@ -626,6 +649,7 @@ export default function ManagerDashboard() {
       ]);
       setupRealtimeListeners(userData.location);
     } catch (error) {
+      console.error('Error initializing dashboard:', error);
       handleFirestoreError(error, 'initialize-dashboard');
     }
   }, [fetchAllUsers, fetchAllStocks, fetchLocationStocks, fetchAllSalesAnalysis, fetchAllStockRequests, fetchFaultyPhones, setupRealtimeListeners, handleFirestoreError]);
@@ -634,26 +658,33 @@ export default function ManagerDashboard() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
+          console.log('User authenticated:', user.uid);
           const userDoc = await getDocs(
             query(collection(db, 'users'), where('uid', '==', user.uid))
           );
           
           if (!userDoc.empty) {
             const userData = userDoc.docs[0].data();
+            console.log('User data loaded:', userData);
+            
             if (userData.role === 'manager') {
               setUser(userData);
               await initializeDashboard(userData);
             } else {
+              console.log('User is not a manager, redirecting to dashboard');
               router.push('/dashboard');
             }
           } else {
+            console.log('User document not found, redirecting to login');
             router.push('/login');
           }
         } catch (error) {
+          console.error('Authentication error:', error);
           handleFirestoreError(error, 'authentication');
           router.push('/login');
         }
       } else {
+        console.log('No user authenticated, redirecting to login');
         router.push('/login');
       }
       setLoading(false);
@@ -1260,12 +1291,12 @@ export default function ManagerDashboard() {
     
     const timelineData = [
       ['Event', 'Date', 'Responsible Person'],
-      ['Reported', faultyData.reportedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.reportedByName || 'N/A'],
-      ['Last Updated', faultyData.lastUpdated?.toDate().toLocaleDateString() || 'N/A', faultyData.updatedByName || 'N/A']
+      ['Reported', faultyData.reportedAt?.toDate?.().toLocaleDateString() || 'N/A', faultyData.reportedByName || 'N/A'],
+      ['Last Updated', faultyData.lastUpdated?.toDate?.().toLocaleDateString() || 'N/A', faultyData.updatedByName || 'N/A']
     ];
     
     if (faultyData.status === 'Fixed') {
-      timelineData.push(['Repaired', faultyData.repairedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.repairedByName || 'N/A']);
+      timelineData.push(['Repaired', faultyData.repairedAt?.toDate?.().toLocaleDateString() || 'N/A', faultyData.repairedByName || 'N/A']);
     }
     
     autoTable(doc, {
@@ -1542,39 +1573,33 @@ export default function ManagerDashboard() {
     
     try {
       // Validate all fields
+      const errors = {};
+      
       if (!transferStock.itemCode.trim()) {
-        setTransferErrors({ itemCode: 'Item Code is required' });
-        setIsTransferValidating(false);
-        return;
+        errors.itemCode = 'Item Code is required';
       }
       
       if (!transferStock.quantity) {
-        setTransferErrors({ quantity: 'Quantity is required' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      const quantity = parseInt(transferStock.quantity);
-      if (isNaN(quantity) || quantity <= 0) {
-        setTransferErrors({ quantity: 'Quantity must be greater than 0' });
-        setIsTransferValidating(false);
-        return;
+        errors.quantity = 'Quantity is required';
+      } else {
+        const quantity = parseInt(transferStock.quantity);
+        if (isNaN(quantity) || quantity <= 0) {
+          errors.quantity = 'Quantity must be greater than 0';
+        }
       }
       
       if (!transferStock.fromLocation) {
-        setTransferErrors({ fromLocation: 'Source location is required' });
-        setIsTransferValidating(false);
-        return;
+        errors.fromLocation = 'Source location is required';
       }
       
       if (!transferStock.toLocation) {
-        setTransferErrors({ toLocation: 'Destination location is required' });
-        setIsTransferValidating(false);
-        return;
+        errors.toLocation = 'Destination location is required';
+      } else if (transferStock.fromLocation === transferStock.toLocation) {
+        errors.toLocation = 'Source and destination locations must be different';
       }
       
-      if (transferStock.fromLocation === transferStock.toLocation) {
-        setTransferErrors({ toLocation: 'Source and destination locations must be different' });
+      if (Object.keys(errors).length > 0) {
+        setTransferErrors(errors);
         setIsTransferValidating(false);
         return;
       }
@@ -1596,6 +1621,7 @@ export default function ManagerDashboard() {
       
       const stockDoc = stockSnapshot.docs[0];
       const stock = stockDoc.data();
+      const quantity = parseInt(transferStock.quantity);
       
       if (!stock.quantity || stock.quantity < quantity) {
         setTransferErrors({ quantity: `Insufficient stock! Only ${stock.quantity || 0} units available in ${transferStock.fromLocation}` });
@@ -1616,6 +1642,8 @@ export default function ManagerDashboard() {
         requestedAt: serverTimestamp()
       };
 
+      console.log('Creating stock request:', requestData);
+      
       await addDoc(collection(db, 'stockRequests'), requestData);
       
       // Reset form
@@ -1630,14 +1658,17 @@ export default function ManagerDashboard() {
       alert('Stock transfer request submitted successfully! Awaiting approval from admin/superadmin.');
     } catch (error) {
       console.error('Error requesting stock:', error);
+      setTransferErrors({ submission: `Error: ${error.message}` });
       alert('Error submitting request. Please try again.');
     } finally {
       setIsTransferValidating(false);
     }
   };
 
-  // Sales Report Functions
+  // Sales Report Functions - FIXED VERSION
   const generateSalesReport = useCallback(async () => {
+    console.log('Starting report generation with filters:', reportFilters);
+    
     if (!reportFilters.startDate || !reportFilters.endDate) {
       alert('Please select both start and end dates.');
       return;
@@ -1649,35 +1680,54 @@ export default function ManagerDashboard() {
       const endDate = new Date(reportFilters.endDate);
       endDate.setHours(23, 59, 59, 999);
 
-      // Build query based on location filter
-      let salesQuery;
-      if (reportFilters.location !== 'all') {
-        // Filter by specific location
-        salesQuery = query(
-          collection(db, 'sales'),
-          where('location', '==', reportFilters.location),
-          orderBy('soldAt', 'desc')
-        );
-      } else {
-        // Get all sales
-        salesQuery = query(
-          collection(db, 'sales'),
-          orderBy('soldAt', 'desc')
-        );
-      }
+      console.log('Date range:', startDate, 'to', endDate);
+
+      // Get ALL sales from Firestore
+      const salesQuery = query(
+        collection(db, 'sales'),
+        orderBy('soldAt', 'desc')
+      );
 
       const querySnapshot = await getDocs(salesQuery);
-      const allSales = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const allSales = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        let saleDate;
+        
+        // Handle Firestore timestamp conversion
+        if (data.soldAt && data.soldAt.toDate) {
+          saleDate = data.soldAt.toDate();
+        } else if (data.soldAt) {
+          saleDate = new Date(data.soldAt);
+        } else {
+          saleDate = new Date();
+        }
+        
+        return {
+          id: doc.id,
+          ...data,
+          soldAt: saleDate
+        };
+      });
+
+      console.log('Total sales in database:', allSales.length);
 
       // Filter sales by date range
       const filteredSales = allSales.filter(sale => {
-        const saleDate = sale.soldAt?.toDate();
-        if (!saleDate) return false;
+        if (!sale.soldAt) return false;
+        
+        const saleDate = sale.soldAt instanceof Date ? sale.soldAt : new Date(sale.soldAt);
         return saleDate >= startDate && saleDate <= endDate;
       });
+
+      console.log('Sales after date filter:', filteredSales.length);
+
+      // Filter by location if not 'all'
+      let finalSales = filteredSales;
+      if (reportFilters.location !== 'all') {
+        finalSales = filteredSales.filter(sale => sale.location === reportFilters.location);
+      }
+
+      console.log('Final sales after location filter:', finalSales.length);
 
       // Calculate report data
       const report = {
@@ -1687,10 +1737,10 @@ export default function ManagerDashboard() {
           location: reportFilters.location === 'all' ? 'All Locations' : reportFilters.location
         },
         summary: {
-          totalSales: filteredSales.length,
-          totalRevenue: filteredSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0),
-          averageSaleValue: filteredSales.length > 0 
-            ? filteredSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0) / filteredSales.length 
+          totalSales: finalSales.length,
+          totalRevenue: finalSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0),
+          averageSaleValue: finalSales.length > 0 
+            ? finalSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0) / finalSales.length 
             : 0
         },
         salesByLocation: {},
@@ -1702,32 +1752,32 @@ export default function ManagerDashboard() {
       };
 
       // Analyze data
-      filteredSales.forEach(sale => {
+      finalSales.forEach(sale => {
         // Sales by location
         const location = sale.location || 'Unknown';
         report.salesByLocation[location] = report.salesByLocation[location] || { count: 0, revenue: 0 };
         report.salesByLocation[location].count += 1;
-        report.salesByLocation[location].revenue += sale.finalSalePrice || 0;
+        report.salesByLocation[location].revenue += parseFloat(sale.finalSalePrice) || 0;
 
         // Sales by product
-        const productKey = `${sale.brand} ${sale.model}`;
+        const productKey = `${sale.brand || 'Unknown'} ${sale.model || 'Unknown'}`;
         report.salesByProduct[productKey] = report.salesByProduct[productKey] || { count: 0, revenue: 0 };
         report.salesByProduct[productKey].count += 1;
-        report.salesByProduct[productKey].revenue += sale.finalSalePrice || 0;
+        report.salesByProduct[productKey].revenue += parseFloat(sale.finalSalePrice) || 0;
 
         // Sales by seller
         const seller = sale.soldByName || sale.soldBy || 'Unknown';
         report.salesBySeller[seller] = report.salesBySeller[seller] || { count: 0, revenue: 0 };
         report.salesBySeller[seller].count += 1;
-        report.salesBySeller[seller].revenue += sale.finalSalePrice || 0;
+        report.salesBySeller[seller].revenue += parseFloat(sale.finalSalePrice) || 0;
 
         // Daily sales
-        const saleDate = sale.soldAt?.toDate();
+        const saleDate = sale.soldAt;
         if (saleDate) {
           const dateKey = saleDate.toISOString().split('T')[0];
           report.dailySales[dateKey] = report.dailySales[dateKey] || { count: 0, revenue: 0 };
           report.dailySales[dateKey].count += 1;
-          report.dailySales[dateKey].revenue += sale.finalSalePrice || 0;
+          report.dailySales[dateKey].revenue += parseFloat(sale.finalSalePrice) || 0;
         }
       });
 
@@ -1743,25 +1793,27 @@ export default function ManagerDashboard() {
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 10);
 
+      console.log('Generated report:', report);
       setReportData(report);
-      alert('Report generated successfully!');
+      alert(`Report generated successfully! Found ${finalSales.length} sales.`);
     } catch (error) {
       console.error('Error generating sales report:', error);
-      alert('Error generating report. Please try again.');
+      alert(`Error generating report: ${error.message}`);
     } finally {
       setGeneratingReport(false);
     }
   }, [reportFilters]);
 
-  // Filter Functions using tables
+  // Filter Functions using tables - FIXED VERSIONS
   const getFilteredAllStocks = () => {
-    let filtered = stocksTable;
+    let filtered = stocksTable || [];
     
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(stock => 
-        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
+        (stock.itemCode || '').toLowerCase().includes(term) ||
+        (stock.brand || '').toLowerCase().includes(term) ||
+        (stock.model || '').toLowerCase().includes(term)
       );
     }
     
@@ -1777,13 +1829,14 @@ export default function ManagerDashboard() {
   };
 
   const getFilteredLocationStocks = () => {
-    let filtered = locationStocks;
+    let filtered = locationStocks || [];
     
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(stock => 
-        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
+        (stock.itemCode || '').toLowerCase().includes(term) ||
+        (stock.brand || '').toLowerCase().includes(term) ||
+        (stock.model || '').toLowerCase().includes(term)
       );
     }
     
@@ -1795,14 +1848,15 @@ export default function ManagerDashboard() {
   };
 
   const getFilteredFaultyPhones = () => {
-    let filtered = faultyTable;
+    let filtered = faultyTable || [];
     
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(faulty => 
-        faulty.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
+        (faulty.itemCode || '').toLowerCase().includes(term) ||
+        (faulty.brand || '').toLowerCase().includes(term) ||
+        (faulty.model || '').toLowerCase().includes(term) ||
+        (faulty.customerName || '').toLowerCase().includes(term)
       );
     }
     
@@ -1814,6 +1868,8 @@ export default function ManagerDashboard() {
   };
 
   const getFilteredSales = () => {
+    if (!salesTable || salesTable.length === 0) return [];
+    
     if (selectedLocation === 'all') {
       return salesTable;
     }
@@ -1821,6 +1877,8 @@ export default function ManagerDashboard() {
   };
 
   const getFilteredStockRequests = () => {
+    if (!stockRequests || stockRequests.length === 0) return [];
+    
     if (selectedLocation === 'all') {
       return stockRequests;
     }
@@ -1832,14 +1890,18 @@ export default function ManagerDashboard() {
   };
 
   const calculateTotalStockValue = (stocksArray) => {
+    if (!stocksArray || stocksArray.length === 0) return 0;
+    
     return stocksArray.reduce((total, stock) => {
-      return total + ((stock.costPrice || 0) * (stock.quantity || 0));
+      const cost = parseFloat(stock.costPrice) || 0;
+      const quantity = parseFloat(stock.quantity) || 0;
+      return total + (cost * quantity);
     }, 0);
   };
 
   // Filter users to exclude managers, admins, and superadmins from role/location changes
   const getFilteredUsers = () => {
-    return usersTable;
+    return usersTable || [];
   };
 
   // Helper functions
@@ -1859,12 +1921,14 @@ export default function ManagerDashboard() {
   };
 
   const getStockStatusBadge = (quantity) => {
-    return quantity > 10 ? 'bg-green-500/20 text-green-300' :
-           quantity > 0 ? 'bg-orange-500/20 text-orange-300' :
+    const qty = parseFloat(quantity) || 0;
+    return qty > 10 ? 'bg-green-500/20 text-green-300' :
+           qty > 0 ? 'bg-orange-500/20 text-orange-300' :
            'bg-red-500/20 text-red-300';
   };
 
   const getUniqueBrands = () => {
+    if (!stocksTable || stocksTable.length === 0) return [];
     return [...new Set(stocksTable.map(stock => stock.brand).filter(Boolean))];
   };
 
@@ -2002,7 +2066,7 @@ export default function ManagerDashboard() {
                         <div className={'text-left sm:text-right'}>
                           <div className={'text-green-400 font-semibold text-sm sm:text-base'}>MK {sale.finalSalePrice || 0}</div>
                           <div className={'text-white/50 text-xs'}>
-                            {sale.soldAt?.toDate().toLocaleTimeString() || 'Just now'}
+                            {sale.soldAt?.toDate?.()?.toLocaleTimeString() || 'Just now'}
                           </div>
                         </div>
                       </div>
@@ -2409,7 +2473,7 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Sales History Tab */}
+          {/* Sales History Tab - FIXED */}
           {activeTab === 'salesHistory' && (
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
               <h2 className='text-xl font-semibold text-white mb-6'>Sales History</h2>
@@ -2428,6 +2492,12 @@ export default function ManagerDashboard() {
                 </select>
               </div>
               
+              {/* Debug info - remove in production */}
+              <div className="hidden">
+                <p>Total sales in table: {salesTable.length}</p>
+                <p>Filtered sales: {getFilteredSales().length}</p>
+              </div>
+              
               <div className='overflow-x-auto'>
                 <table className='w-full text-white'>
                   <thead>
@@ -2443,46 +2513,55 @@ export default function ManagerDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {getFilteredSales().map((sale) => (
-                      <tr key={sale.id} className='border-b border-white/10'>
-                        <td className='py-2'>
-                          {sale.soldAt?.toDate().toLocaleDateString() || 'Unknown date'}
-                        </td>
-                        <td className='py-2'>
-                          <div className='font-semibold'>{sale.brand} {sale.model}</div>
-                          <div className='text-white/70 text-sm'>{sale.itemCode}</div>
-                        </td>
-                        <td className='py-2'>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            sale.location === user?.location 
-                              ? 'bg-green-500/20 text-green-300' 
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}>
-                            {sale.location}
-                          </span>
-                        </td>
-                        <td className='py-2'>{sale.quantity}</td>
-                        <td className='py-2 text-green-400'>MK {sale.finalSalePrice || 0}</td>
-                        <td className='py-2'>{sale.soldByName}</td>
-                        <td className='py-2'>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            sale.saleType === 'custom_price' 
-                              ? 'bg-purple-500/20 text-purple-300' 
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}>
-                            {sale.saleType === 'custom_price' ? 'Custom Price' : 'Standard'}
-                          </span>
-                        </td>
-                        <td className='py-2 space-x-2'>
-                          <button
-                            onClick={() => openInstallmentModal(sale)}
-                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
-                          >
-                            Process Installment
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {getFilteredSales().map((sale, index) => {
+                      let saleDate;
+                      if (sale.soldAt && sale.soldAt.toDate) {
+                        saleDate = sale.soldAt.toDate();
+                      } else if (sale.soldAt) {
+                        saleDate = new Date(sale.soldAt);
+                      }
+                      
+                      return (
+                        <tr key={generateSafeKey('sale-history', index, sale.id)} className='border-b border-white/10'>
+                          <td className='py-2'>
+                            {saleDate ? saleDate.toLocaleDateString() : 'Unknown date'}
+                          </td>
+                          <td className='py-2'>
+                            <div className='font-semibold'>{sale.brand} {sale.model}</div>
+                            <div className='text-white/70 text-sm'>{sale.itemCode}</div>
+                          </td>
+                          <td className='py-2'>
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              sale.location === user?.location 
+                                ? 'bg-green-500/20 text-green-300' 
+                                : 'bg-blue-500/20 text-blue-300'
+                            }`}>
+                              {sale.location}
+                            </span>
+                          </td>
+                          <td className='py-2'>{sale.quantity}</td>
+                          <td className='py-2 text-green-400'>MK {sale.finalSalePrice || 0}</td>
+                          <td className='py-2'>{sale.soldByName || sale.soldBy}</td>
+                          <td className='py-2'>
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              sale.saleType === 'custom_price' 
+                                ? 'bg-purple-500/20 text-purple-300' 
+                                : 'bg-blue-500/20 text-blue-300'
+                            }`}>
+                              {sale.saleType === 'custom_price' ? 'Custom Price' : 'Standard'}
+                            </span>
+                          </td>
+                          <td className='py-2 space-x-2'>
+                            <button
+                              onClick={() => openInstallmentModal(sale)}
+                              className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                            >
+                              Process Installment
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {getFilteredSales().length === 0 && (
                       <tr>
                         <td colSpan='8' className='text-center py-8 text-white/70'>
@@ -2572,7 +2651,7 @@ export default function ManagerDashboard() {
                           )}
                         </td>
                         <td className='py-2 hidden lg:table-cell'>
-                          {faulty.reportedAt?.toDate().toLocaleDateString() || 'Unknown'}
+                          {faulty.reportedAt?.toDate?.().toLocaleDateString() || 'Unknown'}
                         </td>
                         <td className='py-2'>
                           <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
@@ -2626,7 +2705,7 @@ export default function ManagerDashboard() {
                       <div className='text-green-400 font-semibold text-sm sm:text-base'>MK {sale.finalSalePrice}</div>
                     </div>
                     <div className='text-white/70 text-xs sm:text-sm mb-3'>
-                      Sold on: {sale.soldAt?.toDate().toLocaleDateString()}
+                      Sold on: {sale.soldAt?.toDate?.().toLocaleDateString()}
                     </div>
                     <button
                       onClick={() => openInstallmentModal(sale)}
@@ -2645,7 +2724,7 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Sales Analysis Report Tab */}
+          {/* Sales Analysis Report Tab - FIXED */}
           {activeTab === 'salesAnalysis' && (
             <div className="bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6">
               <h2 className="text-xl font-semibold text-white mb-6">
@@ -2730,24 +2809,60 @@ export default function ManagerDashboard() {
                       </div>
                       <div className="text-center">
                         <div className="text-xl sm:text-2xl font-bold text-green-400">
-                          MK {reportData.summary.totalRevenue.toFixed(2)}
+                          MK {reportData.summary.totalRevenue.toLocaleString()}
                         </div>
                         <div className="text-white/70 text-sm">Total Revenue</div>
                       </div>
                       <div className="text-center">
                         <div className="text-xl sm:text-2xl font-bold text-purple-400">
-                          MK {reportData.summary.averageSaleValue.toFixed(2)}
+                          MK {reportData.summary.averageSaleValue.toLocaleString()}
                         </div>
                         <div className="text-white/70 text-sm">Average Sale Value</div>
                       </div>
                     </div>
                   </div>
+
+                  {/* Sales by Location */}
+                  {Object.keys(reportData.salesByLocation).length > 0 && (
+                    <div className="bg-white/5 rounded-lg p-6">
+                      <h3 className="text-lg font-semibold text-white mb-4">Sales by Location</h3>
+                      <div className="space-y-4">
+                        {Object.entries(reportData.salesByLocation).map(([location, data]) => (
+                          <div key={location} className="flex items-center justify-between">
+                            <div className="text-white">{location}</div>
+                            <div className="text-right">
+                              <div className="text-green-400">MK {data.revenue.toLocaleString()}</div>
+                              <div className="text-white/70 text-sm">{data.count} sales</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Products */}
+                  {reportData.topProducts.length > 0 && (
+                    <div className="bg-white/5 rounded-lg p-6">
+                      <h3 className="text-lg font-semibold text-white mb-4">Top Products</h3>
+                      <div className="space-y-4">
+                        {reportData.topProducts.map((product, index) => (
+                          <div key={index} className="flex items-center justify-between">
+                            <div className="text-white">{product.product}</div>
+                            <div className="text-right">
+                              <div className="text-green-400">MK {product.revenue.toLocaleString()}</div>
+                              <div className="text-white/70 text-sm">{product.count} sales</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Stock Transfer Tab */}
+          {/* Stock Transfer Tab - FIXED */}
           {activeTab === 'transfer' && (
             <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
               <h2 className={'text-xl font-semibold text-white mb-4'}>Request Stock Transfer</h2>
@@ -2855,7 +2970,7 @@ export default function ManagerDashboard() {
                           </div>
                           <div className="text-right">
                             <div className="text-white/50 text-sm">
-                              {request.requestedAt?.toDate().toLocaleDateString()}
+                              {request.requestedAt?.toDate?.().toLocaleDateString() || 'Unknown date'}
                             </div>
                             <div className="text-white/70 text-sm">
                               {request.status === 'pending' ? 'Awaiting Approval' : 
@@ -2982,7 +3097,7 @@ export default function ManagerDashboard() {
                             <div>
                               <span className={'text-white/70'}>Requested at: </span>
                               <span className={'text-white/50'}>
-                                {request.requestedAt?.toDate().toLocaleString() || 'Unknown date'}
+                                {request.requestedAt?.toDate?.().toLocaleString() || 'Unknown date'}
                               </span>
                             </div>
                             {request.validatedAt && (
