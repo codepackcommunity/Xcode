@@ -441,143 +441,522 @@ export default function StocksDashboard() {
     setSortConfig({ key, direction });
   };
 
-// Generate all locations PDF
-const generateAllLocationsPDF = () => {
-  setIsGeneratingReport(true);
-  try {
-    const doc = new jsPDF('landscape', 'mm', 'a4');
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const today = new Date();
-    
-    // Header - Smaller
-    doc.setFillColor(30, 30, 46);
-    doc.rect(0, 0, pageWidth, 30, 'F');
-    
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('KM ELECTRONICS', pageWidth / 2, 12, { align: 'center' });
-    
-    doc.setFontSize(14);
-    doc.text('COMPREHENSIVE STOCK ANALYSIS REPORT', pageWidth / 2, 18, { align: 'center' });
-    
-    doc.setFontSize(10);
-    doc.text('All Locations Performance Overview', pageWidth / 2, 24, { align: 'center' });
-    
-    // Report Info - Smaller
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0, 0, 0);
-    doc.text(`Generated: ${today.toLocaleDateString('en-MW')}`, 15, 35);
-    doc.text(`By: ${user?.fullName || user?.email}`, pageWidth - 15, 35, { align: 'right' });
-    
-    // Overall Summary - Smaller
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('OVERALL SUMMARY', 15, 45);
-    
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    
-    const summaryRows = [
-      ['Total Items:', dashboardStats.totalItems],
-      ['Total Quantity:', dashboardStats.totalQuantity],
-      ['Total Cost Value:', formatCurrency(dashboardStats.totalCostValue)],
-      ['Total Retail Value:', formatCurrency(dashboardStats.totalRetailValue)],
-      ['Potential Profit:', formatCurrency(dashboardStats.potentialProfit)],
-      ['Low Stock Items:', dashboardStats.lowStockItems]
-    ];
-    
-    let yPos = 51;
-    summaryRows.forEach(([label, value]) => {
-      doc.text(label, 20, yPos);
-      doc.text(value.toString(), 80, yPos);
-      yPos += 5;
-    });
-    
-    // Location Performance Table - Smaller fonts
-    const tableData = locationDetails.map(detail => [
-      detail.location,
-      detail.totalItems,
-      detail.totalQuantity,
-      formatCurrency(detail.totalCostValue),
-      formatCurrency(detail.totalRetailValue),
-      formatCurrency(detail.potentialProfit),
-      formatPercentage(detail.profitMargin),
-      detail.lowStockItems
-    ]);
-    
-    autoTable(doc, {
-      startY: 80,
-      head: [['Location', 'Items', 'Quantity', 'Cost Value', 'Retail Value', 'Profit', 'Margin', 'Low Stock']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [0, 51, 102],
-        textColor: 255,
-        fontStyle: 'bold',
-        fontSize: 8
-      },
-      bodyStyles: {
-        fontSize: 7,
-        textColor: 50
-      },
-      alternateRowStyles: {
-        fillColor: [245, 245, 245]
-      },
-      margin: { top: 80 },
-      styles: {
-        cellPadding: 3
-      },
-      // Add page numbers
-      didDrawPage: function (data) {
-        doc.setFontSize(6);
-        doc.setTextColor(100, 100, 100);
-        const pageCount = doc.internal.getNumberOfPages();
-        doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
-      }
-    });
-    
-    // Performance Summary - Smaller
-    const chartY = doc.lastAutoTable.finalY + 10;
-    if (chartY < pageHeight - 20) {
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PERFORMANCE SUMMARY', 15, chartY);
+  // Generate stock report by location
+  const generateLocationPDFReport = (location) => {
+    setIsGeneratingReport(true);
+    try {
+      const locationStocks = selectedLocation === 'all' 
+        ? stocks.filter(s => s.location === location)
+        : filteredStocks;
       
-      doc.setFontSize(8);
+      const analytics = locationAnalytics[location] || {};
+      
+      // Create PDF
+      const doc = new jsPDF('portrait');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const today = new Date();
+      
+      // Header with linear effect simulation
+      doc.setFillColor(0, 51, 102);
+      doc.rect(0, 0, pageWidth, 60, 'F');
+      
+      // Company Logo/Name
+      doc.setFontSize(28);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.text('STOCK INVENTORY REPORT', pageWidth / 2, 35, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text(`${location} LOCATION`, pageWidth / 2, 45, { align: 'center' });
+      
+      // Report Info
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Generated on: ${today.toLocaleDateString('en-MW')} ${today.toLocaleTimeString('en-MW', { hour: '2-digit', minute: '2-digit' })}`, 15, 70);
+      doc.text(`Generated by: ${user?.fullName || user?.email}`, 15, 77);
+      doc.text(`Report ID: STK-${location.slice(0, 3).toUpperCase()}-${today.getTime().toString().slice(-6)}`, pageWidth - 15, 70, { align: 'right' });
+      
+      // Location Summary Box
+      doc.setFillColor(240, 248, 255);
+      doc.roundedRect(15, 85, pageWidth - 30, 40, 3, 3, 'F');
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('LOCATION SUMMARY', 20, 95);
+      
+      doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       
-      // Top performing locations
-      const topLocations = locationDetails.slice(0, 3);
-      let summaryY = chartY + 7;
+      // Summary columns
+      const summaryData = [
+        [`Total Items: ${analytics.totalItems || 0}`, `Total Quantity: ${analytics.totalQuantity || 0}`],
+        [`Cost Value: ${formatCurrency(analytics.totalCostValue || 0)}`, `Retail Value: ${formatCurrency(analytics.totalRetailValue || 0)}`],
+        [`Potential Profit: ${formatCurrency(analytics.potentialProfit || 0)}`, `Profit Margin: ${formatPercentage(analytics.profitMargin || 0)}`],
+        [`Low Stock Items: ${analytics.lowStockItems || 0}`, `Report Period: ${today.toLocaleDateString('en-MW')}`]
+      ];
       
-      doc.text('Top Performing Locations:', 20, summaryY);
-      summaryY += 5;
-      
-      topLocations.forEach((detail, index) => {
-        doc.text(`${index + 1}. ${detail.location}: ${formatCurrency(detail.potentialProfit)} (${formatPercentage(detail.profitMargin)})`, 25, summaryY);
-        summaryY += 5;
+      let yPos = 105;
+      summaryData.forEach(row => {
+        doc.text(row[0], 20, yPos);
+        doc.text(row[1], pageWidth / 2 + 10, yPos);
+        yPos += 7;
       });
+      
+      // Stock Items Table
+      const tableData = locationStocks.map(stock => [
+        stock.itemCode || 'N/A',
+        `${stock.brand || ''} ${stock.model || ''}`.trim(),
+        stock.category || 'N/A',
+        stock.quantity || 0,
+        formatCurrency(stock.costPrice || 0),
+        formatCurrency(stock.retailPrice || 0),
+        formatCurrency((stock.costPrice || 0) * (stock.quantity || 0)),
+        formatCurrency((stock.retailPrice || 0) * (stock.quantity || 0)),
+        formatCurrency(((stock.retailPrice || 0) - (stock.costPrice || 0)) * (stock.quantity || 0))
+      ]);
+      
+      autoTable(doc, {
+        startY: 135,
+        head: [['Item Code', 'Product', 'Category', 'Qty', 'Cost', 'Retail', 'Total Cost', 'Total Retail', 'Profit']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [0, 51, 102],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: 50
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        margin: { top: 135 },
+        styles: {
+          overflow: 'linebreak',
+          cellPadding: 3
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 35 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 15 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 20 },
+          6: { cellWidth: 25 },
+          7: { cellWidth: 25 },
+          8: { cellWidth: 25 }
+        }
+      });
+      
+      // Performance Insights
+      const finalY = doc.lastAutoTable.finalY + 15;
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PERFORMANCE INSIGHTS', 15, finalY);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const insights = [
+        `• Inventory Turnover: ${analytics.totalQuantity > 0 ? 'Good' : 'Needs Review'}`,
+        `• Profit Margin: ${analytics.profitMargin > 20 ? 'Excellent' : analytics.profitMargin > 10 ? 'Good' : 'Needs Improvement'}`,
+        `• Stock Health: ${analytics.lowStockItems === 0 ? 'Healthy' : `${analytics.lowStockItems} items need restocking`}`,
+        `• Location Performance: ${analytics.potentialProfit > 1000000 ? 'Outstanding' : analytics.potentialProfit > 500000 ? 'Good' : 'Average'}`
+      ];
+      
+      let insightY = finalY + 10;
+      insights.forEach(insight => {
+        doc.text(insight, 20, insightY);
+        insightY += 7;
+      });
+      
+      // Footer
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('KM ELECTRONICS - CONFIDENTIAL BUSINESS REPORT', pageWidth / 2, pageHeight - 20, { align: 'center' });
+      doc.text(`Page 1 of 1 | Generated ${today.toLocaleDateString('en-MW')}`, pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('© KM Electronics - All Rights Reserved', pageWidth / 2, pageHeight - 10, { align: 'center' });
+      
+      // Save PDF
+      const filename = `KM_Stock_Report_${location}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
+      doc.save(filename);
+      
+      setSuccess(`PDF report for ${location} generated successfully!`);
+    } catch (error) {
+      setError('Failed to generate PDF report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
     }
-    
-    // Footer
-    doc.setFontSize(7);
-    doc.setTextColor(100, 100, 100);
-    doc.text('KM ELECTRONICS - ALL LOCATIONS STOCK REPORT', pageWidth / 2, pageHeight - 5, { align: 'center' });
-    
-    // Save PDF
-    const filename = `KM_All_Locations_Stock_Report_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
-    doc.save(filename);
-    
-    setSuccess('All locations PDF report generated successfully!');
-  } catch (error) {
-    setError('Failed to generate all locations report: ' + error.message);
-  } finally {
-    setIsGeneratingReport(false);
-  }
-};
+  };
+
+  // Generate Excel report
+  const generateLocationExcelReport = (location) => {
+    setIsGeneratingReport(true);
+    try {
+      const locationStocks = selectedLocation === 'all' 
+        ? stocks.filter(s => s.location === location)
+        : filteredStocks;
+      
+      const analytics = locationAnalytics[location] || {};
+      const today = new Date();
+      
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Summary Sheet
+      const summaryData = [
+        ['KM ELECTRONICS - STOCK INVENTORY REPORT'],
+        [`Location: ${location}`],
+        [`Generated on: ${today.toLocaleString('en-MW')}`],
+        [`Generated by: ${user?.fullName || user?.email}`],
+        [],
+        ['LOCATION SUMMARY'],
+        ['Total Items:', analytics.totalItems || 0],
+        ['Total Quantity:', analytics.totalQuantity || 0],
+        ['Total Cost Value:', analytics.totalCostValue || 0],
+        ['Total Retail Value:', analytics.totalRetailValue || 0],
+        ['Potential Profit:', analytics.potentialProfit || 0],
+        ['Profit Margin:', `${formatPercentage(analytics.profitMargin || 0)}`],
+        ['Low Stock Items:', analytics.lowStockItems || 0],
+        [],
+        ['FINANCIAL ANALYSIS'],
+        ['Average Cost per Item:', analytics.totalItems > 0 ? (analytics.totalCostValue / analytics.totalItems) : 0],
+        ['Average Retail per Item:', analytics.totalItems > 0 ? (analytics.totalRetailValue / analytics.totalItems) : 0],
+        ['Average Profit per Item:', analytics.totalItems > 0 ? (analytics.potentialProfit / analytics.totalItems) : 0],
+        ['Profitability Index:', analytics.totalCostValue > 0 ? (analytics.potentialProfit / analytics.totalCostValue) : 0]
+      ];
+      
+      const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+      
+      // Detailed Stock Sheet
+      const stockRows = locationStocks.map(stock => ({
+        'Item Code': stock.itemCode || 'N/A',
+        'Brand': stock.brand || 'N/A',
+        'Model': stock.model || 'N/A',
+        'Category': stock.category || 'N/A',
+        'Color': stock.color || 'N/A',
+        'Storage': stock.storage || 'N/A',
+        'Quantity': stock.quantity || 0,
+        'Cost Price': stock.costPrice || 0,
+        'Retail Price': stock.retailPrice || 0,
+        'Wholesale Price': stock.wholesalePrice || 0,
+        'Discount %': stock.discountPercentage || 0,
+        'Total Cost': (stock.costPrice || 0) * (stock.quantity || 0),
+        'Total Retail': (stock.retailPrice || 0) * (stock.quantity || 0),
+        'Potential Profit': ((stock.retailPrice || 0) - (stock.costPrice || 0)) * (stock.quantity || 0),
+        'Min Stock Level': stock.minStockLevel || 5,
+        'Reorder Quantity': stock.reorderQuantity || 10,
+        'Supplier': stock.supplier || 'N/A',
+        'Warranty (Months)': stock.warrantyPeriod || 12,
+        'Added By': stock.addedByName || 'System',
+        'Added Date': stock.createdAt?.toDate().toLocaleDateString() || 'N/A',
+        'Last Updated': stock.updatedAt?.toDate().toLocaleDateString() || 'N/A'
+      }));
+      
+      const stockWs = XLSX.utils.json_to_sheet(stockRows);
+      XLSX.utils.book_append_sheet(wb, stockWs, 'Stock Details');
+      
+      // Analysis Sheet
+      const analysisData = [
+        ['CATEGORY BREAKDOWN'],
+        ['Category', 'Items', 'Quantity', 'Cost Value', 'Retail Value', 'Profit']
+      ];
+      
+      // Group by category
+      const categoryBreakdown = {};
+      locationStocks.forEach(stock => {
+        const category = stock.category || 'Other';
+        if (!categoryBreakdown[category]) {
+          categoryBreakdown[category] = {
+            items: 0,
+            quantity: 0,
+            costValue: 0,
+            retailValue: 0
+          };
+        }
+        categoryBreakdown[category].items++;
+        categoryBreakdown[category].quantity += stock.quantity || 0;
+        categoryBreakdown[category].costValue += (stock.costPrice || 0) * (stock.quantity || 0);
+        categoryBreakdown[category].retailValue += (stock.retailPrice || 0) * (stock.quantity || 0);
+      });
+      
+      Object.entries(categoryBreakdown).forEach(([category, data]) => {
+        const profit = data.retailValue - data.costValue;
+        analysisData.push([
+          category,
+          data.items,
+          data.quantity,
+          data.costValue,
+          data.retailValue,
+          profit
+        ]);
+      });
+      
+      const analysisWs = XLSX.utils.aoa_to_sheet(analysisData);
+      XLSX.utils.book_append_sheet(wb, analysisWs, 'Category Analysis');
+      
+      // Generate filename and save
+      const filename = `KM_Stock_Report_${location}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      
+      setSuccess(`Excel report for ${location} generated successfully!`);
+    } catch (error) {
+      setError('Failed to generate Excel report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  // Generate sales report by location
+  const generateSalesReportByLocation = (location) => {
+    setIsGeneratingReport(true);
+    try {
+      const locationSales = salesLocationFilter === 'all' 
+        ? sales.filter(s => s.location === location)
+        : filteredSales;
+      
+      const analytics = salesByLocation[location] || {};
+      const today = new Date();
+      
+      // Create PDF
+      const doc = new jsPDF('portrait');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      
+      // Header
+      doc.setFillColor(30, 144, 255);
+      doc.rect(0, 0, pageWidth, 60, 'F');
+      
+      doc.setFontSize(28);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.text('SALES ANALYSIS REPORT', pageWidth / 2, 35, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text(`${location} LOCATION - ${salesTimeFilter.toUpperCase()}`, pageWidth / 2, 45, { align: 'center' });
+      
+      // Report Info
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Generated: ${today.toLocaleDateString('en-MW')}`, 15, 70);
+      doc.text(`Period: ${salesTimeFilter}`, pageWidth - 15, 70, { align: 'right' });
+      
+      // Sales Summary
+      doc.setFillColor(240, 248, 255);
+      doc.roundedRect(15, 80, pageWidth - 30, 40, 3, 3, 'F');
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SALES SUMMARY', 20, 90);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const summaryData = [
+        [`Total Sales: ${formatCurrency(analytics.totalSales || 0)}`, `Transactions: ${analytics.transactionCount || 0}`],
+        [`Total Profit: ${formatCurrency(analytics.totalProfit || 0)}`, `Avg Sale: ${formatCurrency(analytics.avgSaleValue || 0)}`],
+        [`Profit Margin: ${formatPercentage(analytics.avgProfitMargin || 0)}`, `Period: ${salesTimeFilter}`]
+      ];
+      
+      let yPos = 100;
+      summaryData.forEach(row => {
+        doc.text(row[0], 20, yPos);
+        doc.text(row[1], pageWidth / 2 + 10, yPos);
+        yPos += 7;
+      });
+      
+      // Sales Transactions Table
+      const tableData = locationSales.map(sale => [
+        sale.invoiceNumber || 'N/A',
+        formatDate(sale.saleDate),
+        sale.customerName || 'Walk-in',
+        sale.paymentMethod || 'Cash',
+        sale.items?.length || 0,
+        formatCurrency(sale.subTotal || 0),
+        formatCurrency(sale.discount || 0),
+        formatCurrency(sale.totalAmount || 0),
+        formatCurrency(sale.totalProfit || 0)
+      ]);
+      
+      autoTable(doc, {
+        startY: 130,
+        head: [['Invoice', 'Date', 'Customer', 'Payment', 'Items', 'Subtotal', 'Discount', 'Total', 'Profit']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [30, 144, 255],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: 50
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        }
+      });
+      
+      // Save PDF
+      const filename = `KM_Sales_Report_${location}_${salesTimeFilter}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
+      doc.save(filename);
+      
+      setSuccess(`Sales report for ${location} generated successfully!`);
+    } catch (error) {
+      setError('Failed to generate sales report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  // Generate all locations PDF
+  const generateAllLocationsPDF = () => {
+    setIsGeneratingReport(true);
+    try {
+      const doc = new jsPDF('landscape');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const today = new Date();
+      
+      // Header
+      doc.setFillColor(30, 30, 46);
+      doc.rect(0, 0, pageWidth, 50, 'F');
+      
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.text('COMPREHENSIVE STOCK ANALYSIS REPORT', pageWidth / 2, 30, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text('All Locations Performance Overview', pageWidth / 2, 40, { align: 'center' });
+      
+      // Report Info
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Generated: ${today.toLocaleDateString('en-MW')}`, 15, 60);
+      doc.text(`By: ${user?.fullName || user?.email}`, pageWidth - 15, 60, { align: 'right' });
+      
+      // Overall Summary
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('OVERALL SUMMARY', 15, 75);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const summaryRows = [
+        ['Total Items:', dashboardStats.totalItems],
+        ['Total Quantity:', dashboardStats.totalQuantity],
+        ['Total Cost Value:', formatCurrency(dashboardStats.totalCostValue)],
+        ['Total Retail Value:', formatCurrency(dashboardStats.totalRetailValue)],
+        ['Potential Profit:', formatCurrency(dashboardStats.potentialProfit)],
+        ['Low Stock Items:', dashboardStats.lowStockItems]
+      ];
+      
+      let yPos = 85;
+      summaryRows.forEach(([label, value]) => {
+        doc.text(label, 20, yPos);
+        doc.text(value.toString(), 100, yPos);
+        yPos += 7;
+      });
+      
+      // Location Performance Table
+      const tableData = locationDetails.map(detail => [
+        detail.location,
+        detail.totalItems,
+        detail.totalQuantity,
+        formatCurrency(detail.totalCostValue),
+        formatCurrency(detail.totalRetailValue),
+        formatCurrency(detail.potentialProfit),
+        formatPercentage(detail.profitMargin),
+        detail.lowStockItems
+      ]);
+      
+      autoTable(doc, {
+        startY: 130,
+        head: [['Location', 'Items', 'Quantity', 'Cost Value', 'Retail Value', 'Profit', 'Margin', 'Low Stock']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [0, 51, 102],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: 50
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        margin: { top: 130 }
+      });
+      
+      // Performance Chart
+      const chartY = doc.lastAutoTable.finalY + 15;
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('LOCATION PERFORMANCE RANKING', 15, chartY);
+      
+      // Simple bar chart representation
+      const maxProfit = Math.max(...locationDetails.map(d => d.potentialProfit));
+      const barWidth = 150;
+      let barY = chartY + 20;
+      
+      locationDetails.forEach((detail, index) => {
+        const barLength = (detail.potentialProfit / maxProfit) * barWidth;
+        
+        // Bar
+        doc.setFillColor(30, 144, 255);
+        doc.rect(50, barY - 2, barLength, 6, 'F');
+        
+        // Label
+        doc.setFontSize(9);
+        doc.setTextColor(0, 0, 0);
+        doc.text(detail.location, 15, barY + 2);
+        
+        // Value
+        doc.text(formatCurrency(detail.potentialProfit), 210, barY + 2);
+        
+        barY += 10;
+      });
+      
+      // Footer
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      const footerY = pageWidth > 200 ? 200 : barY + 20;
+      doc.text('KM ELECTRONICS - ALL LOCATIONS STOCK REPORT', pageWidth / 2, footerY, { align: 'center' });
+      doc.text(`Page 1 of 1 | Generated ${today.toLocaleDateString('en-MW')}`, pageWidth / 2, footerY + 5, { align: 'center' });
+      
+      // Save PDF
+      const filename = `KM_All_Locations_Stock_Report_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
+      doc.save(filename);
+      
+      setSuccess('All locations PDF report generated successfully!');
+    } catch (error) {
+      setError('Failed to generate all locations report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
 
   // ==================== AUTHENTICATION ====================
 
