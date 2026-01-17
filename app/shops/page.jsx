@@ -481,7 +481,7 @@ export default function StocksDashboard() {
       };
       
       // Create PDF
-      const doc = new jsPDF('portrait');
+      const doc = new jsPDF('landscape');
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const today = new Date();
