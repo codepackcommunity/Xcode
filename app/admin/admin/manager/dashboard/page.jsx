@@ -1449,8 +1449,7 @@ export default function ManagerDashboard() {
         generateFaultyPhonePDFReport(data);
       }
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Error generating PDF report. Please try again.');
+      alert('Error generating PDF report. Please try again.', error);
     }
   };
 
