@@ -555,8 +555,8 @@ export default function StocksDashboard() {
         ]);
         
         autoTable(doc, {
-          startY: 55,
-          head: [['Item Code', 'Product','Location', 'Qty', 'Cost', 'Retail', 'Total Cost', 'Total Retail', 'Profit']],
+          startY: 135,
+          head: [['Item Code', 'Product', 'Category', 'Location', 'Qty', 'Cost', 'Retail', 'Total Cost', 'Total Retail', 'Profit']],
           body: tableData,
           theme: 'striped',
           headStyles: {
@@ -942,7 +942,7 @@ export default function StocksDashboard() {
         ]);
         
         autoTable(doc, {
-          startY: 55,
+          startY: 130,
           head: [['Invoice', 'Date', 'Customer', 'Location', 'Payment', 'Items', 'Subtotal', 'Discount', 'Total', 'Profit']],
           body: tableData,
           theme: 'striped',
@@ -1052,7 +1052,7 @@ export default function StocksDashboard() {
       ]);
       
       autoTable(doc, {
-        startY: 55,
+        startY: 110,
         head: [['Location', 'Items', 'Quantity', 'Cost Value', 'Retail Value', 'Profit', 'Margin', 'Low Stock']],
         body: tableData,
         theme: 'grid',

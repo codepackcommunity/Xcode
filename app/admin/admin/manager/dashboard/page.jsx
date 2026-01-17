@@ -102,11 +102,10 @@ export default function ManagerDashboard() {
   });
   const [stockErrors, setStockErrors] = useState({});
 
-  // Sales Report Download State
+  // Sales Report Download State - UPDATED: Removed location filter
   const [reportFilters, setReportFilters] = useState({
     startDate: '',
-    endDate: '',
-    location: 'all'
+    endDate: ''
   });
   const [reportData, setReportData] = useState(null);
   const [generatingReport, setGeneratingReport] = useState(false);
@@ -1635,7 +1634,7 @@ export default function ManagerDashboard() {
     }
   };
 
-  // Sales Report Functions
+  // UPDATED: Sales Report Functions - Fixed for manager permissions
   const generateSalesReport = useCallback(async () => {
     if (!reportFilters.startDate || !reportFilters.endDate) {
       alert('Please select both start and end dates.');
@@ -1648,22 +1647,15 @@ export default function ManagerDashboard() {
       const endDate = new Date(reportFilters.endDate);
       endDate.setHours(23, 59, 59, 999);
 
-      // Build query based on location filter
-      let salesQuery;
-      if (reportFilters.location !== 'all') {
-        // Filter by specific location
-        salesQuery = query(
-          collection(db, 'sales'),
-          where('location', '==', reportFilters.location),
-          orderBy('soldAt', 'desc')
-        );
-      } else {
-        // Get all sales
-        salesQuery = query(
-          collection(db, 'sales'),
-          orderBy('soldAt', 'desc')
-        );
-      }
+      // Managers can only generate reports for their location
+      const managerLocation = user?.location;
+      
+      // Build query - ALWAYS filter by manager's location
+      const salesQuery = query(
+        collection(db, 'sales'),
+        where('location', '==', managerLocation),
+        orderBy('soldAt', 'desc')
+      );
 
       const querySnapshot = await getDocs(salesQuery);
       const allSales = querySnapshot.docs.map(doc => ({
@@ -1683,7 +1675,7 @@ export default function ManagerDashboard() {
         period: {
           startDate: reportFilters.startDate,
           endDate: reportFilters.endDate,
-          location: reportFilters.location === 'all' ? 'All Locations' : reportFilters.location
+          location: managerLocation // Always use manager's location
         },
         summary: {
           totalSales: filteredSales.length,
@@ -1702,7 +1694,7 @@ export default function ManagerDashboard() {
 
       // Analyze data
       filteredSales.forEach(sale => {
-        // Sales by location
+        // Sales by location (will only be manager's location)
         const location = sale.location || 'Unknown';
         report.salesByLocation[location] = report.salesByLocation[location] || { count: 0, revenue: 0 };
         report.salesByLocation[location].count += 1;
@@ -1746,11 +1738,17 @@ export default function ManagerDashboard() {
       alert('Report generated successfully!');
     } catch (error) {
       console.error('Error generating sales report:', error);
-      alert('Error generating report. Please try again.');
+      if (error.code === 'failed-precondition') {
+        alert('Report query requires an index. Please contact administrator to create the required index.');
+      } else if (error.code === 'permission-denied') {
+        alert('You do not have permission to generate this report. Please contact administrator.');
+      } else {
+        alert('Error generating report. Please try again.');
+      }
     } finally {
       setGeneratingReport(false);
     }
-  }, [reportFilters]);
+  }, [reportFilters, user?.location]); // Added user location dependency
 
   // Filter Functions using tables
   const getFilteredAllStocks = () => {
@@ -2644,11 +2642,11 @@ export default function ManagerDashboard() {
             </div>
           )}
 
-          {/* Sales Analysis Report Tab */}
+          {/* UPDATED: Sales Analysis Report Tab */}
           {activeTab === 'salesAnalysis' && (
             <div className="bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6">
               <h2 className="text-xl font-semibold text-white mb-6">
-                Sales Analysis Report Generator
+                Sales Analysis Report - {user?.location}
               </h2>
               
               {/* Report Filters */}
@@ -2656,7 +2654,7 @@ export default function ManagerDashboard() {
                 <h3 className="text-lg font-semibold text-white mb-4">Report Filters</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                   <div>
-                    <label className="block text-white/70 text-sm mb-2">Start Date</label>
+                    <label className="block text-white/70 text-sm mb-2">Start Date *</label>
                     <input
                       type="date"
                       value={reportFilters.startDate}
@@ -2665,7 +2663,7 @@ export default function ManagerDashboard() {
                     />
                   </div>
                   <div>
-                    <label className="block text-white/70 text-sm mb-2">End Date</label>
+                    <label className="block text-white/70 text-sm mb-2">End Date *</label>
                     <input
                       type="date"
                       value={reportFilters.endDate}
@@ -2675,16 +2673,12 @@ export default function ManagerDashboard() {
                   </div>
                   <div>
                     <label className="block text-white/70 text-sm mb-2">Location</label>
-                    <select
-                      value={reportFilters.location}
-                      onChange={(e) => setReportFilters({...reportFilters, location: e.target.value})}
-                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white"
-                    >
-                      <option value="all">All Locations</option>
-                      {LOCATIONS.map((location, index) => (
-                        <option key={generateSafeKey('filter-location', index, location)} value={location}>{location}</option>
-                      ))}
-                    </select>
+                    <div className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white">
+                      {user?.location} (Your Location)
+                    </div>
+                    <p className="text-xs text-orange-300 mt-1">
+                      Managers can only generate reports for their assigned location
+                    </p>
                   </div>
                 </div>
                 
@@ -2708,7 +2702,7 @@ export default function ManagerDashboard() {
                     disabled={!reportData}
                     className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
                   >
-                    <span>Download Stylish PDF</span>
+                    <span>Download PDF Report</span>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
@@ -2722,14 +2716,14 @@ export default function ManagerDashboard() {
                   {/* Report Summary */}
                   <div className="bg-white/5 rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-white mb-4">Report Summary</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       <div className="text-center">
                         <div className="text-xl sm:text-2xl font-bold text-blue-400">{reportData.summary.totalSales}</div>
                         <div className="text-white/70 text-sm">Total Sales</div>
                       </div>
                       <div className="text-center">
                         <div className="text-xl sm:text-2xl font-bold text-green-400">
-                          MK {reportData.summary.totalRevenue.toFixed(2)}
+                          MK {reportData.summary.totalRevenue.toLocaleString()}
                         </div>
                         <div className="text-white/70 text-sm">Total Revenue</div>
                       </div>
@@ -2739,7 +2733,57 @@ export default function ManagerDashboard() {
                         </div>
                         <div className="text-white/70 text-sm">Average Sale Value</div>
                       </div>
+                      <div className="text-center">
+                        <div className="text-xl sm:text-2xl font-bold text-orange-400">
+                          {Object.keys(reportData.salesByProduct).length}
+                        </div>
+                        <div className="text-white/70 text-sm">Unique Products Sold</div>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Top Products */}
+                  <div className="bg-white/5 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">Top Products</h3>
+                    {reportData.topProducts.length > 0 ? (
+                      <div className="space-y-2">
+                        {reportData.topProducts.slice(0, 5).map((product, index) => (
+                          <div key={`top-product-${index}`} className="flex justify-between items-center p-3 bg-white/5 rounded">
+                            <div>
+                              <div className="font-semibold text-white">{product.product}</div>
+                              <div className="text-white/70 text-sm">{product.count} units sold</div>
+                            </div>
+                            <div className="text-green-400 font-semibold">
+                              MK {product.revenue.toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-white/70 text-center py-4">No sales data available for the selected period.</p>
+                    )}
+                  </div>
+
+                  {/* Top Sellers */}
+                  <div className="bg-white/5 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">Top Performers</h3>
+                    {reportData.topSellers.length > 0 ? (
+                      <div className="space-y-2">
+                        {reportData.topSellers.slice(0, 5).map((seller, index) => (
+                          <div key={`top-seller-${index}`} className="flex justify-between items-center p-3 bg-white/5 rounded">
+                            <div>
+                              <div className="font-semibold text-white">{seller.seller}</div>
+                              <div className="text-white/70 text-sm">{seller.count} sales</div>
+                            </div>
+                            <div className="text-purple-400 font-semibold">
+                              MK {seller.revenue.toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-white/70 text-center py-4">No sales data available for the selected period.</p>
+                    )}
                   </div>
                 </div>
               )}
