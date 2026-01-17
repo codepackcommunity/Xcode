@@ -147,6 +147,90 @@ ALL COLLECTIONS MUST HAVE THESE EXACT STRUCTURES:
    - notes: string
    - createdAt: timestamp
 
-9. installments (for compatibility - can be added later)
-   - Will use same structure as installment system
+9. installments (Installment Plans)
+   - id (auto)
+   - saleId: string (reference to sales.id)
+   - itemCode: string
+   - brand: string
+   - model: string
+   - customerName: string
+   - customerPhone: string
+   - customerEmail: string
+   - totalAmount: number
+   - initialPayment: number
+   - remainingAmount: number
+   - installmentAmount: number
+   - installmentCount: number
+   - paidInstallments: number
+   - status: 'active' | 'completed' | 'defaulted' | 'cancelled'
+   - location: string
+   - createdBy: uid
+   - createdByName: string
+   - createdAt: timestamp
+   - updatedAt: timestamp
+   - dueDate: timestamp
+   - lastPaymentDate: timestamp
+
+10. faultyPhones (Faulty Device Reports)
+   - id (auto)
+   - itemCode: string
+   - stockId: string (reference to stocks.id)
+   - brand: string
+   - model: string
+   - imei: string
+   - faultDescription: string
+   - reportedCost: number
+   - estimatedRepairCost: number
+   - status: 'Reported' | 'In Repair' | 'Fixed' | 'EOS (End of Service)' | 'Scrapped'
+   - sparesNeeded: array
+   - otherSpares: string
+   - customerName: string
+   - customerPhone: string
+   - images: array (URLs)
+   - notes: string
+   - location: string
+   - reportedBy: uid
+   - reportedByName: string
+   - reportedAt: timestamp
+   - updatedAt: timestamp
+   - updatedByName: string
+   - repairedAt: timestamp
+   - repairedByName: string
+
+11. repairs (Repair Records)
+   - id (auto)
+   - faultyId: string (reference to faultyPhones.id)
+   - stockId: string (reference to stocks.id)
+   - itemCode: string
+   - brand: string
+   - model: string
+   - repairCost: number
+   - sparesUsed: array
+   - notes: string
+   - location: string
+   - repairedBy: uid
+   - repairedByName: string
+   - repairedAt: timestamp
+   - createdAt: timestamp
+
+12. installmentReports (Generated Reports)
+   - id (auto)
+   - reportType: 'installments' | 'payments' | 'defaulted' | 'summary'
+   - startDate: timestamp
+   - endDate: timestamp
+   - location: string (optional, 'all' for all locations)
+   - generatedBy: uid
+   - generatedByName: string
+   - createdAt: timestamp
+   - reportData: object (report-specific data)
+
+13. deletionLogs (Deletion Audit Trail)
+   - id (auto)
+   - collection: string (collection name, e.g., 'sales', 'users')
+   - documentId: string (deleted document ID)
+   - documentData: object (snapshot of deleted document)
+   - deletedBy: uid
+   - deletedByName: string
+   - deletedAt: timestamp
+   - reason: string (optional)
 */

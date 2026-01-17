@@ -1544,14 +1544,14 @@ export default function InstallmentSuperAdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
         <div className="text-white">Loading Installment Dashboard...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
       {/* Messages */}
       {error && (
         <div className="fixed top-4 right-4 z-50 animate-fade-in">
@@ -2222,7 +2222,7 @@ export default function InstallmentSuperAdminDashboard() {
                           {/* Progress Bar */}
                           <div className="w-full bg-gray-700 rounded-full h-2 mb-4">
                             <div 
-                              className="h-2 rounded-full bg-linear-to-r from-blue-500 to-green-500"
+                              className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-green-500"
                               style={{ width: `${Math.min(paymentProgress, 100)}%` }}
                             ></div>
                           </div>
@@ -3331,7 +3331,7 @@ export default function InstallmentSuperAdminDashboard() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full fixed bottom-0 left-0 z-10 bg-linear-to-br from-gray-900 to-gray-800 py-4 mt-8">
+      <footer className="w-full fixed bottom-0 left-0 z-10 bg-gradient-to-br from-gray-900 to-gray-800 py-4 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-200 text-sm">
           © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK | INSTALLMENT SYSTEM v2.0
         </div>

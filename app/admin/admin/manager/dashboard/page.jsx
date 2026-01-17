@@ -1147,7 +1147,7 @@ export default function ManagerDashboard() {
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     
-    // Add gradient background
+    // Add linear background
     doc.setFillColor(30, 41, 59); // slate-900
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
     
@@ -1348,7 +1348,7 @@ export default function ManagerDashboard() {
         const pageWidth = doc.internal.pageSize.width;
         const pageHeight = doc.internal.pageSize.height;
         
-        // Add gradient background
+        // Add linear background
         doc.setFillColor(30, 41, 59);
         doc.rect(0, 0, pageWidth, pageHeight, 'F');
         

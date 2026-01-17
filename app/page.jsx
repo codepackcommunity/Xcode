@@ -35,9 +35,9 @@ export default function NeuronTechLoader() {
 
   if (!isVisible || !isClient) {
     return (
-      <div className="fixed inset-0 bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center z-50">
         <div className="text-center">
-          <h1 className="text-3xl font-bold bg-linear-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent mb-2">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent mb-2">
             KM ELECTRONICS
           </h1>
           <p className="text-pink-300 text-sm">Loading...</p>
@@ -100,9 +100,9 @@ export default function NeuronTechLoader() {
   ];
 
   return (
-    <div className="fixed inset-0 bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center z-50">
       {/* Animated Background */}
-      <div className="absolute inset-0 bg-linear-to-br from-pink-900/20 via-purple-900/10 to-slate-900/20">
+      <div className="absolute inset-0 bg-gradient-to-br from-pink-900/20 via-purple-900/10 to-slate-900/20">
         {/* Floating particles */}
         {particlePositions.map((pos, i) => (
           <div
@@ -123,7 +123,7 @@ export default function NeuronTechLoader() {
         <div className="relative w-64 h-64 mx-auto mb-8">
           {/* Central Node */}
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-16 bg-linear-to-r from-pink-500 to-purple-600 rounded-full animate-pulse shadow-lg shadow-pink-500/50">
+            <div className="w-16 h-16 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full animate-pulse shadow-lg shadow-pink-500/50">
               <div className="absolute inset-0 rounded-full bg-pink-500 animate-ping opacity-20"></div>
             </div>
           </div>
@@ -208,25 +208,25 @@ export default function NeuronTechLoader() {
 
             {/* linears */}
             <defs>
-              <linearlinear id="linear1" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id="linear1" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#EC4899" />
                 <stop offset="100%" stopColor="#8B5CF6" />
-              </linearlinear>
-              <linearlinear id="linear2" x1="0%" y1="0%" x2="100%" y2="0%">
+              </linearGradient>
+              <linearGradient id="linear2" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#EC4899" />
                 <stop offset="100%" stopColor="#A855F7" />
-              </linearlinear>
-              <radiallinear id="linear3" cx="50%" cy="50%" r="50%">
+              </linearGradient>
+              <radialGradient id="linear3" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stopColor="#EC4899" />
                 <stop offset="100%" stopColor="#8B5CF6" />
-              </radiallinear>
+              </radialGradient>
             </defs>
           </svg>
         </div>
 
         {/* Loading Text */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold bg-linear-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent mb-2">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent mb-2">
             KM ELECTRONICS
           </h1>
           <p className="text-pink-300 text-sm font-light tracking-widest">
@@ -242,7 +242,7 @@ export default function NeuronTechLoader() {
           </div>
           <div className="w-full bg-gray-800 rounded-full h-2">
             <div 
-              className="bg-linear-to-r from-pink-600 to-purple-600 h-2 rounded-full transition-all duration-300 ease-out shadow-lg shadow-pink-500/30"
+              className="bg-gradient-to-r from-pink-600 to-purple-600 h-2 rounded-full transition-all duration-300 ease-out shadow-lg shadow-pink-500/30"
               style={{ width: `${progress}%` }}
             >
               <div className="w-2 h-2 bg-white rounded-full animate-pulse float-right mr-1 mt-1"></div>

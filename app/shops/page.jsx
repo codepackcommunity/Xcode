@@ -177,7 +177,7 @@ export default function StocksDashboard() {
     try {
       const salesQuery = query(
         collection(db, 'sales'),
-        orderBy('saleDate', 'desc')
+        orderBy('soldAt', 'desc')
       );
       const salesSnapshot = await getDocs(salesQuery);
       const salesData = salesSnapshot.docs.map(doc => ({
@@ -232,13 +232,13 @@ export default function StocksDashboard() {
       const monthRange = getTimeFilterRange('month');
       
       const todaySalesData = salesData.filter(sale => {
-        const saleDate = sale.saleDate?.toDate ? sale.saleDate.toDate() : new Date(sale.saleDate);
+        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
         const saleTimestamp = Timestamp.fromDate(saleDate);
         return saleTimestamp >= todayRange.start && saleTimestamp <= todayRange.end;
       });
 
       const monthlySalesData = salesData.filter(sale => {
-        const saleDate = sale.saleDate?.toDate ? sale.saleDate.toDate() : new Date(sale.saleDate);
+        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
         const saleTimestamp = Timestamp.fromDate(saleDate);
         return saleTimestamp >= monthRange.start && saleTimestamp <= monthRange.end;
       });
@@ -327,7 +327,7 @@ export default function StocksDashboard() {
         if (sale.location !== location) return false;
         
         // Apply time filter
-        const saleDate = sale.saleDate?.toDate ? sale.saleDate.toDate() : new Date(sale.saleDate);
+        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
         const saleTimestamp = Timestamp.fromDate(saleDate);
         return saleTimestamp >= timeRange.start && saleTimestamp <= timeRange.end;
       });
@@ -410,7 +410,7 @@ export default function StocksDashboard() {
 
     // Filter by time
     filtered = filtered.filter(sale => {
-      const saleDate = sale.saleDate?.toDate ? sale.saleDate.toDate() : new Date(sale.saleDate);
+      const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
       const saleTimestamp = Timestamp.fromDate(saleDate);
       return saleTimestamp >= timeRange.start && saleTimestamp <= timeRange.end;
     });
@@ -781,7 +781,7 @@ export default function StocksDashboard() {
       // Sales Transactions Table
       const tableData = locationSales.map(sale => [
         sale.invoiceNumber || 'N/A',
-        formatDate(sale.saleDate),
+        formatDate(sale.soldAt),
         sale.customerName || 'Walk-in',
         sale.paymentMethod || 'Cash',
         sale.items?.length || 0,
@@ -986,7 +986,7 @@ export default function StocksDashboard() {
                 calculateDashboardStats(stocksData);
               });
               
-              const salesQuery = query(collection(db, 'sales'), orderBy('saleDate', 'desc'));
+              const salesQuery = query(collection(db, 'sales'), orderBy('soldAt', 'desc'));
               const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
                 const salesData = snapshot.docs.map(doc => ({
                   id: doc.id,
@@ -1716,7 +1716,7 @@ export default function StocksDashboard() {
                           <div className="font-mono text-sm">{sale.invoiceNumber || 'N/A'}</div>
                         </td>
                         <td className="py-3 px-2">
-                          {formatDate(sale.saleDate)}
+                          {formatDate(sale.soldAt)}
                         </td>
                         <td className="py-3 px-2">
                           <div className="font-semibold">{sale.customerName || 'Walk-in'}</div>

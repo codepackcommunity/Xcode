@@ -286,12 +286,12 @@ export default function SignUp() {
   // Success message after signup
   if (signupSuccess) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-white/10 backdrop-blur-lg border-white/20 shadow-2xl">
           <CardHeader className="space-y-4 pb-6">
             <div className="text-center">
               <CardTitle className="text-3xl font-bold tracking-tight">
-                <span className="bg-linear-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
                   KM ELECTRONICS
                 </span>
               </CardTitle>
@@ -315,7 +315,7 @@ export default function SignUp() {
           <CardFooter className="flex justify-center pt-4 border-t border-white/10">
             <Button
               onClick={toggleMode}
-              className="bg-linear-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white"
+              className="bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white"
             >
               Back to Login
             </Button>
@@ -326,12 +326,12 @@ export default function SignUp() {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-md bg-white/10 backdrop-blur-lg border-white/20 shadow-2xl">
         <CardHeader className="space-y-4 pb-6">
           <div className="text-center">
             <CardTitle className="text-3xl font-bold tracking-tight">
-              <span className="bg-linear-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
                 KM ELECTRONICS
               </span>
             </CardTitle>
@@ -477,7 +477,7 @@ export default function SignUp() {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full h-12 bg-linear-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white font-semibold transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] border-0 shadow-lg shadow-pink-500/25"
+              className="w-full h-12 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white font-semibold transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] border-0 shadow-lg shadow-pink-500/25"
             >
               {isLoading ? (
                 <>
@@ -509,7 +509,7 @@ export default function SignUp() {
         </CardFooter>
       </Card>
       {/* Footer */}
-      <footer className="w-full fixed bottom-0 left-0 z-10 bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
+      <footer className="w-full fixed bottom-0 left-0 z-10 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-200 text-sm">
           © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
         </div>

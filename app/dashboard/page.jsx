@@ -11,6 +11,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
 const FAULTY_STATUS = ['Reported', 'In Repair', 'Fixed', 'EOS (End of Service)', 'Scrapped'];
@@ -105,6 +106,26 @@ export default function UserDashboard() {
   const [filterBrand, setFilterBrand] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSaleType, setFilterSaleType] = useState('');
+  
+  // Report filter states
+  const [reportFilters, setReportFilters] = useState({
+    startDate: '',
+    endDate: '',
+    location: 'all',
+    reportType: 'summary'
+  });
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [generatedReport, setGeneratedReport] = useState(null);
+  
+  // Stock transfer states
+  const [stockRequests, setStockRequests] = useState([]);
+  const [stockRequestModal, setStockRequestModal] = useState(false);
+  const [stockRequestForm, setStockRequestForm] = useState({
+    itemCode: '',
+    quantity: '',
+    toLocation: ''
+  });
+  const [processingRequest, setProcessingRequest] = useState(null);
 
   // Refs
   const unsubscribeRefs = useRef([]);
@@ -227,6 +248,13 @@ export default function UserDashboard() {
       handleFirestoreError(error, 'fetch-all-tables');
     }
   }, [handleFirestoreError]);
+
+  // Fetch stock requests (called separately as it depends on currentLocation)
+  useEffect(() => {
+    if (currentLocation) {
+      fetchStockRequests();
+    }
+  }, [currentLocation]);
 
   // Setup realtime listeners
   const setupRealtimeListeners = useCallback((location, userId) => {
@@ -377,6 +405,317 @@ export default function UserDashboard() {
 
     setSalesAnalysis(analysis);
   }, []);
+
+  // Format currency helper
+  const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return 'MK 0';
+    return new Intl.NumberFormat('en-MW', {
+      style: 'currency',
+      currency: 'MWK',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format date helper
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    try {
+      if (date.toDate) return date.toDate().toLocaleDateString();
+      return new Date(date).toLocaleDateString();
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  // Report Generation Functions (based on superadmin dashboard)
+  const filterSalesByDateAndLocation = (salesData) => {
+    let filtered = [...salesData];
+    
+    // Filter by date range
+    if (reportFilters.startDate) {
+      const start = new Date(reportFilters.startDate);
+      start.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(sale => {
+        const saleDate = sale.soldAt?.toDate();
+        return saleDate && saleDate >= start;
+      });
+    }
+    
+    if (reportFilters.endDate) {
+      const end = new Date(reportFilters.endDate);
+      end.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(sale => {
+        const saleDate = sale.soldAt?.toDate();
+        return saleDate && saleDate <= end;
+      });
+    }
+    
+    // Filter by location (already filtered by user location, but for consistency)
+    if (reportFilters.location !== 'all') {
+      filtered = filtered.filter(sale => sale.location === reportFilters.location);
+    }
+    
+    return filtered;
+  };
+
+  const generateReportData = () => {
+    try {
+      const filteredSales = filterSalesByDateAndLocation(salesTable);
+      
+      // Calculate summary statistics
+      const totalSales = filteredSales.length;
+      const totalRevenue = filteredSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0);
+      const averageSaleValue = totalSales > 0 ? totalRevenue / totalSales : 0;
+      
+      // Calculate top products
+      const productCounts = {};
+      filteredSales.forEach(sale => {
+        const productKey = `${sale.brand || 'Unknown'} - ${sale.model || 'Unknown'}`;
+        productCounts[productKey] = (productCounts[productKey] || 0) + 1;
+      });
+      const topProducts = Object.entries(productCounts)
+        .map(([product, count]) => ({ product, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+      
+      return {
+        filteredSales,
+        totalSales,
+        totalRevenue,
+        averageSaleValue,
+        topProducts
+      };
+    } catch (error) {
+      console.error('Error generating report data:', error);
+      return null;
+    }
+  };
+
+  const downloadExcelReport = (reportData) => {
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Detailed Sales Sheet
+      const detailedRows = reportData.filteredSales.map(sale => ({
+        'Date': sale.soldAt?.toDate().toLocaleDateString() || 'Unknown',
+        'Time': sale.soldAt?.toDate().toLocaleTimeString() || 'Unknown',
+        'Item Code': sale.itemCode || 'N/A',
+        'Brand': sale.brand || 'Unknown',
+        'Model': sale.model || 'Unknown',
+        'Category': sale.category || 'Unknown',
+        'Quantity': sale.quantity || 0,
+        'Cost Price': sale.costPrice || 0,
+        'Sale Price': sale.salePrice || 0,
+        'Discount (%)': sale.discountPercentage || 0,
+        'Final Price': sale.finalSalePrice || 0,
+        'Profit': (sale.finalSalePrice || 0) - (sale.costPrice || 0),
+        'Payment Method': sale.paymentMethod || 'Cash',
+        'Customer Name': sale.customerName || 'N/A',
+        'Customer Phone': sale.customerPhone || 'N/A'
+      }));
+      
+      const detailedWs = XLSX.utils.json_to_sheet(detailedRows);
+      XLSX.utils.book_append_sheet(wb, detailedWs, 'Detailed Sales');
+      
+      // Summary Sheet
+      const summaryRows = [
+        ['KM ELECTRONICS - SALES REPORT'],
+        ['Generated on:', new Date().toLocaleString()],
+        ['Report Period:', `${reportFilters.startDate || 'Start'} to ${reportFilters.endDate || 'End'}`],
+        [],
+        ['SUMMARY'],
+        ['Total Sales:', reportData.totalSales],
+        ['Total Revenue:', reportData.totalRevenue],
+        ['Average Sale Value:', reportData.averageSaleValue],
+        [],
+        ['TOP 10 PRODUCTS']
+      ];
+      
+      reportData.topProducts.forEach(item => {
+        summaryRows.push([item.product, `Sales: ${item.count}`]);
+      });
+      
+      const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+      
+      // Generate filename
+      const dateRange = reportFilters.startDate && reportFilters.endDate 
+        ? `${reportFilters.startDate}_to_${reportFilters.endDate}`
+        : 'full_report';
+      const filename = `KM_Sales_Report_${dateRange}_${new Date().getTime()}.xlsx`;
+      
+      XLSX.writeFile(wb, filename);
+      return true;
+    } catch (error) {
+      console.error('Error generating Excel report:', error);
+      return false;
+    }
+  };
+
+  const downloadCSVReport = (reportData) => {
+    try {
+      let csvContent = 'KM ELECTRONICS - SALES REPORT\n';
+      csvContent += `Generated on: ${new Date().toLocaleString()}\n`;
+      csvContent += `Report Period: ${reportFilters.startDate || 'Start'} to ${reportFilters.endDate || 'End'}\n\n`;
+      csvContent += 'SUMMARY\n';
+      csvContent += `Total Sales:,${reportData.totalSales}\n`;
+      csvContent += `Total Revenue:,${formatCurrency(reportData.totalRevenue)}\n`;
+      csvContent += `Average Sale Value:,${formatCurrency(reportData.averageSaleValue)}\n\n`;
+      csvContent += 'DETAILED SALES RECORDS\n';
+      csvContent += 'Date,Time,Item Code,Brand,Model,Category,Quantity,Cost Price,Sale Price,Discount (%),Final Price,Profit,Payment Method,Customer Name,Customer Phone\n';
+      
+      reportData.filteredSales.forEach(sale => {
+        const profit = (sale.finalSalePrice || 0) - (sale.costPrice || 0);
+        csvContent += `"${sale.soldAt?.toDate().toLocaleDateString() || 'Unknown'}","${sale.soldAt?.toDate().toLocaleTimeString() || 'Unknown'}","${sale.itemCode || 'N/A'}","${sale.brand || 'Unknown'}","${sale.model || 'Unknown'}","${sale.category || 'Unknown'}",${sale.quantity || 0},${sale.costPrice || 0},${sale.salePrice || 0},${sale.discountPercentage || 0},${sale.finalSalePrice || 0},${profit},"${sale.paymentMethod || 'Cash'}","${sale.customerName || 'N/A'}","${sale.customerPhone || 'N/A'}"\n`;
+      });
+      
+      const dateRange = reportFilters.startDate && reportFilters.endDate 
+        ? `${reportFilters.startDate}_to_${reportFilters.endDate}`
+        : 'full_report';
+      const filename = `KM_Sales_Report_${dateRange}_${new Date().getTime()}.csv`;
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      return true;
+    } catch (error) {
+      console.error('Error generating CSV report:', error);
+      return false;
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    if (!reportFilters.startDate && !reportFilters.endDate) {
+      const confirm = window.confirm('No date range selected. Generate report for all sales data?');
+      if (!confirm) return;
+    }
+    
+    setIsGeneratingReport(true);
+    
+    try {
+      const reportData = generateReportData();
+      
+      if (!reportData || reportData.filteredSales.length === 0) {
+        alert('No sales data found for the selected filters.');
+        setIsGeneratingReport(false);
+        return;
+      }
+      
+      setGeneratedReport(reportData);
+      
+      // Ask for format preference
+      const format = window.confirm('Download as Excel (XLSX) file?\nClick OK for Excel, Cancel for CSV.');
+      
+      let success = false;
+      if (format) {
+        success = downloadExcelReport(reportData);
+      } else {
+        success = downloadCSVReport(reportData);
+      }
+      
+      if (success) {
+        alert(`Report downloaded successfully!\n\nTotal Records: ${reportData.totalSales}\nTotal Revenue: ${formatCurrency(reportData.totalRevenue)}`);
+      } else {
+        alert('Failed to generate report. Please try again.');
+      }
+    } catch (error) {
+      alert('Error generating report');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  // Stock Transfer Functions
+  const handleCreateStockRequest = async () => {
+    if (!stockRequestForm.itemCode || !stockRequestForm.quantity || !stockRequestForm.toLocation) {
+      alert('Please fill all required fields');
+      return;
+    }
+
+    try {
+      // Check if item exists in current location
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', stockRequestForm.itemCode.trim()),
+        where('location', '==', currentLocation)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        alert(`Item ${stockRequestForm.itemCode} not found in ${currentLocation}`);
+        return;
+      }
+
+      const stockDoc = stockSnapshot.docs[0];
+      const stock = stockDoc.data();
+      const requestedQuantity = parseInt(stockRequestForm.quantity);
+
+      if (stock.quantity < requestedQuantity) {
+        alert(`Insufficient stock! Only ${stock.quantity} units available`);
+        return;
+      }
+
+      // Create stock request
+      const requestData = {
+        itemCode: stockRequestForm.itemCode.trim(),
+        brand: stock.brand,
+        model: stock.model,
+        quantity: requestedQuantity,
+        fromLocation: currentLocation,
+        toLocation: stockRequestForm.toLocation,
+        requestedBy: user.uid,
+        requestedByName: user.fullName || user.email,
+        requestedAt: serverTimestamp(),
+        status: 'pending',
+        sourceStockId: stockDoc.id
+      };
+
+      await addDoc(collection(db, 'stockRequests'), requestData);
+
+      alert('Stock transfer request created successfully!');
+      setStockRequestModal(false);
+      setStockRequestForm({
+        itemCode: '',
+        quantity: '',
+        toLocation: ''
+      });
+
+      // Refresh stock requests
+      await fetchStockRequests();
+
+    } catch (error) {
+      console.error('Error creating stock request:', error);
+      alert('Error creating stock request. Please try again.');
+    }
+  };
+
+  const fetchStockRequests = async () => {
+    try {
+      const requestsQuery = query(
+        collection(db, 'stockRequests'),
+        where('fromLocation', '==', currentLocation),
+        orderBy('requestedAt', 'desc')
+      );
+      
+      const requestsSnapshot = await getDocs(requestsQuery);
+      const requestsData = requestsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setStockRequests(requestsData);
+    } catch (error) {
+      console.error('Error fetching stock requests:', error);
+    }
+  };
 
   // Authentication and initialization
   const handleUserAuth = useCallback(async (firebaseUser) => {
@@ -1046,7 +1385,7 @@ export default function UserDashboard() {
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     
-    // Add gradient background
+    // Add linear background
     doc.setFillColor(30, 41, 59);
     doc.rect(0, 0, pageWidth, pageHeight, 'F');
     
@@ -1537,6 +1876,7 @@ export default function UserDashboard() {
               { id: 'stocks', name: 'Stock & Sales' },
               { id: 'quickSale', name: 'Quick Sale' },
               { id: 'salesHistory', name: 'My Sales' },
+              { id: 'stockTransfer', name: 'Stock Transfer' },
               { id: 'faultyPhones', name: 'Faulty Phones' },
               { id: 'installments', name: 'Installments' },
               { id: 'myRepairs', name: 'My Repairs' }
@@ -1910,7 +2250,56 @@ export default function UserDashboard() {
           {/* Sales History Tab */}
           {activeTab === 'salesHistory' && (
             <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>My Sales History</h2>
+              <div className='flex justify-between items-center mb-6'>
+                <h2 className='text-xl font-semibold text-white'>My Sales History</h2>
+                <div className='flex gap-2'>
+                  <button
+                    onClick={handleGenerateReport}
+                    disabled={isGeneratingReport}
+                    className='bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2'
+                  >
+                    {isGeneratingReport ? 'Generating...' : 'Generate Report'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Report Filters */}
+              <div className='bg-white/5 rounded-lg p-4 mb-6 border border-white/10'>
+                <h3 className='text-white font-semibold mb-3'>Report Filters</h3>
+                <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>Start Date</label>
+                    <input
+                      type='date'
+                      value={reportFilters.startDate}
+                      onChange={(e) => setReportFilters({...reportFilters, startDate: e.target.value})}
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    />
+                  </div>
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>End Date</label>
+                    <input
+                      type='date'
+                      value={reportFilters.endDate}
+                      onChange={(e) => setReportFilters({...reportFilters, endDate: e.target.value})}
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    />
+                  </div>
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>Location</label>
+                    <select
+                      value={reportFilters.location}
+                      onChange={(e) => setReportFilters({...reportFilters, location: e.target.value})}
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    >
+                      <option value='all'>All Locations</option>
+                      {LOCATIONS.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
               
               {/* Search and Filter */}
               <div className='flex flex-col md:flex-row gap-4 mb-6'>
@@ -2013,6 +2402,136 @@ export default function UserDashboard() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Stock Transfer Tab */}
+          {activeTab === 'stockTransfer' && (
+            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
+              <div className='flex justify-between items-center mb-6'>
+                <h2 className='text-xl font-semibold text-white'>Stock Transfer Requests</h2>
+                <button
+                  onClick={() => setStockRequestModal(true)}
+                  className='bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors'
+                >
+                  + New Transfer Request
+                </button>
+              </div>
+
+              {/* Stock Requests Table */}
+              <div className='overflow-x-auto'>
+                <table className='w-full text-white'>
+                  <thead>
+                    <tr className='border-b border-white/20'>
+                      <th className='text-left py-2'>Date</th>
+                      <th className='text-left py-2'>Item Code</th>
+                      <th className='text-left py-2'>Item Details</th>
+                      <th className='text-left py-2'>Quantity</th>
+                      <th className='text-left py-2'>From</th>
+                      <th className='text-left py-2'>To</th>
+                      <th className='text-left py-2'>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockRequests.map((request, index) => (
+                      <tr key={generateSafeKey('request', index, request.id)} className='border-b border-white/10'>
+                        <td className='py-2'>
+                          {request.requestedAt?.toDate().toLocaleDateString() || 'N/A'}
+                        </td>
+                        <td className='py-2 font-mono'>{request.itemCode}</td>
+                        <td className='py-2'>
+                          <div className='font-semibold'>{request.brand} {request.model}</div>
+                        </td>
+                        <td className='py-2'>{request.quantity}</td>
+                        <td className='py-2'>{request.fromLocation}</td>
+                        <td className='py-2'>{request.toLocation}</td>
+                        <td className='py-2'>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            request.status === 'approved' ? 'bg-green-500/20 text-green-300' :
+                            request.status === 'rejected' ? 'bg-red-500/20 text-red-300' :
+                            'bg-yellow-500/20 text-yellow-300'
+                          }`}>
+                            {request.status || 'Pending'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {stockRequests.length === 0 && (
+                      <tr>
+                        <td colSpan='7' className='text-center py-8 text-white/70'>
+                          No stock transfer requests found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Stock Request Modal */}
+          {stockRequestModal && (
+            <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
+              <div className='bg-white/10 backdrop-blur-lg rounded-lg border border-white/20 p-6 max-w-md w-full'>
+                <h3 className='text-xl font-semibold text-white mb-4'>Create Stock Transfer Request</h3>
+                
+                <div className='space-y-4'>
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>Item Code *</label>
+                    <input
+                      type='text'
+                      value={stockRequestForm.itemCode}
+                      onChange={(e) => setStockRequestForm({...stockRequestForm, itemCode: e.target.value})}
+                      placeholder='Enter item code...'
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>Quantity *</label>
+                    <input
+                      type='number'
+                      min='1'
+                      value={stockRequestForm.quantity}
+                      onChange={(e) => setStockRequestForm({...stockRequestForm, quantity: e.target.value})}
+                      placeholder='Enter quantity...'
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className='block text-white/70 text-sm mb-2'>To Location *</label>
+                    <select
+                      value={stockRequestForm.toLocation}
+                      onChange={(e) => setStockRequestForm({...stockRequestForm, toLocation: e.target.value})}
+                      className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
+                    >
+                      <option value=''>Select location...</option>
+                      {LOCATIONS.filter(loc => loc !== currentLocation).map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className='flex justify-end space-x-3 mt-6'>
+                  <button
+                    onClick={() => {
+                      setStockRequestModal(false);
+                      setStockRequestForm({ itemCode: '', quantity: '', toLocation: '' });
+                    }}
+                    className='px-4 py-2 text-white/70 hover:text-white'
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateStockRequest}
+                    className='bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors'
+                  >
+                    Create Request
+                  </button>
+                </div>
               </div>
             </div>
           )}
