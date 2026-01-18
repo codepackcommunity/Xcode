@@ -1376,7 +1376,7 @@ export default function ManagerDashboard() {
         
         doc.setFontSize(10);
         doc.text(`Total Sales: ${data.summary.totalSales}`, 30, 68);
-        doc.text(`Total Revenue: MK ${data.summary.totalRevenue.toLocaleString()}`, 100, 68);
+        doc.text(`Total Revenue: MK ${data.summary.totalRevenue.toLocaleString()}`, , 68);
         doc.text(`Avg. Sale Value: MK ${data.summary.averageSaleValue.toFixed(2)}`, 170, 68);
         
         let yPos = 90;
