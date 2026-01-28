@@ -136,11 +136,12 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
-  }
+  }/* Add smooth transitions for sidebar */
+
+
   body {
     @apply bg-background text-foreground;
   }

@@ -6,126 +6,199 @@ import { auth, db } from '@/app/lib/firebase/config';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
   serverTimestamp, addDoc, orderBy, onSnapshot,
-  writeBatch, getDoc, Timestamp
+  writeBatch, getDoc, Timestamp, deleteDoc,
+  runTransaction, increment
 } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// React Icons (same as before)
+import {
+  FiHome,
+  FiBarChart2,
+  FiPackage,
+  FiDollarSign,
+  FiTruck,
+  FiUsers,
+  FiClipboard,
+  FiSettings,
+  FiLogOut,
+  FiMenu,
+  FiX,
+  FiDownload,
+  FiCheck,
+  FiXCircle,
+  FiAlertCircle,
+  FiFileText,
+  FiShoppingCart,
+  FiMapPin,
+  FiCalendar,
+  FiFilter,
+  FiTrash2,
+  FiPlus,
+  FiMinus,
+  FiRefreshCw,
+  FiCheckSquare,
+  FiClock,
+  FiActivity,
+  FiShoppingBag,
+  FiBell,
+  FiSearch,
+  FiSave,
+  FiPrinter,
+  FiShield,
+  FiAlertTriangle,
+  FiTool,
+  FiUser,
+  FiCreditCard,
+  FiTrendingUp,
+  FiBox,
+  FiPhone,
+  FiEdit2,
+  FiEye,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronDown,
+  FiChevronUp,
+  FiArrowRight,
+  FiArrowLeft,
+  FiGrid,
+  FiList,
+  FiLayers,
+  FiDatabase,
+  FiServer,
+  FiMonitor,
+  FiSmartphone,
+  FiTablet,
+  FiAward,
+  FiGift,
+  FiTarget,
+  FiFlag,
+  FiMessageSquare,
+  FiUserCheck
+} from 'react-icons/fi';
+
+// shadcn/ui components (same as before)
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
+import { Progress } from "@/components/ui/progress"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+
 // Available locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
+const CATEGORIES = ['Smartphone', 'Tablet', 'Laptop', 'Accessory', 'TV', 'Audio', 'Other'];
 
-// Safe key generator to prevent duplicate key errors
-const generateSafeKey = (prefix = 'item', index, id) => {
-  if (id) {
-    return `${prefix}-${id}`;
-  }
-  return `${prefix}-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
-
-// Faulty phone constants
-const FAULTY_STATUS = ['Reported', 'In Repair', 'Fixed', 'EOS (End of Service)', 'Scrapped'];
-const SPARES_OPTIONS = ['Screen', 'Battery', 'Charging Port', 'Camera', 'Motherboard', 'Speaker', 'Microphone', 'Other'];
+// Navigation items
+const navItems = [
+  { id: 'dashboard', name: 'Dashboard', icon: <FiHome className="w-5 h-5" /> },
+  { id: 'myStocks', name: 'My Stocks', icon: <FiPackage className="w-5 h-5" /> },
+  { id: 'quickSale', name: 'Quick Sale', icon: <FiShoppingCart className="w-5 h-5" /> },
+  { id: 'salesHistory', name: 'Sales History', icon: <FiDollarSign className="w-5 h-5" /> },
+  { id: 'faultyPhones', name: 'Faulty Phones', icon: <FiPhone className="w-5 h-5" /> },
+  { id: 'installments', name: 'Installments', icon: <FiCreditCard className="w-5 h-5" /> },
+  { id: 'transfer', name: 'Stock Transfer', icon: <FiTruck className="w-5 h-5" /> },
+  { id: 'salesAnalysis', name: 'Sales Analysis', icon: <FiBarChart2 className="w-5 h-5" /> },
+  { id: 'requests', name: 'Stock Requests', icon: <FiClipboard className="w-5 h-5" />, count: true },
+];
 
 export default function ManagerDashboard() {
   const [user, setUser] = useState(null);
+  const [location, setLocation] = useState('');
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
   const router = useRouter();
 
-  // Tables from Admin Dashboard
-  const [stocksTable, setStocksTable] = useState([]);
-  const [salesTable, setSalesTable] = useState([]);
-  const [faultyTable, setFaultyTable] = useState([]);
-  const [usersTable, setUsersTable] = useState([]);
-  const [transfersTable, setTransfersTable] = useState([]);
-  const [installmentsTable, setInstallmentsTable] = useState([]);
-  const [repairsTable, setRepairsTable] = useState([]);
-
-  // User Management State
-  const [allUsers, setAllUsers] = useState([]);
-
-  // Stocks & Locations State
-  const [allStocks, setAllStocks] = useState([]);
-  const [locationStocks, setLocationStocks] = useState([]);
-  const [selectedLocation, setSelectedLocation] = useState('all');
-  
-  // Stock Transfer State
-  const [stockRequests, setStockRequests] = useState([]);
-  const [transferStock, setTransferStock] = useState({
-    itemCode: '',
-    quantity: '',
-    fromLocation: '',
-    toLocation: ''
-  });
-  const [transferErrors, setTransferErrors] = useState({});
-  const [isTransferValidating, setIsTransferValidating] = useState(false);
-
-  // Sales Analysis State
+  // State Management (same as before)
+  const [stocks, setStocks] = useState([]);
   const [sales, setSales] = useState([]);
+  const [faultyPhones, setFaultyPhones] = useState([]);
+  const [installments, setInstallments] = useState([]);
+  const [stockRequests, setStockRequests] = useState([]);
+  const [personnel, setPersonnel] = useState([]);
   const [salesAnalysis, setSalesAnalysis] = useState({
-    totalSales: 0,
-    totalRevenue: 0,
-    monthlyRevenue: 0,
-    topProducts: {},
-    salesByUser: {},
-    revenueByLocation: {},
-    locationPerformance: {}
-  });
-
-  // Real-time Sales Report State
-  const [realTimeSales, setRealTimeSales] = useState({
     todaySales: 0,
     todayRevenue: 0,
-    hourlySales: {},
-    liveSales: []
+    monthlyRevenue: 0,
+    topProducts: [],
+    salesByUser: {},
+    revenueByCategory: {}
   });
 
-  // New Stock State (updated for compatibility with superadmin)
-  const [newStock, setNewStock] = useState({
-    brand: '',
-    model: '',
-    category: 'Smartphone',
-    color: '',
-    storage: '',
-    itemCode: '',
-    quantity: '',
-    costPrice: '',
-    retailPrice: '',
-    wholesalePrice: '',
-    discountPercentage: '',
-    minStockLevel: '5',
-    reorderQuantity: '10',
-    location: '',
-    supplier: '',
-    warrantyPeriod: '12',
-    description: ''
-  });
-  const [stockErrors, setStockErrors] = useState({});
-
-  // Sales Report Download State - UPDATED: Removed location filter
-  const [reportFilters, setReportFilters] = useState({
-    startDate: '',
-    endDate: ''
-  });
-  const [reportData, setReportData] = useState(null);
-  const [generatingReport, setGeneratingReport] = useState(false);
-
-  // Manager-specific states
-  const [processingRequest, setProcessingRequest] = useState(null);
-  const [timePeriod, setTimePeriod] = useState('today');
-  
-  // Quick Sale State for Manager
+  // Quick Sale State
   const [quickSale, setQuickSale] = useState({
     itemCode: '',
     quantity: 1,
-    customPrice: ''
+    customPrice: '',
+    customerName: '',
+    customerPhone: ''
   });
 
-  // Faulty Phone State for Manager
-  const [faultyPhones, setFaultyPhones] = useState([]);
-  const [reportModal, setReportModal] = useState(false);
-  const [editModal, setEditModal] = useState(false);
-  const [selectedFaulty, setSelectedFaulty] = useState(null);
+  // Faulty Phone State
   const [faultyReport, setFaultyReport] = useState({
     itemCode: '',
     stockId: '',
@@ -145,8 +218,6 @@ export default function ManagerDashboard() {
   });
 
   // Installment State
-  const [installmentModal, setInstallmentModal] = useState(false);
-  const [selectedSaleForInstallment, setSelectedSaleForInstallment] = useState(null);
   const [installmentData, setInstallmentData] = useState({
     saleId: '',
     customerName: '',
@@ -160,487 +231,94 @@ export default function ManagerDashboard() {
     notes: ''
   });
 
-  // Search and Filter States
+  // Transfer State
+  const [transferStock, setTransferStock] = useState({
+    itemCode: '',
+    quantity: '',
+    fromLocation: '',
+    toLocation: ''
+  });
+
+  // UI State
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterBrand, setFilterBrand] = useState('');
+  const [filterBrand, setFilterBrand] = useState('all');
   const [filterStatus, setFilterStatus] = useState('');
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
-  // Suppress React key warnings
+  // Modals
+  const [addStockOpen, setAddStockOpen] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [installmentModalOpen, setInstallmentModalOpen] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+
+  // Format currency (same as before)
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-MW', {
+      style: 'currency',
+      currency: 'MWK',
+      minimumFractionDigits: 0
+    }).format(amount || 0);
+  };
+
+  // Check if mobile (same as before)
   useEffect(() => {
-    const originalError = console.error;
-    console.error = (...args) => {
-      if (args[0] && typeof args[0] === 'string' && 
-          (args[0].includes('Encountered two children with the same key') || 
-           args[0].includes('Each child in a list should have a unique "key" prop'))) {
-        return;
+    const checkIfMobile = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setIsSidebarOpen(true);
+      } else {
+        setIsSidebarOpen(false);
       }
-      originalError.apply(console, args);
     };
+
+    checkIfMobile();
+    window.addEventListener('resize', checkIfMobile);
+    return () => window.removeEventListener('resize', checkIfMobile);
+  }, []);
+
+  // Prevent body scrolling (same as before)
+  useEffect(() => {
+    if (isMobile && isSidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
 
     return () => {
-      console.error = originalError;
+      document.body.style.overflow = 'auto';
     };
-  }, []);
+  }, [isMobile, isSidebarOpen]);
 
-  // Error handling function
-  const handleFirestoreError = useCallback((error, context) => {
-    if (error.code === 'permission-denied') {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        setTimeout(() => router.push('/login'), 100);
-        return;
-      }
-      return;
-    }
-  }, [router]);
-
-  // Fetch all tables from Admin Dashboard
-  const fetchAllTables = useCallback(async (managerLocation) => {
-    try {
-      // Fetch stocks table
-      const stocksQuery = query(collection(db, 'stocks'));
-      const stocksSnapshot = await getDocs(stocksQuery);
-      const stocksData = stocksSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setStocksTable(stocksData);
-
-      // Fetch sales table - ALL sales data
-      const salesQuery = query(
-        collection(db, 'sales'),
-        orderBy('soldAt', 'desc')
-      );
-      const salesSnapshot = await getDocs(salesQuery);
-      const salesData = salesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setSalesTable(salesData);
-
-      // Fetch faulty phones table for manager's location
-      const faultyQuery = query(
-        collection(db, 'faultyPhones'),
-        where('location', '==', managerLocation),
-        orderBy('reportedAt', 'desc')
-      );
-      const faultySnapshot = await getDocs(faultyQuery);
-      const faultyData = faultySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setFaultyTable(faultyData);
-
-      // Fetch users table (excluding managers/admins)
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('role', 'in', ['sales', 'dataEntry', 'user'])
-      );
-      const usersSnapshot = await getDocs(usersQuery);
-      const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setUsersTable(usersData);
-
-      // Fetch stock transfers
-      const transfersQuery = query(
-        collection(db, 'stockTransfers'),
-        orderBy('transferredAt', 'desc')
-      );
-      const transfersSnapshot = await getDocs(transfersQuery);
-      const transfersData = transfersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setTransfersTable(transfersData);
-
-      // Fetch installments
-      const installmentsQuery = query(
-        collection(db, 'installments'),
-        where('location', '==', managerLocation),
-        orderBy('createdAt', 'desc')
-      );
-      const installmentsSnapshot = await getDocs(installmentsQuery);
-      const installmentsData = installmentsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setInstallmentsTable(installmentsData);
-
-      // Fetch repairs
-      const repairsQuery = query(
-        collection(db, 'repairs'),
-        where('location', '==', managerLocation),
-        orderBy('repairedAt', 'desc')
-      );
-      const repairsSnapshot = await getDocs(repairsQuery);
-      const repairsData = repairsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setRepairsTable(repairsData);
-
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-all-tables');
-    }
-  }, [handleFirestoreError]);
-
-  // Performance Helpers
-  const getPerformanceGrade = useCallback((score) => {
-    if (score >= 90) return 'Excellent';
-    if (score >= 80) return 'Very Good';
-    if (score >= 70) return 'Good';
-    if (score >= 60) return 'Average';
-    if (score >= 50) return 'Below Average';
-    return 'Needs Attention';
-  }, []);
-
-  const getPerformanceColor = useCallback((score) => {
-    if (score >= 80) return 'text-green-400';
-    if (score >= 60) return 'text-yellow-400';
-    if (score >= 40) return 'text-orange-400';
-    return 'text-red-400';
-  }, []);
-
-  const getPerformanceBadge = useCallback((score) => {
-    if (score >= 80) return 'bg-green-500/20 text-green-300';
-    if (score >= 60) return 'bg-yellow-500/20 text-yellow-300';
-    if (score >= 40) return 'bg-orange-500/20 text-orange-300';
-    return 'bg-red-500/20 text-red-300';
-  }, []);
-
-  const getTrendIcon = useCallback((trend) => {
-    if (trend === 'up') return '↗';
-    if (trend === 'down') return '↘';
-    return '→';
-  }, []);
-
-  const getTrendColor = useCallback((trend) => {
-    if (trend === 'up') return 'text-green-400';
-    if (trend === 'down') return 'text-red-400';
-    return 'text-gray-400';
-  }, []);
-
-  // Core Data Fetching Functions
-  const fetchAllUsers = useCallback(async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, 'users'));
-      const users = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAllUsers(users);
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-users');
-      setAllUsers([]);
-    }
-  }, [handleFirestoreError]);
-
-  const fetchAllStocks = useCallback(async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, 'stocks'));
-      const stocksData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAllStocks(stocksData);
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-stocks');
-      setAllStocks([]);
-    }
-  }, [handleFirestoreError]);
-
-  const fetchLocationStocks = useCallback(async (location) => {
-    try {
-      if (!location) {
-        setLocationStocks([]);
-        return;
-      }
-      
-      const q = query(
-        collection(db, 'stocks'),
-        where('location', '==', location)
-      );
-      const querySnapshot = await getDocs(q);
-      const stocksData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setLocationStocks(stocksData);
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-location-stocks');
-      setLocationStocks([]);
-    }
-  }, [handleFirestoreError]);
-
-  const fetchAllStockRequests = useCallback(async () => {
-    try {
-      const q = query(
-        collection(db, 'stockRequests'),
-        orderBy('requestedAt', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const requestsData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setStockRequests(requestsData);
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-stock-requests');
-      setStockRequests([]);
-    }
-  }, [handleFirestoreError]);
-
-  // Fetch faulty phones for manager's location
-  const fetchFaultyPhones = useCallback(async (location) => {
-    try {
-      if (!location) return;
-
-      const q = query(
-        collection(db, 'faultyPhones'),
-        where('location', '==', location),
-        orderBy('reportedAt', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const faultyData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setFaultyPhones(faultyData);
-      setFaultyTable(faultyData);
-    } catch (error) {
-      handleFirestoreError(error, 'faulty-fetch');
-      setFaultyPhones([]);
-    }
-  }, [handleFirestoreError]);
-
-  const calculateSalesAnalysis = useCallback((salesData) => {
-    const analysis = {
-      totalSales: 0,
-      totalRevenue: 0,
-      monthlyRevenue: 0,
-      topProducts: {},
-      salesByUser: {},
-      revenueByLocation: {},
-      locationPerformance: salesAnalysis.locationPerformance
-    };
-
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-
-    salesData.forEach(sale => {
-      analysis.totalRevenue += sale.finalSalePrice || 0;
-      analysis.totalSales++;
-
-      const saleDate = sale.soldAt?.toDate();
-      if (saleDate && saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear) {
-        analysis.monthlyRevenue += sale.finalSalePrice || 0;
-      }
-
-      const productKey = `${sale.brand}-${sale.model}`;
-      analysis.topProducts[productKey] = (analysis.topProducts[productKey] || 0) + 1;
-
-      const userName = sale.soldByName || sale.soldBy;
-      analysis.salesByUser[userName] = (analysis.salesByUser[userName] || 0) + (sale.finalSalePrice || 0);
-
-      const location = sale.location || 'Unknown';
-      analysis.revenueByLocation[location] = (analysis.revenueByLocation[location] || 0) + (sale.finalSalePrice || 0);
-    });
-
-    setSalesAnalysis(analysis);
-  }, [salesAnalysis.locationPerformance]);
-
-  const fetchAllSalesAnalysis = useCallback(async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, 'sales'));
-      const salesData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setSales(salesData);
-      setSalesTable(salesData);
-      calculateSalesAnalysis(salesData);
-    } catch (error) {
-      handleFirestoreError(error, 'fetch-sales-analysis');
-      setSales([]);
-    }
-  }, [calculateSalesAnalysis, handleFirestoreError]);
-
-  // Real-time Sales Calculations
-  const calculateRealTimeSales = useCallback((salesData) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const todaySales = salesData.filter(sale => {
-      const saleDate = sale.soldAt?.toDate();
-      return saleDate && saleDate >= today;
-    });
-
-    const hourlySales = {};
-    const liveSales = todaySales.slice(0, 10);
-
-    todaySales.forEach(sale => {
-      const saleDate = sale.soldAt?.toDate();
-      if (saleDate) {
-        const hour = saleDate.getHours();
-        hourlySales[hour] = (hourlySales[hour] || 0) + (sale.finalSalePrice || 0);
-      }
-    });
-
-    setRealTimeSales({
-      todaySales: todaySales.length,
-      todayRevenue: todaySales.reduce((total, sale) => total + (sale.finalSalePrice || 0), 0),
-      hourlySales,
-      liveSales
-    });
-  }, []);
-
-  const setupRealtimeListeners = useCallback((managerLocation) => {
-    // Cleanup function for listeners
-    const cleanupFunctions = [];
-
-    // Real-time stocks updates
-    const stocksQuery = query(collection(db, 'stocks'));
-    
-    const unsubscribeStocks = onSnapshot(stocksQuery, (snapshot) => {
-      const stocksData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAllStocks(stocksData);
-      setStocksTable(stocksData);
-      
-      // Filter for manager's location
-      if (managerLocation) {
-        const locationStocks = stocksData.filter(stock => stock.location === managerLocation);
-        setLocationStocks(locationStocks);
-      }
-    }, (error) => {
-      handleFirestoreError(error, 'stocks-listener');
-    });
-
-    cleanupFunctions.push(unsubscribeStocks);
-
-    // Real-time sales updates
-    const salesQuery = query(collection(db, 'sales'), orderBy('soldAt', 'desc'));
-
-    const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
-      const salesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setSales(salesData);
-      setSalesTable(salesData);
-      calculateSalesAnalysis(salesData);
-      calculateRealTimeSales(salesData);
-    }, (error) => {
-      handleFirestoreError(error, 'sales-listener');
-    });
-
-    cleanupFunctions.push(unsubscribeSales);
-
-    // Real-time faulty phones for manager's location
-    if (managerLocation) {
-      const faultyQuery = query(
-        collection(db, 'faultyPhones'),
-        where('location', '==', managerLocation),
-        orderBy('reportedAt', 'desc')
-      );
-
-      const unsubscribeFaulty = onSnapshot(faultyQuery, (snapshot) => {
-        const faultyData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setFaultyPhones(faultyData);
-        setFaultyTable(faultyData);
-      }, (error) => {
-        handleFirestoreError(error, 'faulty-listener');
-      });
-
-      cleanupFunctions.push(unsubscribeFaulty);
-    }
-
-    // Real-time stock requests
-    const requestsQuery = query(
-      collection(db, 'stockRequests'),
-      orderBy('requestedAt', 'desc')
-    );
-
-    const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
-      const requestsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setStockRequests(requestsData);
-    }, (error) => {
-      handleFirestoreError(error, 'requests-listener');
-    });
-
-    cleanupFunctions.push(unsubscribeRequests);
-
-    // Real-time users updates
-    const usersQuery = query(
-      collection(db, 'users'),
-      where('role', 'in', ['sales', 'dataEntry', 'user'])
-    );
-
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAllUsers(usersData);
-      setUsersTable(usersData);
-    }, (error) => {
-      handleFirestoreError(error, 'users-listener');
-    });
-
-    cleanupFunctions.push(unsubscribeUsers);
-
-    return () => {
-      cleanupFunctions.forEach(unsubscribe => {
-        try {
-          if (unsubscribe && typeof unsubscribe === 'function') {
-            unsubscribe();
-          }
-        } catch (error) {
-          // Silent fail on unsubscribe errors
-        }
-      });
-    };
-  }, [calculateSalesAnalysis, calculateRealTimeSales, handleFirestoreError]);
-
-  const initializeDashboard = useCallback(async (userData) => {
-    try {
-      setSelectedLocation(userData.location);
-      await Promise.all([
-        fetchAllUsers(),
-        fetchAllStocks(),
-        fetchLocationStocks(userData.location),
-        fetchAllSalesAnalysis(),
-        fetchAllStockRequests(),
-        fetchFaultyPhones(userData.location)
-      ]);
-      setupRealtimeListeners(userData.location);
-    } catch (error) {
-      handleFirestoreError(error, 'initialize-dashboard');
-    }
-  }, [fetchAllUsers, fetchAllStocks, fetchLocationStocks, fetchAllSalesAnalysis, fetchAllStockRequests, fetchFaultyPhones, setupRealtimeListeners, handleFirestoreError]);
-
+  // Clear messages (same as before)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError(null);
+        setSuccess(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, success]);
+
+  // Authentication (same as before)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (authUser) {
         try {
-          const userDoc = await getDocs(
-            query(collection(db, 'users'), where('uid', '==', user.uid))
+          const userQuery = query(
+            collection(db, 'users'),
+            where('uid', '==', authUser.uid)
           );
+          const querySnapshot = await getDocs(userQuery);
           
-          if (!userDoc.empty) {
-            const userData = userDoc.docs[0].data();
+          if (!querySnapshot.empty) {
+            const userData = querySnapshot.docs[0].data();
             if (userData.role === 'manager') {
               setUser(userData);
+              setLocation(userData.location);
               await initializeDashboard(userData);
             } else {
               router.push('/dashboard');
@@ -649,7 +327,8 @@ export default function ManagerDashboard() {
             router.push('/login');
           }
         } catch (error) {
-          handleFirestoreError(error, 'authentication');
+          console.error('Auth error:', error);
+          setError('Authentication error');
           router.push('/login');
         }
       } else {
@@ -659,2723 +338,3051 @@ export default function ManagerDashboard() {
     });
 
     return () => unsubscribe();
-  }, [router, initializeDashboard, handleFirestoreError]);
+  }, [router]);
 
-  // User Management Functions with Manager Restrictions
-  const handleAssignRole = async (userId, role, currentUserRole) => {
-    const restrictedRoles = ['manager', 'admin', 'superadmin'];
-    if (restrictedRoles.includes(role)) {
-      alert('You are not authorized to assign manager, admin, or superadmin roles.');
-      return;
-    }
-
-    if (userId === user.uid) {
-      alert('You cannot change your own role.');
-      return;
-    }
-
-    if (restrictedRoles.includes(currentUserRole)) {
-      alert('You are not authorized to modify roles of managers, admins, or superadmins.');
-      return;
-    }
-
+  // Initialize Dashboard - UPDATED to handle index errors gracefully
+  const initializeDashboard = async (userData) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: role,
-        lastRoleUpdate: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      fetchAllUsers();
-      alert(`Role updated to ${role} successfully!`);
+      setLoading(true);
+      await Promise.all([
+        fetchLocationStocks(userData.location),
+        fetchLocationSales(userData.location),
+        fetchFaultyPhones(userData.location),
+        fetchInstallments(userData.location),
+        fetchStockRequests(userData.location),
+        fetchPersonnel(userData.location)
+      ]);
+      calculateSalesAnalysisData();
     } catch (error) {
-      handleFirestoreError(error, 'assign-role');
-      alert('Error updating role. Please try again.');
-    }
-  };
-
-  const handleUpdateUserLocation = async (userId, newLocation, currentUserRole) => {
-    const restrictedRoles = ['manager', 'admin', 'superadmin'];
-    if (restrictedRoles.includes(currentUserRole)) {
-      alert('You are not authorized to update locations of managers, admins, or superadmins.');
-      return;
-    }
-
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        location: newLocation,
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      fetchAllUsers();
-      alert('User location updated successfully!');
-    } catch (error) {
-      handleFirestoreError(error, 'update-user-location');
-      alert('Error updating user location. Please try again.');
-    }
-  };
-
-  // Stock Management Functions - UPDATED for compatibility with superadmin
-  const validateStockForm = () => {
-    const errors = {};
-    if (!newStock.brand.trim()) errors.brand = 'Brand is required';
-    if (!newStock.model.trim()) errors.model = 'Model is required';
-    if (!newStock.itemCode.trim()) errors.itemCode = 'Item Code is required';
-    if (!newStock.quantity || parseInt(newStock.quantity) <= 0) errors.quantity = 'Quantity must be greater than 0';
-    if (!newStock.location) errors.location = 'Location is required';
-    if (!newStock.costPrice || parseFloat(newStock.costPrice) <= 0) errors.costPrice = 'Cost Price must be greater than 0';
-    if (!newStock.retailPrice || parseFloat(newStock.retailPrice) <= 0) errors.retailPrice = 'Retail Price must be greater than 0';
-
-    setStockErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleAddStock = async () => {
-    if (!validateStockForm()) {
-      alert('Please fix the validation errors in the form');
-      return;
-    }
-
-    try {
-      const stockData = {
-        ...newStock,
-        costPrice: parseFloat(newStock.costPrice) || 0,
-        retailPrice: parseFloat(newStock.retailPrice) || 0,
-        wholesalePrice: parseFloat(newStock.wholesalePrice) || (parseFloat(newStock.retailPrice) * 0.8) || 0,
-        discountPercentage: parseFloat(newStock.discountPercentage) || 0,
-        quantity: parseInt(newStock.quantity) || 0,
-        minStockLevel: parseInt(newStock.minStockLevel) || 5,
-        reorderQuantity: parseInt(newStock.reorderQuantity) || 10,
-        warrantyPeriod: parseInt(newStock.warrantyPeriod) || 12,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        addedBy: user.uid,
-        addedByName: user.fullName,
-        isActive: true
-      };
-
-      await addDoc(collection(db, 'stocks'), stockData);
-
-      setNewStock({
-        brand: '',
-        model: '',
-        category: 'Smartphone',
-        color: '',
-        storage: '',
-        itemCode: '',
-        quantity: '',
-        costPrice: '',
-        retailPrice: '',
-        wholesalePrice: '',
-        discountPercentage: '',
-        minStockLevel: '5',
-        reorderQuantity: '10',
-        location: '',
-        supplier: '',
-        warrantyPeriod: '12',
-        description: ''
-      });
-      setStockErrors({});
-
-      alert('Stock added successfully!');
-    } catch (error) {
-      handleFirestoreError(error, 'add-stock');
-      alert('Error adding stock. Please try again.');
-    }
-  };
-
-  const handleUpdateStock = async (stockId, updates) => {
-    try {
-      await updateDoc(doc(db, 'stocks', stockId), {
-        ...updates,
-        updatedAt: serverTimestamp(),
-        updatedBy: user.uid
-      });
-      alert('Stock updated successfully!');
-    } catch (error) {
-      handleFirestoreError(error, 'update-stock');
-      alert('Error updating stock. Please try again.');
-    }
-  };
-
-  // SALES FUNCTIONS FOR MANAGER
-  const handleQuickSale = async () => {
-  if (!quickSale.itemCode) {
-    alert('Please enter an item code.');
-    return;
-  }
-
-  try {
-    const stockQuery = query(
-      collection(db, 'stocks'),
-      where('itemCode', '==', quickSale.itemCode),
-      where('location', '==', user.location)
-    );
-    
-    const stockSnapshot = await getDocs(stockQuery);
-    
-    if (stockSnapshot.empty) {
-      alert(`Item "${quickSale.itemCode}" not found in ${user.location}! You can only sell items from your assigned location.`);
-      return;
-    }
-
-    const stockDoc = stockSnapshot.docs[0];
-    const stock = stockDoc.data();
-
-    if (stock.quantity < quickSale.quantity) {
-      alert(`Insufficient stock! Only ${stock.quantity} units available.`);
-      return;
-    }
-
-    // ✅ FIX: Define these variables BEFORE the if-else block
-    const retailPrice = parseFloat(stock.retailPrice) || 0;
-    const discountPercentage = parseFloat(stock.discountPercentage) || 0;
-    
-    let finalPrice;
-    if (quickSale.customPrice) {
-      finalPrice = parseFloat(quickSale.customPrice);
-      if (isNaN(finalPrice) || finalPrice <= 0) {
-        alert('Please enter a valid custom price.');
-        return;
+      console.error('Dashboard init error:', error);
+      
+      // Check if error is about missing indexes
+      if (error.code === 'failed-precondition' && error.message.includes('requires an index')) {
+        setError('Please create Firestore indexes. Check console for links.');
+      } else {
+        setError('Failed to initialize dashboard: ' + error.message);
       }
-    } else {
-      finalPrice = retailPrice * (1 - discountPercentage / 100) * quickSale.quantity;
-    }
-
-    const batch = writeBatch(db);
-
-    const newQuantity = stock.quantity - quickSale.quantity;
-    const stockRef = doc(db, 'stocks', stockDoc.id);
-    batch.update(stockRef, {
-      quantity: newQuantity,
-      updatedAt: serverTimestamp(),
-      lastSold: serverTimestamp()
-    });
-
-    const costPrice = parseFloat(stock.costPrice) || 0;
-    const profit = finalPrice - (costPrice * quickSale.quantity);
-
-    const saleData = {
-      itemCode: stock.itemCode,
-      brand: stock.brand,
-      model: stock.model,
-      category: stock.category || 'Smartphone',
-      color: stock.color,
-      storage: stock.storage,
-      quantity: quickSale.quantity,
-      costPrice: costPrice,
-      retailPrice: retailPrice,  // ✅ Now this is defined in all cases
-      discountPercentage: discountPercentage,  // ✅ Now this is defined in all cases
-      finalSalePrice: finalPrice,
-      profit: profit,
-      paymentMethod: 'cash',
-      location: user.location,
-      soldBy: user.uid,
-      soldByName: user.fullName,
-      soldAt: serverTimestamp(),
-      receiptNumber: `RCP-${Date.now()}`,
-      notes: quickSale.customPrice ? `Custom price sale: MK ${quickSale.customPrice}` : 'Standard sale'
-    };
-
-    const salesRef = doc(collection(db, 'sales'));
-    batch.set(salesRef, saleData);
-
-    await batch.commit();
-
-    setQuickSale({ itemCode: '', quantity: 1, customPrice: '' });
-    alert('Sale completed successfully!');
-    
-  } catch (error) {
-    let errorMessage = 'Error processing sale. Please try again.';
-    
-    if (error.code === 'permission-denied') {
-      errorMessage = 'Permission denied. Please check if you have sales permissions.';
-      handleFirestoreError(error, 'quick-sale');
-    } else if (error.code === 'failed-precondition') {
-      errorMessage = 'Stock was modified by another user. Please try again.';
-    }
-    
-    alert(errorMessage);
-  }
-};
-
-  const handleSellItem = async (stockId, stockData, quantity = 1) => {
-    try {
-      if (stockData.location !== user.location) {
-        alert('You can only sell items from your assigned location!');
-        return;
-      }
-
-      if (!stockData.quantity && stockData.quantity !== 0) {
-        alert('Invalid stock data. Please contact administrator.');
-        return;
-      }
-
-      if (stockData.quantity < quantity) {
-        alert(`Insufficient stock! Only ${stockData.quantity} units available.`);
-        return;
-      }
-
-      if (quantity <= 0) {
-        alert('Please enter a valid quantity.');
-        return;
-      }
-
-      const retailPrice = parseFloat(stockData.retailPrice) || 0;
-      const discountPercentage = parseFloat(stockData.discountPercentage) || 0;
-      const finalPrice = retailPrice * (1 - discountPercentage / 100) * quantity;
-
-      const batch = writeBatch(db);
-
-      const newQuantity = stockData.quantity - quantity;
-      const stockRef = doc(db, 'stocks', stockId);
-      batch.update(stockRef, {
-        quantity: newQuantity,
-        updatedAt: serverTimestamp(),
-        lastSold: serverTimestamp()
-      });
-
-      const costPrice = parseFloat(stockData.costPrice) || 0;
-      const profit = finalPrice - (costPrice * quantity);
-
-      const saleData = {
-        itemCode: stockData.itemCode,
-        brand: stockData.brand,
-        model: stockData.model,
-        category: stockData.category || 'Smartphone',
-        color: stockData.color,
-        storage: stockData.storage,
-        quantity: quantity,
-        costPrice: costPrice,
-        retailPrice: retailPrice,
-        discountPercentage: discountPercentage,
-        finalSalePrice: finalPrice,
-        profit: profit,
-        paymentMethod: 'cash',
-        location: user.location,
-        soldBy: user.uid,
-        soldByName: user.fullName,
-        soldAt: serverTimestamp(),
-        receiptNumber: `RCP-${Date.now()}`,
-        notes: 'Standard sale'
-      };
-
-      const salesRef = doc(collection(db, 'sales'));
-      batch.set(salesRef, saleData);
-
-      await batch.commit();
-
-      alert('Item sold successfully!');
-      
-    } catch (error) {
-      let errorMessage = 'Error selling item. Please try again.';
-      
-      if (error.code === 'permission-denied') {
-        errorMessage = 'Permission denied. Please check if you have sales permissions.';
-        handleFirestoreError(error, 'sell-item');
-      } else if (error.code === 'failed-precondition') {
-        errorMessage = 'Stock was modified by another user. Please try again.';
-      }
-      
-      alert(errorMessage);
-    }
-  };
-
-  // FAULTY PHONE FUNCTIONS FOR MANAGER
-  const handleReportFaulty = async () => {
-    try {
-      if (!faultyReport.itemCode || !faultyReport.faultDescription) {
-        alert('Please fill in required fields: Item Code and Fault Description');
-        return;
-      }
-
-      const stockQuery = query(
-        collection(db, 'stocks'),
-        where('itemCode', '==', faultyReport.itemCode),
-        where('location', '==', user.location)
-      );
-      
-      const stockSnapshot = await getDocs(stockQuery);
-      
-      if (stockSnapshot.empty) {
-        alert('Item not found in stock for your location!');
-        return;
-      }
-
-      const stockDoc = stockSnapshot.docs[0];
-      const stock = stockDoc.data();
-
-      if (stock.quantity < 1) {
-        alert('Item out of stock!');
-        return;
-      }
-
-      const batch = writeBatch(db);
-
-      const newQuantity = stock.quantity - 1;
-      const stockRef = doc(db, 'stocks', stockDoc.id);
-      batch.update(stockRef, {
-        quantity: newQuantity,
-        updatedAt: serverTimestamp()
-      });
-
-      const faultyData = {
-        itemCode: faultyReport.itemCode,
-        stockId: stockDoc.id,
-        brand: stock.brand || faultyReport.brand,
-        model: stock.model || faultyReport.model,
-        imei: faultyReport.imei,
-        faultDescription: faultyReport.faultDescription,
-        reportedCost: parseFloat(faultyReport.reportedCost) || 0,
-        estimatedRepairCost: parseFloat(faultyReport.estimatedRepairCost) || 0,
-        status: faultyReport.status,
-        sparesNeeded: faultyReport.sparesNeeded,
-        otherSpares: faultyReport.otherSpares,
-        customerName: faultyReport.customerName,
-        customerPhone: faultyReport.customerPhone,
-        images: faultyReport.images,
-        notes: faultyReport.notes,
-        reportedAt: serverTimestamp(),
-        reportedBy: user.uid,
-        reportedByName: user.fullName,
-        location: user.location,
-        lastUpdated: serverTimestamp()
-      };
-
-      const faultyRef = doc(collection(db, 'faultyPhones'));
-      batch.set(faultyRef, faultyData);
-
-      await batch.commit();
-
-      setFaultyReport({
-        itemCode: '',
-        stockId: '',
-        brand: '',
-        model: '',
-        imei: '',
-        faultDescription: '',
-        reportedCost: 0,
-        status: 'Reported',
-        sparesNeeded: [],
-        otherSpares: '',
-        customerName: '',
-        customerPhone: '',
-        estimatedRepairCost: 0,
-        images: [],
-        notes: ''
-      });
-
-      setReportModal(false);
-      alert('Faulty phone reported successfully! Stock has been updated.');
-      
-    } catch (error) {
-      console.error('Error reporting faulty phone:', error);
-      alert('Error reporting faulty phone. Please try again.');
-    }
-  };
-
-  const handleUpdateFaultyStatus = async (faultyId, updates) => {
-    try {
-      const batch = writeBatch(db);
-      const faultyRef = doc(db, 'faultyPhones', faultyId);
-      
-      const faultyDoc = await getDoc(faultyRef);
-      if (!faultyDoc.exists()) {
-        alert('Faulty phone record not found!');
-        return;
-      }
-
-      const faultyData = faultyDoc.data();
-      const newStatus = updates.status;
-
-      if (newStatus === 'Fixed' && faultyData.status !== 'Fixed') {
-        const stockRef = doc(db, 'stocks', faultyData.stockId);
-        const stockDoc = await getDoc(stockRef);
-        
-        if (stockDoc.exists()) {
-          const stockData = stockDoc.data();
-          batch.update(stockRef, {
-            quantity: (stockData.quantity || 0) + 1,
-            updatedAt: serverTimestamp(),
-            isRepaired: true,
-            repairDate: serverTimestamp()
-          });
-
-          const repairData = {
-            faultyId: faultyId,
-            stockId: faultyData.stockId,
-            itemCode: faultyData.itemCode,
-            brand: faultyData.brand,
-            model: faultyData.model,
-            repairCost: updates.repairCost || faultyData.estimatedRepairCost,
-            sparesUsed: faultyData.sparesNeeded,
-            repairedAt: serverTimestamp(),
-            repairedBy: user.uid,
-            repairedByName: user.fullName,
-            location: user.location
-          };
-
-          const repairRef = doc(collection(db, 'repairs'));
-          batch.set(repairRef, repairData);
-        }
-      }
-
-      batch.update(faultyRef, {
-        ...updates,
-        lastUpdated: serverTimestamp(),
-        updatedBy: user.uid,
-        updatedByName: user.fullName
-      });
-
-      await batch.commit();
-      alert('Status updated successfully!');
-      setEditModal(false);
-      setSelectedFaulty(null);
-      
-    } catch (error) {
-      console.error('Error updating faulty status:', error);
-      alert('Error updating status. Please try again.');
-    }
-  };
-
-  // ENHANCED FAULTY PHONE PDF REPORT
-  const generateFaultyPhonePDFReport = (faultyData) => {
-    const doc = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = doc.internal.pageSize.width;
-    const pageHeight = doc.internal.pageSize.height;
-    
-    // Add linear background
-    doc.setFillColor(30, 41, 59); // slate-900
-    doc.rect(0, 0, pageWidth, pageHeight, 'F');
-    
-    // Add header with logo
-    doc.setFontSize(24);
-    doc.setTextColor(139, 92, 246); // purple-500
-    doc.setFont('helvetica', 'bold');
-    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
-    
-    doc.setFontSize(16);
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'normal');
-    doc.text('FAULTY PHONE REPORT', pageWidth / 2, 30, { align: 'center' });
-    
-    // Report ID and Date
-    doc.setFontSize(10);
-    doc.setTextColor(156, 163, 175);
-    doc.text(`Report ID: ${faultyData.id}`, 20, 40);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - 20, 40, { align: 'right' });
-    
-    // Device Information Section
-    doc.setFontSize(14);
-    doc.setTextColor(139, 92, 246);
-    doc.text('DEVICE INFORMATION', 20, 55);
-    
-    doc.setFillColor(55, 65, 81);
-    doc.roundedRect(20, 60, pageWidth - 40, 35, 3, 3, 'F');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
-    
-    const deviceInfo = [
-      [`Item Code: ${faultyData.itemCode}`, `Brand: ${faultyData.brand || 'N/A'}`],
-      [`Model: ${faultyData.model || 'N/A'}`, `IMEI: ${faultyData.imei || 'N/A'}`],
-      [`Location: ${faultyData.location}`, `Status: ${faultyData.status}`],
-      [`Reported Cost: MK ${faultyData.reportedCost?.toLocaleString() || '0'}`, `Estimated Repair: MK ${faultyData.estimatedRepairCost?.toLocaleString() || '0'}`]
-    ];
-    
-    let yPos = 70;
-    deviceInfo.forEach(([left, right]) => {
-      doc.text(left, 25, yPos);
-      doc.text(right, pageWidth / 2 + 10, yPos);
-      yPos += 8;
-    });
-    
-    // Customer Information Section
-    doc.setFontSize(14);
-    doc.setTextColor(139, 92, 246);
-    doc.text('CUSTOMER INFORMATION', 20, yPos + 5);
-    
-    doc.setFillColor(55, 65, 81);
-    doc.roundedRect(20, yPos + 10, pageWidth - 40, 20, 3, 3, 'F');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
-    
-    if (faultyData.customerName || faultyData.customerPhone) {
-      doc.text(`Customer Name: ${faultyData.customerName || 'N/A'}`, 25, yPos + 20);
-      doc.text(`Phone: ${faultyData.customerPhone || 'N/A'}`, pageWidth / 2 + 10, yPos + 20);
-    } else {
-      doc.text('No customer information provided', 25, yPos + 20);
-    }
-    
-    yPos += 35;
-    
-    // Fault Details Section
-    doc.setFontSize(14);
-    doc.setTextColor(139, 92, 246);
-    doc.text('FAULT DETAILS', 20, yPos);
-    
-    doc.setFillColor(55, 65, 81);
-    const faultHeight = 40;
-    doc.roundedRect(20, yPos + 5, pageWidth - 40, faultHeight, 3, 3, 'F');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
-    
-    // Split fault description into multiple lines
-    const faultDescription = faultyData.faultDescription || 'No description provided';
-    const splitFault = doc.splitTextToSize(faultDescription, pageWidth - 50);
-    doc.text(splitFault, 25, yPos + 15);
-    
-    yPos += faultHeight + 15;
-    
-    // Spares Needed Section
-    if (faultyData.sparesNeeded?.length > 0 || faultyData.otherSpares) {
-      doc.setFontSize(14);
-      doc.setTextColor(139, 92, 246);
-      doc.text('SPARES REQUIRED', 20, yPos);
-      
-      doc.setFillColor(55, 65, 81);
-      doc.roundedRect(20, yPos + 5, pageWidth - 40, 20, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(255, 255, 255);
-      
-      const sparesList = [...(faultyData.sparesNeeded || [])];
-      if (faultyData.otherSpares) {
-        sparesList.push(faultyData.otherSpares);
-      }
-      
-      doc.text(sparesList.join(', '), 25, yPos + 15);
-      yPos += 30;
-    }
-    
-    // Timeline Section
-    doc.setFontSize(14);
-    doc.setTextColor(139, 92, 246);
-    doc.text('TIMELINE', 20, yPos);
-    
-    const timelineData = [
-      ['Event', 'Date', 'Responsible Person'],
-      ['Reported', faultyData.reportedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.reportedByName || 'N/A'],
-      ['Last Updated', faultyData.lastUpdated?.toDate().toLocaleDateString() || 'N/A', faultyData.updatedByName || 'N/A']
-    ];
-    
-    if (faultyData.status === 'Fixed') {
-      timelineData.push(['Repaired', faultyData.repairedAt?.toDate().toLocaleDateString() || 'N/A', faultyData.repairedByName || 'N/A']);
-    }
-    
-    autoTable(doc, {
-      startY: yPos + 10,
-      head: timelineData.slice(0, 1),
-      body: timelineData.slice(1),
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [139, 92, 246], 
-        textColor: [255, 255, 255], 
-        fontSize: 10,
-        fontStyle: 'bold'
-      },
-      bodyStyles: { 
-        textColor: [255, 255, 255], 
-        fontSize: 9 
-      },
-      alternateRowStyles: { fillColor: [55, 65, 81] },
-      margin: { left: 20, right: 20 },
-      tableWidth: 'auto'
-    });
-    
-    yPos = doc.lastAutoTable.finalY + 10;
-    
-    // Notes Section
-    if (faultyData.notes) {
-      doc.setFontSize(14);
-      doc.setTextColor(139, 92, 246);
-      doc.text('ADDITIONAL NOTES', 20, yPos);
-      
-      doc.setFillColor(55, 65, 81);
-      doc.roundedRect(20, yPos + 5, pageWidth - 40, 30, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(255, 255, 255);
-      
-      const splitNotes = doc.splitTextToSize(faultyData.notes, pageWidth - 50);
-      doc.text(splitNotes, 25, yPos + 15);
-      
-      yPos += 45;
-    }
-    
-    // Status Badge
-    doc.setFontSize(12);
-    doc.setTextColor(255, 255, 255);
-    const statusColor = {
-      'Reported': [234, 179, 8], // yellow-500
-      'In Repair': [59, 130, 246], // blue-500
-      'Fixed': [34, 197, 94], // green-500
-      'EOS (End of Service)': [239, 68, 68], // red-500
-      'Scrapped': [107, 114, 128] // gray-500
-    };
-    
-    const color = statusColor[faultyData.status] || [107, 114, 128];
-    doc.setFillColor(color[0], color[1], color[2]);
-    doc.roundedRect(pageWidth - 60, yPos + 5, 40, 15, 3, 3, 'F');
-    doc.text(faultyData.status, pageWidth - 40, yPos + 12, { align: 'center' });
-    
-    // Add footer
-    doc.setFontSize(8);
-    doc.setTextColor(156, 163, 175);
-    doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
-    doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 5, { align: 'center' });
-    
-    // Save PDF
-    const filename = `Faulty_Report_${faultyData.itemCode}_${faultyData.id || Date.now()}.pdf`;
-    doc.save(filename);
-  };
-
-  // STYLISH SALES PDF REPORT
-  const generateStylishPDFReport = (data, type = 'sales') => {
-    if (!data) {
-      alert('No report data available. Please generate a report first.');
-      return;
-    }
-
-    try {
-      if (type === 'sales') {
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.width;
-        const pageHeight = doc.internal.pageSize.height;
-        
-        // Add linear background
-        doc.setFillColor(30, 41, 59);
-        doc.rect(0, 0, pageWidth, pageHeight, 'F');
-        
-        // Add header with logo
-        doc.setFontSize(24);
-        doc.setTextColor(139, 92, 246);
-        doc.setFont('helvetica', 'bold');
-        doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
-        
-        doc.setFontSize(16);
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'normal');
-        doc.text('SALES ANALYSIS REPORT', pageWidth / 2, 30, { align: 'center' });
-        
-        doc.setFontSize(12);
-        doc.text(`Report Period: ${data.period.startDate} to ${data.period.endDate}`, pageWidth / 2, 38, { align: 'center' });
-        doc.text(`Location: ${data.period.location}`, pageWidth / 2, 44, { align: 'center' });
-        
-        // Summary Box
-        doc.setFillColor(55, 65, 81);
-        doc.roundedRect(20, 50, pageWidth - 40, 30, 3, 3, 'F');
-        
-        doc.setFontSize(14);
-        doc.setTextColor(255, 255, 255);
-        doc.text('REPORT SUMMARY', pageWidth / 2, 58, { align: 'center' });
-        
-        doc.setFontSize(10);
-        doc.text(`Total Sales: ${data.summary.totalSales}`, 30, 68);
-        doc.text(`Total Revenue: MK ${data.summary.totalRevenue.toLocaleString()}`, 80, 68);
-        doc.text(`Avg.Sale Value: MK ${data.summary.averageSaleValue.toFixed(2)}`, 140, 68);
-        
-        let yPos = 90;
-        
-        // Sales by Location Table
-        doc.setFontSize(12);
-        doc.setTextColor(139, 92, 246);
-        doc.text('SALES BY LOCATION', 20, yPos);
-        yPos += 10;
-        
-        const locationData = Object.entries(data.salesByLocation).map(([location, metrics]) => [
-          location,
-          metrics.count.toString(),
-          `MK ${metrics.revenue.toFixed(2)}`,
-          data.summary.totalRevenue > 0 ? `${((metrics.revenue / data.summary.totalRevenue) * 100).toFixed(1)}%` : '0%'
-        ]);
-        
-        if (locationData.length > 0) {
-          autoTable(doc, {
-            startY: yPos,
-            head: [['Location', 'Sales Count', 'Revenue', 'Percentage']],
-            body: locationData,
-            theme: 'grid',
-            headStyles: { fillColor: [139, 92, 246], textColor: [255, 255, 255], fontSize: 10 },
-            bodyStyles: { textColor: [255, 255, 255], fontSize: 9 },
-            alternateRowStyles: { fillColor: [55, 65, 81] },
-            margin: { left: 20, right: 20 }
-          });
-          
-          yPos = doc.lastAutoTable.finalY + 10;
-        }
-        
-        // Top Products Table
-        if (data.topProducts.length > 0) {
-          doc.setFontSize(12);
-          doc.setTextColor(139, 92, 246);
-          doc.text('TOP PRODUCTS', 20, yPos);
-          yPos += 10;
-          
-          const productData = data.topProducts.map(product => [
-            product.product,
-            product.count.toString(),
-            `MK ${product.revenue.toFixed(2)}`,
-            data.summary.totalRevenue > 0 ? `${((product.revenue / data.summary.totalRevenue) * 100).toFixed(1)}%` : '0%'
-          ]);
-          
-          autoTable(doc, {
-            startY: yPos,
-            head: [['Product', 'Sales Count', 'Revenue', 'Percentage']],
-            body: productData,
-            theme: 'grid',
-            headStyles: { fillColor: [139, 92, 246], textColor: [255, 255, 255], fontSize: 10 },
-            bodyStyles: { textColor: [255, 255, 255], fontSize: 9 },
-            alternateRowStyles: { fillColor: [55, 65, 81] },
-            margin: { left: 20, right: 20 }
-          });
-        }
-        
-        // Add footer
-        doc.setFontSize(8);
-        doc.setTextColor(156, 163, 175);
-        doc.text('Generated by KM Electronics Manager Dashboard', pageWidth / 2, pageHeight - 10, { align: 'center' });
-        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
-        
-        // Save PDF
-        const filename = `Sales_Report_${data.period.startDate}_to_${data.period.endDate}.pdf`;
-        doc.save(filename);
-      } else if (type === 'faulty') {
-        generateFaultyPhonePDFReport(data);
-      }
-    } catch (error) {
-      alert('Error generating PDF report. Please try again.', );
-    }
-  };
-
-  // INSTALLMENT FUNCTIONS
-  const openInstallmentModal = (sale) => {
-    setSelectedSaleForInstallment(sale);
-    setInstallmentData({
-      saleId: sale.id,
-      customerName: '',
-      phoneNumber: '',
-      totalAmount: sale.finalSalePrice,
-      downPayment: 0,
-      remainingAmount: sale.finalSalePrice,
-      installmentPlan: '1',
-      monthlyPayment: sale.finalSalePrice,
-      nextPaymentDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      notes: ''
-    });
-    setInstallmentModal(true);
-  };
-
-  const handleProcessInstallment = async () => {
-    try {
-      if (!installmentData.saleId || !installmentData.customerName || !installmentData.totalAmount) {
-        alert('Please fill in required fields');
-        return;
-      }
-
-      const installmentDataToSave = {
-        ...installmentData,
-        saleId: installmentData.saleId,
-        customerName: installmentData.customerName,
-        phoneNumber: installmentData.phoneNumber,
-        totalAmount: parseFloat(installmentData.totalAmount),
-        downPayment: parseFloat(installmentData.downPayment) || 0,
-        remainingAmount: parseFloat(installmentData.totalAmount) - (parseFloat(installmentData.downPayment) || 0),
-        installmentPlan: installmentData.installmentPlan,
-        monthlyPayment: parseFloat(installmentData.monthlyPayment) || 0,
-        nextPaymentDate: installmentData.nextPaymentDate,
-        notes: installmentData.notes,
-        createdAt: serverTimestamp(),
-        createdBy: user.uid,
-        createdByName: user.fullName,
-        location: user.location,
-        status: 'active',
-        payments: installmentData.downPayment > 0 ? [{
-          amount: parseFloat(installmentData.downPayment),
-          date: new Date().toISOString().split('T')[0],
-          type: 'down_payment'
-        }] : []
-      };
-
-      await addDoc(collection(db, 'installments'), installmentDataToSave);
-
-      const saleRef = doc(db, 'sales', installmentData.saleId);
-      await updateDoc(saleRef, {
-        paymentType: 'installment',
-        installmentId: (await addDoc(collection(db, 'installments'), installmentDataToSave)).id,
-        updatedAt: serverTimestamp()
-      });
-
-      alert('Installment plan created successfully!');
-      setInstallmentModal(false);
-      setSelectedSaleForInstallment(null);
-      setInstallmentData({
-        saleId: '',
-        customerName: '',
-        phoneNumber: '',
-        totalAmount: 0,
-        downPayment: 0,
-        remainingAmount: 0,
-        installmentPlan: '1',
-        monthlyPayment: 0,
-        nextPaymentDate: '',
-        notes: ''
-      });
-
-    } catch (error) {
-      console.error('Error processing installment:', error);
-      alert('Error creating installment plan. Please try again.');
-    }
-  };
-
-  // Stock Request Functions - Manager can only INITIATE, cannot approve
-  const handleRequestStock = async () => {
-    // Clear previous errors
-    setTransferErrors({});
-    setIsTransferValidating(true);
-    
-    try {
-      // Validate all fields
-      if (!transferStock.itemCode.trim()) {
-        setTransferErrors({ itemCode: 'Item Code is required' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      if (!transferStock.quantity) {
-        setTransferErrors({ quantity: 'Quantity is required' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      const quantity = parseInt(transferStock.quantity);
-      if (isNaN(quantity) || quantity <= 0) {
-        setTransferErrors({ quantity: 'Quantity must be greater than 0' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      if (!transferStock.fromLocation) {
-        setTransferErrors({ fromLocation: 'Source location is required' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      if (!transferStock.toLocation) {
-        setTransferErrors({ toLocation: 'Destination location is required' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      if (transferStock.fromLocation === transferStock.toLocation) {
-        setTransferErrors({ toLocation: 'Source and destination locations must be different' });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      // Validate stock availability in source location
-      const stockQuery = query(
-        collection(db, 'stocks'),
-        where('itemCode', '==', transferStock.itemCode.trim()),
-        where('location', '==', transferStock.fromLocation)
-      );
-      
-      const stockSnapshot = await getDocs(stockQuery);
-      
-      if (stockSnapshot.empty) {
-        setTransferErrors({ itemCode: `Item not found in ${transferStock.fromLocation}` });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      const stockDoc = stockSnapshot.docs[0];
-      const stock = stockDoc.data();
-      
-      if (!stock.quantity || stock.quantity < quantity) {
-        setTransferErrors({ quantity: `Insufficient stock! Only ${stock.quantity || 0} units available in ${transferStock.fromLocation}` });
-        setIsTransferValidating(false);
-        return;
-      }
-      
-      // All validations passed, create the request
-      const requestData = {
-        itemCode: transferStock.itemCode.trim(),
-        quantity: quantity,
-        fromLocation: transferStock.fromLocation,
-        toLocation: transferStock.toLocation,
-        status: 'pending',
-        requestedBy: user.uid,
-        requestedByName: user.fullName,
-        requestedByLocation: user.location,
-        requestedAt: serverTimestamp()
-      };
-
-      await addDoc(collection(db, 'stockRequests'), requestData);
-      
-      // Reset form
-      setTransferStock({
-        itemCode: '',
-        quantity: '',
-        fromLocation: '',
-        toLocation: ''
-      });
-      setTransferErrors({});
-      
-      alert('Stock transfer request submitted successfully! Awaiting approval from admin/superadmin.');
-    } catch (error) {
-      console.error('Error requesting stock:', error);
-      alert('Error submitting request. Please try again.');
     } finally {
-      setIsTransferValidating(false);
+      setLoading(false);
     }
   };
 
-  // UPDATED: Sales Report Functions - Fixed for manager permissions
-  const generateSalesReport = useCallback(async () => {
-    if (!reportFilters.startDate || !reportFilters.endDate) {
-      alert('Please select both start and end dates.');
-      return;
-    }
-
-    setGeneratingReport(true);
+  // Data Fetching Functions - UPDATED with better error handling
+  const fetchLocationStocks = async (location) => {
     try {
-      const startDate = new Date(reportFilters.startDate);
-      const endDate = new Date(reportFilters.endDate);
-      endDate.setHours(23, 59, 59, 999);
-
-      // Managers can only generate reports for their location
-      const managerLocation = user?.location;
-      
-      // Build query - ALWAYS filter by manager's location
-      const salesQuery = query(
-        collection(db, 'sales'),
-        where('location', '==', managerLocation),
-        orderBy('soldAt', 'desc')
+      const q = query(
+        collection(db, 'stocks'),
+        where('location', '==', location)
       );
-
-      const querySnapshot = await getDocs(salesQuery);
-      const allSales = querySnapshot.docs.map(doc => ({
+      const querySnapshot = await getDocs(q);
+      const stocksData = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      setStocks(stocksData);
+    } catch (error) {
+      console.error('Fetch stocks error:', error);
+      if (error.code === 'failed-precondition') {
+        setError('Please create stocks index in Firestore.');
+      } else {
+        setError('Failed to fetch stocks');
+      }
+    }
+  };
 
-      // Filter sales by date range
-      const filteredSales = allSales.filter(sale => {
-        const saleDate = sale.soldAt?.toDate();
-        if (!saleDate) return false;
-        return saleDate >= startDate && saleDate <= endDate;
+  const fetchLocationSales = async (location) => {
+    try {
+      const q = query(
+        collection(db, 'sales'),
+        where('location', '==', location),
+        orderBy('soldAt', 'desc')
+      );
+      const querySnapshot = await getDocs(q);
+      const salesData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSales(salesData);
+    } catch (error) {
+      console.error('Fetch sales error:', error);
+      if (error.code === 'failed-precondition') {
+        setError('Please create sales index in Firestore.');
+      } else {
+        setError('Failed to fetch sales');
+      }
+    }
+  };
+
+  // FIXED: Faulty phones with proper error handling
+  const fetchFaultyPhones = async (location) => {
+    try {
+      // First try without orderBy to avoid index error
+      const q = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', location)
+      );
+      const querySnapshot = await getDocs(q);
+      const faultyData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Sort manually if needed
+      faultyData.sort((a, b) => {
+        const dateA = a.reportedAt?.toDate() || new Date(0);
+        const dateB = b.reportedAt?.toDate() || new Date(0);
+        return dateB - dateA; // Descending
       });
+      
+      setFaultyPhones(faultyData);
+    } catch (error) {
+      console.error('Fetch faulty phones error:', error);
+      if (error.code === 'failed-precondition') {
+        console.warn('Faulty phones index required. Please create index for location and reportedAt.');
+        // Set empty array to avoid breaking the UI
+        setFaultyPhones([]);
+      } else {
+        setError('Failed to fetch faulty phones');
+      }
+    }
+  };
 
-      // Calculate report data
-      const report = {
-        period: {
-          startDate: reportFilters.startDate,
-          endDate: reportFilters.endDate,
-          location: managerLocation // Always use manager's location
+  // FIXED: Installments with proper error handling
+  const fetchInstallments = async (location) => {
+    try {
+      // First try without orderBy to avoid index error
+      const q = query(
+        collection(db, 'installments'),
+        where('location', '==', location)
+      );
+      const querySnapshot = await getDocs(q);
+      const installmentData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Sort manually if needed
+      installmentData.sort((a, b) => {
+        const dateA = a.createdAt?.toDate() || new Date(0);
+        const dateB = b.createdAt?.toDate() || new Date(0);
+        return dateB - dateA; // Descending
+      });
+      
+      setInstallments(installmentData);
+    } catch (error) {
+      console.error('Fetch installments error:', error);
+      if (error.code === 'failed-precondition') {
+        console.warn('Installments index required. Please create index for location and createdAt.');
+        // Set empty array to avoid breaking the UI
+        setInstallments([]);
+      } else {
+        setError('Failed to fetch installments');
+      }
+    }
+  };
+
+  // FIXED: Stock requests with proper error handling
+  const fetchStockRequests = async (location) => {
+    try {
+      // Simplified query to avoid index error
+      const q = query(
+        collection(db, 'stockRequests'),
+        where('toLocation', '==', location)
+      );
+      const querySnapshot = await getDocs(q);
+      const requestsData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Filter and sort manually
+      const filteredRequests = requestsData
+        .filter(request => request.status === 'pending')
+        .sort((a, b) => {
+          const dateA = a.requestedAt?.toDate() || new Date(0);
+          const dateB = b.requestedAt?.toDate() || new Date(0);
+          return dateB - dateA; // Descending
+        });
+      
+      setStockRequests(filteredRequests);
+    } catch (error) {
+      console.error('Fetch stock requests error:', error);
+      if (error.code === 'failed-precondition') {
+        console.warn('Stock requests index required. Please create composite index.');
+        // Set empty array to avoid breaking the UI
+        setStockRequests([]);
+      } else {
+        setError('Failed to fetch stock requests');
+      }
+    }
+  };
+
+  const fetchPersonnel = async (location) => {
+    try {
+      const q = query(
+        collection(db, 'users'),
+        where('location', '==', location),
+        where('role', 'in', ['sales', 'dataEntry', 'user'])
+      );
+      const querySnapshot = await getDocs(q);
+      const personnelData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setPersonnel(personnelData);
+    } catch (error) {
+      console.error('Fetch personnel error:', error);
+      setError('Failed to fetch personnel');
+    }
+  };
+
+  // Real-time Listeners - UPDATED with better error handling
+  const setupRealtimeListeners = useCallback((location) => {
+    const cleanupFunctions = [];
+
+    try {
+      // Stocks listener
+      const stocksQuery = query(
+        collection(db, 'stocks'),
+        where('location', '==', location)
+      );
+      
+      const unsubscribeStocks = onSnapshot(stocksQuery, 
+        (snapshot) => {
+          const stocksData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setStocks(stocksData);
+        }, 
+        (error) => {
+          console.error('Stocks listener error:', error);
+          setError('Failed to listen to stock updates');
+        }
+      );
+      cleanupFunctions.push(unsubscribeStocks);
+
+      // Sales listener
+      const salesQuery = query(
+        collection(db, 'sales'),
+        where('location', '==', location)
+        // Removed orderBy to avoid index error in listener
+      );
+
+      const unsubscribeSales = onSnapshot(salesQuery, 
+        (snapshot) => {
+          const salesData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          
+          // Sort manually
+          salesData.sort((a, b) => {
+            const dateA = a.soldAt?.toDate() || new Date(0);
+            const dateB = b.soldAt?.toDate() || new Date(0);
+            return dateB - dateA;
+          });
+          
+          setSales(salesData);
+        }, 
+        (error) => {
+          console.error('Sales listener error:', error);
+          setError('Failed to listen to sales updates');
+        }
+      );
+      cleanupFunctions.push(unsubscribeSales);
+
+      // Faulty phones listener - simplified to avoid index error
+      const faultyQuery = query(
+        collection(db, 'faultyPhones'),
+        where('location', '==', location)
+      );
+
+      const unsubscribeFaulty = onSnapshot(faultyQuery,
+        (snapshot) => {
+          const faultyData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          
+          // Sort manually
+          faultyData.sort((a, b) => {
+            const dateA = a.reportedAt?.toDate() || new Date(0);
+            const dateB = b.reportedAt?.toDate() || new Date(0);
+            return dateB - dateA;
+          });
+          
+          setFaultyPhones(faultyData);
         },
-        summary: {
-          totalSales: filteredSales.length,
-          totalRevenue: filteredSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0),
-          averageSaleValue: filteredSales.length > 0 
-            ? filteredSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0) / filteredSales.length 
-            : 0
-        },
-        salesByLocation: {},
-        salesByProduct: {},
-        salesBySeller: {},
-        dailySales: {},
-        topProducts: [],
-        topSellers: []
-      };
+        (error) => {
+          console.error('Faulty phones listener error:', error);
+          // Don't show error if it's just an index issue
+          if (error.code !== 'failed-precondition') {
+            setError('Failed to listen to faulty phones updates');
+          }
+        }
+      );
+      cleanupFunctions.push(unsubscribeFaulty);
 
-      // Analyze data
-      filteredSales.forEach(sale => {
-        // Sales by location (will only be manager's location)
-        const location = sale.location || 'Unknown';
-        report.salesByLocation[location] = report.salesByLocation[location] || { count: 0, revenue: 0 };
-        report.salesByLocation[location].count += 1;
-        report.salesByLocation[location].revenue += sale.finalSalePrice || 0;
+    } catch (error) {
+      console.error('Listener setup error:', error);
+    }
 
-        // Sales by product
-        const productKey = `${sale.brand} ${sale.model}`;
-        report.salesByProduct[productKey] = report.salesByProduct[productKey] || { count: 0, revenue: 0 };
-        report.salesByProduct[productKey].count += 1;
-        report.salesByProduct[productKey].revenue += sale.finalSalePrice || 0;
-
-        // Sales by seller
-        const seller = sale.soldByName || sale.soldBy || 'Unknown';
-        report.salesBySeller[seller] = report.salesBySeller[seller] || { count: 0, revenue: 0 };
-        report.salesBySeller[seller].count += 1;
-        report.salesBySeller[seller].revenue += sale.finalSalePrice || 0;
-
-        // Daily sales
-        const saleDate = sale.soldAt?.toDate();
-        if (saleDate) {
-          const dateKey = saleDate.toISOString().split('T')[0];
-          report.dailySales[dateKey] = report.dailySales[dateKey] || { count: 0, revenue: 0 };
-          report.dailySales[dateKey].count += 1;
-          report.dailySales[dateKey].revenue += sale.finalSalePrice || 0;
+    return () => {
+      cleanupFunctions.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.error('Cleanup error:', error);
         }
       });
+    };
+  }, []);
 
-      // Calculate top products (limit to 10)
-      report.topProducts = Object.entries(report.salesByProduct)
-        .map(([product, data]) => ({ product, ...data }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 10);
+  // Setup real-time listeners when location is set
+  useEffect(() => {
+    if (!location) return;
 
-      // Calculate top sellers (limit to 10)
-      report.topSellers = Object.entries(report.salesBySeller)
-        .map(([seller, data]) => ({ seller, ...data }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 10);
+    const cleanup = setupRealtimeListeners(location);
+    
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [location, setupRealtimeListeners]);
 
-      setReportData(report);
-      alert('Report generated successfully!');
+  // Calculate sales analysis (same as before)
+  const calculateSalesAnalysisData = useCallback(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const thisMonth = new Date();
+    thisMonth.setDate(1);
+    thisMonth.setHours(0, 0, 0, 0);
+
+    const todaySales = sales.filter(sale => {
+      const saleDate = sale.soldAt?.toDate();
+      return saleDate && saleDate >= today;
+    });
+
+    const monthlySales = sales.filter(sale => {
+      const saleDate = sale.soldAt?.toDate();
+      return saleDate && saleDate >= thisMonth;
+    });
+
+    // Calculate top products
+    const productSales = {};
+    sales.forEach(sale => {
+      const productKey = `${sale.brand} ${sale.model}`;
+      if (!productSales[productKey]) {
+        productSales[productKey] = { count: 0, revenue: 0 };
+      }
+      productSales[productKey].count += 1;
+      productSales[productKey].revenue += sale.finalSalePrice || 0;
+    });
+
+    const topProducts = Object.entries(productSales)
+      .map(([product, data]) => ({ product, ...data }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+
+    // Calculate sales by user
+    const salesByUser = {};
+    sales.forEach(sale => {
+      const seller = sale.soldByName || 'Unknown';
+      if (!salesByUser[seller]) {
+        salesByUser[seller] = 0;
+      }
+      salesByUser[seller] += sale.finalSalePrice || 0;
+    });
+
+    // Calculate revenue by category
+    const revenueByCategory = {};
+    sales.forEach(sale => {
+      const category = sale.category || 'Other';
+      if (!revenueByCategory[category]) {
+        revenueByCategory[category] = 0;
+      }
+      revenueByCategory[category] += sale.finalSalePrice || 0;
+    });
+
+    setSalesAnalysis({
+      todaySales: todaySales.length,
+      todayRevenue: todaySales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0),
+      monthlyRevenue: monthlySales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0),
+      topProducts,
+      salesByUser,
+      revenueByCategory
+    });
+  }, [sales]);
+
+  // Update sales analysis when sales change
+  useEffect(() => {
+    if (sales.length > 0) {
+      calculateSalesAnalysisData();
+    }
+  }, [sales, calculateSalesAnalysisData]);
+
+  // Handle tab change (same as before)
+  const handleTabChange = async (tabId) => {
+    if (tabId === activeTab) return;
+    
+    setTabLoading(true);
+    setActiveTab(tabId);
+    
+    if (tabId === 'myStocks' && stocks.length === 0) {
+      await fetchLocationStocks(location);
+    } else if (tabId === 'salesHistory' && sales.length === 0) {
+      await fetchLocationSales(location);
+    } else if (tabId === 'faultyPhones' && faultyPhones.length === 0) {
+      await fetchFaultyPhones(location);
+    } else if (tabId === 'installments' && installments.length === 0) {
+      await fetchInstallments(location);
+    } else if (tabId === 'requests' && stockRequests.length === 0) {
+      await fetchStockRequests(location);
+    }
+    
+    setTimeout(() => setTabLoading(false), 300);
+  };
+
+  // Refresh all data (same as before)
+  const handleRefreshData = async () => {
+    try {
+      setLoading(true);
+      await Promise.all([
+        fetchLocationStocks(location),
+        fetchLocationSales(location),
+        fetchFaultyPhones(location),
+        fetchInstallments(location),
+        fetchStockRequests(location)
+      ]);
+      setSuccess('Data refreshed successfully');
     } catch (error) {
-      console.error('Error generating sales report:', error);
-      if (error.code === 'failed-precondition') {
-        alert('Report query requires an index. Please contact administrator to create the required index.');
-      } else if (error.code === 'permission-denied') {
-        alert('You do not have permission to generate this report. Please contact administrator.');
-      } else {
-        alert('Error generating report. Please try again.');
+      console.error('Refresh error:', error);
+      setError('Failed to refresh data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Database Validation Functions (same as before)
+  const validateStockBeforeOperation = async (itemCode, location, requiredQuantity = 1) => {
+    try {
+      const stockQuery = query(
+        collection(db, 'stocks'),
+        where('itemCode', '==', itemCode),
+        where('location', '==', location)
+      );
+      
+      const stockSnapshot = await getDocs(stockQuery);
+      
+      if (stockSnapshot.empty) {
+        return { valid: false, error: `Item "${itemCode}" not found in ${location}` };
+      }
+
+      const stock = stockSnapshot.docs[0].data();
+      
+      if (stock.quantity < requiredQuantity) {
+        return { 
+          valid: false, 
+          error: `Insufficient stock! Only ${stock.quantity} units available.`,
+          available: stock.quantity 
+        };
+      }
+
+      // Validate stock data integrity
+      if (!stock.brand || !stock.model) {
+        return { valid: false, error: 'Stock item has incomplete data' };
+      }
+
+      if (stock.quantity < 0) {
+        return { valid: false, error: 'Stock quantity cannot be negative' };
+      }
+
+      return { 
+        valid: true, 
+        stock: stock,
+        stockId: stockSnapshot.docs[0].id,
+        available: stock.quantity 
+      };
+    } catch (error) {
+      return { valid: false, error: 'Validation error: ' + error.message };
+    }
+  };
+
+  const validateDatabaseConsistency = async () => {
+    try {
+      const validationPromises = [
+        validateStockConsistency(),
+        validateSalesConsistency(),
+        validateFaultyPhonesConsistency()
+      ];
+      
+      const results = await Promise.allSettled(validationPromises);
+      
+      const errors = results
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason.message);
+      
+      if (errors.length > 0) {
+        console.warn('Database consistency warnings:', errors);
+        return { consistent: false, errors };
+      }
+      
+      return { consistent: true, errors: [] };
+    } catch (error) {
+      return { consistent: false, errors: [error.message] };
+    }
+  };
+
+  const validateStockConsistency = async () => {
+    const stocks = await getDocs(collection(db, 'stocks'));
+    const issues = [];
+    
+    stocks.forEach(doc => {
+      const data = doc.data();
+      if (data.quantity < 0) {
+        issues.push(`Negative quantity for ${data.itemCode} at ${data.location}`);
+      }
+      if (!data.location || !LOCATIONS.includes(data.location)) {
+        issues.push(`Invalid location for ${data.itemCode}: ${data.location}`);
+      }
+      if (!data.itemCode || data.itemCode.trim() === '') {
+        issues.push(`Empty item code at ${data.location}`);
+      }
+    });
+    
+    if (issues.length > 0) {
+      throw new Error(`Stock consistency issues: ${issues.join(', ')}`);
+    }
+  };
+
+  const validateSalesConsistency = async () => {
+    const sales = await getDocs(collection(db, 'sales'));
+    const issues = [];
+    
+    sales.forEach(doc => {
+      const data = doc.data();
+      if (!data.itemCode) {
+        issues.push(`Sale ${doc.id} has no item code`);
+      }
+      if (data.quantity <= 0) {
+        issues.push(`Sale ${doc.id} has invalid quantity: ${data.quantity}`);
+      }
+      if (data.finalSalePrice < 0) {
+        issues.push(`Sale ${doc.id} has negative price`);
+      }
+    });
+    
+    if (issues.length > 0) {
+      throw new Error(`Sales consistency issues: ${issues.join(', ')}`);
+    }
+  };
+
+  const validateFaultyPhonesConsistency = async () => {
+    const faultyPhones = await getDocs(collection(db, 'faultyPhones'));
+    const issues = [];
+    
+    faultyPhones.forEach(doc => {
+      const data = doc.data();
+      if (!data.itemCode && !data.imei) {
+        issues.push(`Faulty phone ${doc.id} has no identifier`);
+      }
+      if (data.reportedCost < 0) {
+        issues.push(`Faulty phone ${doc.id} has negative reported cost`);
+      }
+    });
+    
+    if (issues.length > 0) {
+      throw new Error(`Faulty phones consistency issues: ${issues.join(', ')}`);
+    }
+  };
+
+  // Execute with retry (same as before)
+  const executeWithRetry = async (operation, maxRetries = 3) => {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'failed-precondition' || error.code === 'aborted') {
+          await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
+          console.log(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
+        } else {
+          break;
+        }
+      }
+    }
+    throw lastError;
+  };
+
+  // ACID-Compliant Quick Sale (same as before)
+  const handleQuickSale = async () => {
+    if (!quickSale.itemCode || !quickSale.customerName) {
+      setError('Please enter item code and customer name');
+      return;
+    }
+
+    if (quickSale.quantity <= 0) {
+      setError('Quantity must be greater than 0');
+      return;
+    }
+
+    setIsProcessingSale(true);
+
+    try {
+      // First, validate database consistency
+      const consistencyCheck = await validateDatabaseConsistency();
+      if (!consistencyCheck.consistent) {
+        console.warn('Database consistency issues:', consistencyCheck.errors);
+      }
+
+      // Pre-validate stock before transaction
+      const validationResult = await validateStockBeforeOperation(
+        quickSale.itemCode, 
+        user.location, 
+        quickSale.quantity
+      );
+      
+      if (!validationResult.valid) {
+        setError(validationResult.error);
+        setIsProcessingSale(false);
+        return;
+      }
+
+      // Execute transaction with retry logic
+      await executeWithRetry(async () => {
+        return await runTransaction(db, async (transaction) => {
+          // 1. VALIDATION PHASE: Re-validate stock within transaction
+          const stockQuery = query(
+            collection(db, 'stocks'),
+            where('itemCode', '==', quickSale.itemCode),
+            where('location', '==', user.location)
+          );
+          
+          const stockSnapshot = await getDocs(stockQuery);
+          
+          if (stockSnapshot.empty) {
+            throw new Error(`Item "${quickSale.itemCode}" not found in ${user.location}!`);
+          }
+
+          const stockDoc = stockSnapshot.docs[0];
+          const stockRef = doc(db, 'stocks', stockDoc.id);
+          
+          const freshStockDoc = await transaction.get(stockRef);
+          if (!freshStockDoc.exists()) {
+            throw new Error('Stock item was deleted during transaction');
+          }
+
+          const freshStock = freshStockDoc.data();
+          
+          if (freshStock.quantity < quickSale.quantity) {
+            throw new Error(`Insufficient stock! Only ${freshStock.quantity} units available.`);
+          }
+
+          if (freshStock.itemCode !== quickSale.itemCode) {
+            throw new Error('Stock item code mismatch during transaction');
+          }
+
+          // 2. CALCULATION PHASE
+          const retailPrice = parseFloat(freshStock.retailPrice) || 0;
+          const discountPercentage = parseFloat(freshStock.discountPercentage) || 0;
+          
+          let finalPrice;
+          if (quickSale.customPrice) {
+            finalPrice = parseFloat(quickSale.customPrice);
+            if (isNaN(finalPrice) || finalPrice <= 0) {
+              throw new Error('Please enter a valid custom price.');
+            }
+            if (finalPrice < retailPrice * 0.5) {
+              throw new Error('Custom price cannot be less than 50% of retail price.');
+            }
+          } else {
+            finalPrice = retailPrice * (1 - discountPercentage / 100) * quickSale.quantity;
+          }
+
+          const costPrice = parseFloat(freshStock.costPrice) || 0;
+          const profit = finalPrice - (costPrice * quickSale.quantity);
+
+          if (profit < 0 && !quickSale.customPrice) {
+            throw new Error('Sale would result in a loss. Please use custom price or check costs.');
+          }
+
+          // 3. UPDATE PHASE
+          transaction.update(stockRef, {
+            quantity: increment(-quickSale.quantity),
+            updatedAt: serverTimestamp(),
+            lastSold: serverTimestamp(),
+            totalSold: increment(quickSale.quantity)
+          });
+
+          // 4. CREATE PHASE
+          const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const transactionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+          
+          const saleData = {
+            itemCode: freshStock.itemCode,
+            brand: freshStock.brand,
+            model: freshStock.model,
+            category: freshStock.category || 'Smartphone',
+            color: freshStock.color,
+            storage: freshStock.storage,
+            quantity: quickSale.quantity,
+            costPrice: costPrice,
+            retailPrice: retailPrice,
+            discountPercentage: discountPercentage,
+            finalSalePrice: finalPrice,
+            profit: profit,
+            paymentMethod: 'cash',
+            customerName: quickSale.customerName.trim(),
+            customerPhone: quickSale.customerPhone.trim(),
+            location: user.location,
+            soldBy: user.uid,
+            soldByName: user.fullName,
+            soldAt: serverTimestamp(),
+            receiptNumber: receiptNumber,
+            notes: quickSale.customPrice ? `Custom price sale: MK ${quickSale.customPrice}` : 'Standard sale',
+            transactionId: transactionId,
+            status: 'completed',
+            originalStockQuantity: freshStock.quantity,
+            remainingStockQuantity: freshStock.quantity - quickSale.quantity
+          };
+
+          const salesRef = doc(collection(db, 'sales'));
+          transaction.set(salesRef, saleData);
+
+          const auditLog = {
+            action: 'quick_sale',
+            itemCode: freshStock.itemCode,
+            quantity: quickSale.quantity,
+            price: finalPrice,
+            customer: quickSale.customerName,
+            location: user.location,
+            user: user.uid,
+            userName: user.fullName,
+            timestamp: serverTimestamp(),
+            stockBefore: freshStock.quantity,
+            stockAfter: freshStock.quantity - quickSale.quantity,
+            transactionId: transactionId,
+            status: 'success'
+          };
+
+          const auditRef = doc(collection(db, 'auditLogs'));
+          transaction.set(auditRef, auditLog);
+
+          return { saleData, receiptNumber };
+        });
+      }).then(async (result) => {
+        if (result && result.saleData) {
+          generateSalesReceipt(result.saleData);
+          
+          setQuickSale({ 
+            itemCode: '', 
+            quantity: 1, 
+            customPrice: '', 
+            customerName: '',
+            customerPhone: ''
+          });
+          
+          setSuccess('Sale completed successfully! Receipt downloaded.');
+          
+          await Promise.all([
+            fetchLocationStocks(user.location),
+            fetchLocationSales(user.location)
+          ]);
+        }
+      }).catch((error) => {
+        const errorAuditLog = {
+          action: 'quick_sale_error',
+          itemCode: quickSale.itemCode,
+          quantity: quickSale.quantity,
+          customer: quickSale.customerName,
+          location: user.location,
+          user: user.uid,
+          userName: user.fullName,
+          timestamp: serverTimestamp(),
+          error: error.message,
+          status: 'failed'
+        };
+
+        addDoc(collection(db, 'auditLogs'), errorAuditLog);
+        
+        console.error('Transaction failed:', error);
+        setError(`Sale failed: ${error.message}`);
+        throw error;
+      });
+
+    } catch (error) {
+      console.error('Quick sale error:', error);
+      if (!error.message.includes('Sale failed:')) {
+        setError('Error processing sale: ' + error.message);
       }
     } finally {
-      setGeneratingReport(false);
+      setIsProcessingSale(false);
     }
-  }, [reportFilters, user?.location]); // Added user location dependency
-
-  // Filter Functions using tables
-  const getFilteredAllStocks = () => {
-    let filtered = stocksTable;
-    
-    if (searchTerm) {
-      filtered = filtered.filter(stock => 
-        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-    
-    if (filterBrand) {
-      filtered = filtered.filter(stock => stock.brand === filterBrand);
-    }
-    
-    if (selectedLocation && selectedLocation !== 'all') {
-      filtered = filtered.filter(stock => stock.location === selectedLocation);
-    }
-    
-    return filtered;
   };
 
-  const getFilteredLocationStocks = () => {
-    let filtered = locationStocks;
-    
-    if (searchTerm) {
-      filtered = filtered.filter(stock => 
-        stock.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.model?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+  // Generate Sales Receipt (same as before)
+  const generateSalesReceipt = (saleData) => {
+    try {
+      if (!saleData || !saleData.receiptNumber) {
+        throw new Error('Invalid sale data for receipt generation');
+      }
+
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
+      
+      // Set background color
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
+      
+      // Add watermark
+      doc.setFontSize(50);
+      doc.setTextColor(30, 41, 59, 20);
+      doc.setFont('helvetica', 'bold');
+      
+      const watermarkText = "7 DAYS WARRANTY";
+      const textWidth = doc.getTextWidth(watermarkText);
+      const angle = 45;
+      
+      doc.saveGraphicsState();
+      doc.setGState(new jsPDF.GState({opacity: 0.08}));
+      
+      for (let i = -1; i < 2; i++) {
+        for (let j = -1; j < 2; j++) {
+          doc.text(watermarkText, 
+            pageWidth/2 + (i * 100), 
+            pageHeight/2 + (j * 80), 
+            { align: 'center', angle: angle }
+          );
+        }
+      }
+      
+      doc.restoreGraphicsState();
+      doc.setGState(new jsPDF.GState({opacity: 1}));
+      
+      // Header
+      doc.setFontSize(28);
+      doc.setTextColor(96, 165, 250);
+      doc.setFont('helvetica', 'bold');
+      doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
+      
+      // Warranty badge
+      doc.setFontSize(11);
+      doc.setFillColor(59, 130, 246, 20);
+      doc.roundedRect(pageWidth/2 - 45, 30, 90, 8, 4, 4, 'F');
+      doc.setTextColor(96, 165, 250);
+      doc.setFont('helvetica', 'bold');
+      doc.text('✅ 7 DAYS WARRANTY GUARANTEE', pageWidth / 2, 35, { align: 'center' });
+      
+      doc.setFontSize(14);
+      doc.setTextColor(226, 232, 240);
+      doc.setFont('helvetica', 'normal');
+      doc.text('OFFICIAL SALES RECEIPT', pageWidth / 2, 45, { align: 'center' });
+      
+      // Receipt details
+      doc.setFontSize(10);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 55);
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, pageWidth - 20, 55, { align: 'right' });
+      doc.text(`Time: ${new Date().toLocaleTimeString()}`, pageWidth - 20, 61, { align: 'right' });
+      
+      // Customer Information
+      doc.setFontSize(14);
+      doc.setTextColor(96, 165, 250);
+      doc.text('CUSTOMER INFORMATION', 20, 72);
+      
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(20, 77, pageWidth - 40, 20, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(226, 232, 240);
+      doc.text(`Customer Name: ${saleData.customerName}`, 25, 85);
+      doc.text(`Contact: ${saleData.customerPhone || 'Not Provided'}`, pageWidth - 25, 85, { align: 'right' });
+      
+      // Sale Details
+      doc.setFontSize(14);
+      doc.setTextColor(96, 165, 250);
+      doc.text('SALE DETAILS', 20, 102);
+      
+      const saleDetails = [
+        ['Item Description', 'Qty', 'Unit Price', 'Total'],
+        [
+          `${saleData.brand} ${saleData.model}`,
+          saleData.quantity.toString(),
+          `MK ${saleData.retailPrice?.toLocaleString() || '0'}`,
+          `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}`
+        ]
+      ];
+      
+      autoTable(doc, {
+        startY: 107,
+        head: [saleDetails[0]],
+        body: saleDetails.slice(1),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [30, 41, 59],
+          textColor: [96, 165, 250],
+          fontSize: 10,
+          fontStyle: 'bold',
+          lineWidth: 0.5,
+          lineColor: [51, 65, 85]
+        },
+        bodyStyles: { 
+          textColor: [226, 232, 240],
+          fontSize: 10,
+          lineWidth: 0.5,
+          lineColor: [51, 65, 85]
+        },
+        alternateRowStyles: { fillColor: [15, 23, 42] },
+        margin: { left: 20, right: 20 }
+      });
+      
+      const finalY = doc.lastAutoTable.finalY + 10;
+      
+      // Summary
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(20, finalY, pageWidth - 40, 40, 3, 3, 'F');
+      
+      doc.setFontSize(11);
+      doc.setTextColor(226, 232, 240);
+      
+      const summaryItems = [
+        { label: 'Subtotal:', value: `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}` },
+        { label: 'Discount:', value: `${saleData.discountPercentage || 0}%` },
+        { label: 'Total Amount:', value: `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}` }
+      ];
+      
+      let yPos = finalY + 15;
+      summaryItems.forEach(item => {
+        doc.text(item.label, 25, yPos);
+        doc.text(item.value, pageWidth - 25, yPos, { align: 'right' });
+        yPos += 10;
+      });
+      
+      // Payment Information
+      doc.setFontSize(14);
+      doc.setTextColor(96, 165, 250);
+      doc.text('PAYMENT INFORMATION', 20, yPos + 10);
+      
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(20, yPos + 15, pageWidth - 40, 25, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(226, 232, 240);
+      doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, 25, yPos + 25);
+      doc.text(`Sold By: ${saleData.soldByName || user?.fullName}`, 25, yPos + 32);
+      doc.text(`Location: ${saleData.location || user?.location}`, pageWidth - 25, yPos + 25, { align: 'right' });
+      
+      // Warranty Information
+      doc.setFillColor(15, 23, 42);
+      doc.setDrawColor(59, 130, 246);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(20, yPos + 45, pageWidth - 40, 25, 3, 3, 'DF');
+      
+      doc.setFontSize(11);
+      doc.setTextColor(96, 165, 250);
+      doc.text('🔒 WARRANTY INFORMATION', pageWidth / 2, yPos + 55, { align: 'center' });
+      
+      doc.setFontSize(9);
+      doc.setTextColor(148, 163, 184);
+      doc.text('This product comes with a 7-day warranty from date of purchase', pageWidth / 2, yPos + 61, { align: 'center' });
+      doc.text('Warranty covers manufacturing defects only', pageWidth / 2, yPos + 67, { align: 'center' });
+      
+      // Footer
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Thank you for choosing KM Electronics!', pageWidth / 2, pageHeight - 25, { align: 'center' });
+      doc.text('For warranty claims, bring this receipt and the product to our store', pageWidth / 2, pageHeight - 20, { align: 'center' });
+      doc.text('Contact: +86 187 1117 7003 | +265 995 181 454', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('© 2024 KM Electronics. All rights reserved.', pageWidth / 2, pageHeight - 10, { align: 'center' });
+      
+      const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
+      doc.save(filename);
+      
+      console.log(`Receipt generated: ${filename}`);
+      
+    } catch (error) {
+      console.error('Receipt generation error:', error);
+      setError('Sale completed but receipt generation failed. Please contact support.');
     }
-    
-    if (filterBrand) {
-      filtered = filtered.filter(stock => stock.brand === filterBrand);
-    }
-    
-    return filtered;
   };
 
-  const getFilteredFaultyPhones = () => {
-    let filtered = faultyTable;
-    
-    if (searchTerm) {
-      filtered = filtered.filter(faulty => 
-        faulty.itemCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        faulty.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+  // ACID-Compliant Stock Request (same as before)
+  const handleRequestStock = async () => {
+    try {
+      if (!transferStock.itemCode || !transferStock.quantity || !transferStock.toLocation) {
+        setError('Please fill all required fields');
+        return;
+      }
+
+      const quantity = parseInt(transferStock.quantity);
+      if (isNaN(quantity) || quantity <= 0) {
+        setError('Quantity must be greater than 0');
+        return;
+      }
+
+      if (transferStock.toLocation === user.location) {
+        setError('Destination location must be different from your location');
+        return;
+      }
+
+      await executeWithRetry(async () => {
+        return await runTransaction(db, async (transaction) => {
+          const stockQuery = query(
+            collection(db, 'stocks'),
+            where('itemCode', '==', transferStock.itemCode),
+            where('location', '==', user.location)
+          );
+          
+          const stockSnapshot = await getDocs(stockQuery);
+          
+          if (stockSnapshot.empty) {
+            throw new Error(`Item not found in ${user.location}`);
+          }
+
+          const stockDoc = stockSnapshot.docs[0];
+          const stockRef = doc(db, 'stocks', stockDoc.id);
+          const freshStockDoc = await transaction.get(stockRef);
+          
+          if (!freshStockDoc.exists()) {
+            throw new Error('Stock item was deleted during transaction');
+          }
+
+          const stock = freshStockDoc.data();
+
+          if (stock.quantity < quantity) {
+            throw new Error(`Insufficient stock! Only ${stock.quantity} units available.`);
+          }
+
+          const requestData = {
+            itemCode: transferStock.itemCode,
+            quantity: quantity,
+            fromLocation: user.location,
+            toLocation: transferStock.toLocation,
+            status: 'pending',
+            requestedBy: user.uid,
+            requestedByName: user.fullName,
+            requestedByLocation: user.location,
+            requestedAt: serverTimestamp(),
+            sourceStockId: stockDoc.id,
+            transactionId: Date.now().toString() + Math.random().toString(36).substr(2, 9)
+          };
+
+          const requestRef = doc(collection(db, 'stockRequests'));
+          transaction.set(requestRef, requestData);
+
+          const auditLog = {
+            action: 'stock_request',
+            itemCode: transferStock.itemCode,
+            quantity: quantity,
+            fromLocation: user.location,
+            toLocation: transferStock.toLocation,
+            user: user.uid,
+            userName: user.fullName,
+            timestamp: serverTimestamp(),
+            transactionId: requestData.transactionId,
+            status: 'pending'
+          };
+
+          const auditRef = doc(collection(db, 'auditLogs'));
+          transaction.set(auditRef, auditLog);
+
+          return requestData;
+        });
+      }).then(() => {
+        setTransferStock({
+          itemCode: '',
+          quantity: '',
+          fromLocation: '',
+          toLocation: ''
+        });
+        setTransferModalOpen(false);
+        setSuccess('Stock transfer request submitted successfully!');
+        
+        fetchStockRequests(user.location);
+      }).catch((error) => {
+        setError('Error submitting request: ' + error.message);
+        throw error;
+      });
+      
+    } catch (error) {
+      console.error('Stock request error:', error);
+      if (!error.message.includes('Error submitting request:')) {
+        setError('Error submitting request: ' + error.message);
+      }
     }
-    
-    if (filterStatus) {
-      filtered = filtered.filter(faulty => faulty.status === filterStatus);
-    }
-    
-    return filtered;
   };
 
-  const getFilteredSales = () => {
-    if (selectedLocation === 'all') {
-      return salesTable;
+  // ACID-Compliant Installment Creation (same as before)
+  const handleCreateInstallment = async () => {
+    try {
+      if (!installmentData.customerName || !installmentData.totalAmount) {
+        setError('Please fill in required fields');
+        return;
+      }
+
+      const totalAmount = parseFloat(installmentData.totalAmount);
+      const downPayment = parseFloat(installmentData.downPayment) || 0;
+
+      if (totalAmount <= 0) {
+        setError('Total amount must be greater than 0');
+        return;
+      }
+
+      if (downPayment < 0) {
+        setError('Down payment cannot be negative');
+        return;
+      }
+
+      if (downPayment > totalAmount) {
+        setError('Down payment cannot exceed total amount');
+        return;
+      }
+
+      const transactionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      const remainingAmount = totalAmount - downPayment;
+      const months = parseInt(installmentData.installmentPlan);
+      const monthlyPayment = remainingAmount / months;
+
+      await executeWithRetry(async () => {
+        return await runTransaction(db, async (transaction) => {
+          const installmentDataToSave = {
+            ...installmentData,
+            saleId: installmentData.saleId,
+            customerName: installmentData.customerName,
+            phoneNumber: installmentData.phoneNumber,
+            totalAmount: totalAmount,
+            downPayment: downPayment,
+            remainingAmount: remainingAmount,
+            installmentPlan: installmentData.installmentPlan,
+            monthlyPayment: monthlyPayment,
+            nextPaymentDate: installmentData.nextPaymentDate,
+            notes: installmentData.notes,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid,
+            createdByName: user.fullName,
+            location: user.location,
+            status: 'active',
+            transactionId: transactionId,
+            payments: downPayment > 0 ? [{
+              amount: downPayment,
+              date: new Date().toISOString().split('T')[0],
+              type: 'down_payment',
+              receiptNumber: `DP-${Date.now()}`,
+              recordedAt: serverTimestamp()
+            }] : []
+          };
+
+          const installmentRef = doc(collection(db, 'installments'));
+          transaction.set(installmentRef, installmentDataToSave);
+
+          if (installmentData.saleId) {
+            const saleRef = doc(db, 'sales', installmentData.saleId);
+            const saleDoc = await transaction.get(saleRef);
+            
+            if (saleDoc.exists()) {
+              transaction.update(saleRef, {
+                paymentType: 'installment',
+                installmentId: installmentRef.id,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }
+
+          const auditLog = {
+            action: 'create_installment',
+            customerName: installmentData.customerName,
+            totalAmount: totalAmount,
+            downPayment: downPayment,
+            remainingAmount: remainingAmount,
+            months: months,
+            user: user.uid,
+            userName: user.fullName,
+            location: user.location,
+            timestamp: serverTimestamp(),
+            transactionId: transactionId,
+            status: 'created'
+          };
+
+          const auditRef = doc(collection(db, 'auditLogs'));
+          transaction.set(auditRef, auditLog);
+
+          return { installmentId: installmentRef.id, data: installmentDataToSave };
+        });
+      }).then(() => {
+        setInstallmentModalOpen(false);
+        setInstallmentData({
+          saleId: '',
+          customerName: '',
+          phoneNumber: '',
+          totalAmount: 0,
+          downPayment: 0,
+          remainingAmount: 0,
+          installmentPlan: '1',
+          monthlyPayment: 0,
+          nextPaymentDate: '',
+          notes: ''
+        });
+        
+        setSuccess('Installment plan created successfully!');
+        
+        fetchInstallments(user.location);
+      }).catch((error) => {
+        setError('Error creating installment plan: ' + error.message);
+        throw error;
+      });
+      
+    } catch (error) {
+      console.error('Create installment error:', error);
+      if (!error.message.includes('Error creating installment plan:')) {
+        setError('Error creating installment plan: ' + error.message);
+      }
     }
-    return salesTable.filter(sale => sale.location === selectedLocation);
   };
 
-  const getFilteredStockRequests = () => {
-    if (selectedLocation === 'all') {
-      return stockRequests;
+  // ACID-Compliant Faulty Phone Report (same as before)
+  const handleReportFaultyPhone = async () => {
+    try {
+      if (!faultyReport.itemCode || !faultyReport.faultDescription) {
+        setError('Please enter item code and fault description');
+        return;
+      }
+
+      await executeWithRetry(async () => {
+        return await runTransaction(db, async (transaction) => {
+          const stockQuery = query(
+            collection(db, 'stocks'),
+            where('itemCode', '==', faultyReport.itemCode),
+            where('location', '==', user.location)
+          );
+          
+          const stockSnapshot = await getDocs(stockQuery);
+          
+          if (stockSnapshot.empty) {
+            throw new Error(`Item "${faultyReport.itemCode}" not found in ${user.location}`);
+          }
+
+          const stockDoc = stockSnapshot.docs[0];
+          const stockRef = doc(db, 'stocks', stockDoc.id);
+          const freshStockDoc = await transaction.get(stockRef);
+          
+          if (!freshStockDoc.exists()) {
+            throw new Error('Stock item was deleted during transaction');
+          }
+
+          const stock = freshStockDoc.data();
+          const transactionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+
+          const faultyData = {
+            ...faultyReport,
+            stockId: stockDoc.id,
+            brand: stock.brand,
+            model: stock.model,
+            location: user.location,
+            reportedBy: user.uid,
+            reportedByName: user.fullName,
+            reportedAt: serverTimestamp(),
+            estimatedRepairCost: parseFloat(faultyReport.estimatedRepairCost) || 0,
+            reportedCost: parseFloat(faultyReport.reportedCost) || 0,
+            transactionId: transactionId,
+            statusHistory: [{
+              status: faultyReport.status,
+              changedAt: serverTimestamp(),
+              changedBy: user.uid,
+              changedByName: user.fullName
+            }]
+          };
+
+          const faultyRef = doc(collection(db, 'faultyPhones'));
+          transaction.set(faultyRef, faultyData);
+
+          if (stock.quantity > 0) {
+            transaction.update(stockRef, {
+              quantity: increment(-1),
+              updatedAt: serverTimestamp(),
+              faultyReported: increment(1)
+            });
+          }
+
+          const auditLog = {
+            action: 'report_faulty',
+            itemCode: faultyReport.itemCode,
+            brand: stock.brand,
+            model: stock.model,
+            faultDescription: faultyReport.faultDescription,
+            reportedCost: faultyReport.reportedCost,
+            location: user.location,
+            user: user.uid,
+            userName: user.fullName,
+            timestamp: serverTimestamp(),
+            transactionId: transactionId,
+            status: 'reported'
+          };
+
+          const auditRef = doc(collection(db, 'auditLogs'));
+          transaction.set(auditRef, auditLog);
+
+          return { faultyId: faultyRef.id, data: faultyData };
+        });
+      }).then(() => {
+        setReportModalOpen(false);
+        setFaultyReport({
+          itemCode: '',
+          stockId: '',
+          brand: '',
+          model: '',
+          imei: '',
+          faultDescription: '',
+          reportedCost: 0,
+          status: 'Reported',
+          sparesNeeded: [],
+          otherSpares: '',
+          customerName: '',
+          customerPhone: '',
+          estimatedRepairCost: 0,
+          images: [],
+          notes: ''
+        });
+        
+        setSuccess('Faulty phone reported successfully!');
+        
+        fetchFaultyPhones(user.location);
+      }).catch((error) => {
+        setError('Error reporting faulty phone: ' + error.message);
+        throw error;
+      });
+      
+    } catch (error) {
+      console.error('Report faulty phone error:', error);
+      if (!error.message.includes('Error reporting faulty phone:')) {
+        setError('Error reporting faulty phone: ' + error.message);
+      }
     }
-    return stockRequests.filter(request => 
-      request.fromLocation === selectedLocation || 
-      request.toLocation === selectedLocation ||
-      request.requestedByLocation === selectedLocation
-    );
   };
 
-  const calculateTotalStockValue = (stocksArray) => {
-    return stocksArray.reduce((total, stock) => {
+  // Helper Functions
+  const calculateTodaySales = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todaySales = sales.filter(sale => {
+      const saleDate = sale.soldAt?.toDate();
+      return saleDate && saleDate >= today;
+    });
+
+    return {
+      count: todaySales.length,
+      revenue: todaySales.reduce((total, sale) => total + (sale.finalSalePrice || 0), 0)
+    };
+  };
+
+  const calculateTotalStockValue = () => {
+    return stocks.reduce((total, stock) => {
       return total + ((stock.costPrice || 0) * (stock.quantity || 0));
     }, 0);
   };
 
-  // Filter users to exclude managers, admins, and superadmins from role/location changes
-  const getFilteredUsers = () => {
-    return usersTable;
+  const getFilteredStocks = () => {
+    if (!stocks || !Array.isArray(stocks)) return [];
+    
+    let filtered = [...stocks];
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(stock => 
+        (stock.itemCode?.toLowerCase() || '').includes(term) ||
+        (stock.brand?.toLowerCase() || '').includes(term) ||
+        (stock.model?.toLowerCase() || '').includes(term)
+      );
+    }
+    
+    if (filterBrand && filterBrand !== 'all') {
+      filtered = filtered.filter(stock => stock.brand === filterBrand);
+    }
+    
+    return filtered;
   };
 
-  // Helper functions
   const getStatusBadgeColor = (status) => {
     switch (status) {
-      case 'pending': return 'bg-yellow-500/20 text-yellow-300';
-      case 'approved': return 'bg-green-500/20 text-green-300';
-      case 'rejected': return 'bg-red-500/20 text-red-300';
-      case 'failed': return 'bg-red-500/20 text-red-300';
-      case 'completed': return 'bg-blue-500/20 text-blue-300';
-      default: return 'bg-gray-500/20 text-gray-300';
+      case 'pending': return 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30';
+      case 'approved': return 'bg-green-500/20 text-green-300 border border-green-500/30';
+      case 'rejected': return 'bg-red-500/20 text-red-300 border border-red-500/30';
+      case 'completed': return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+      default: return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
     }
   };
 
-  const getRoleBadgeColor = (role) => {
-    return role === 'sales' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300';
-  };
-
   const getStockStatusBadge = (quantity) => {
-    return quantity > 10 ? 'bg-green-500/20 text-green-300' :
-           quantity > 0 ? 'bg-orange-500/20 text-orange-300' :
-           'bg-red-500/20 text-red-300';
+    return quantity > 10 ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+           quantity > 0 ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+           'bg-red-500/20 text-red-300 border border-red-500/30';
   };
 
-  const getUniqueBrands = () => {
-    return [...new Set(stocksTable.map(stock => stock.brand).filter(Boolean))];
+  const getInstallmentStatusBadge = (status) => {
+    switch (status) {
+      case 'active': return 'bg-green-500/20 text-green-300 border border-green-500/30';
+      case 'overdue': return 'bg-red-500/20 text-red-300 border border-red-500/30';
+      case 'completed': return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+      case 'cancelled': return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
+      default: return 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30';
+    }
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
-      <div className={'min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center'}>
-        <div className={'text-white'}>Loading Manager Dashboard...</div>
+      <div className="min-h-screen bg-linear-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-6 text-slate-300 font-medium">Loading Manager Dashboard...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={'min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900'}>
-      {/* Header */}
-      <header className={'bg-white/10 backdrop-blur-lg border-b border-white/20'}>
-        <div className={'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}>
-          <div className={'flex flex-col sm:flex-row sm:justify-between sm:items-center py-4 space-y-4 sm:space-y-0'}>
-            <div>
-              <h1 className={'text-xl sm:text-2xl font-bold text-white'}>
-                KM ELECTRONICS <span className={'text-orange-500'}>MANAGEMENT</span>
-              </h1>
-              <p className={'text-white/70 text-sm'}>
-                Welcome, {user?.fullName} | Assigned Location: {user?.location}
-              </p>
-            </div>
-            
-            <div className={'flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4'}>
-              <select
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-                className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm'}
-              >
-                <option value={'all'}>All Locations (View Only)</option>
-                <option value={user?.location}>My Location: {user?.location} (Sell)</option>
-                {LOCATIONS.map((location, index) => (
-                  <option key={generateSafeKey('location-option', index, location)} value={location}>{location}</option>
-                ))}
-              </select>
-              
-              <button
-                onClick={() => signOut(auth).then(() => router.push('/login'))}
-                className={'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors text-sm'}
-              >
-                Logout
-              </button>
+    <div className="min-h-screen bg-linear-to-br from-slate-900 via-blue-900 to-slate-900">
+      {/* Error/Success Alerts */}
+      {error && (
+        <div className="fixed top-4 right-4 z-50">
+          <Alert variant="destructive" className="w-96">
+            <FiAlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+      
+      {success && (
+        <div className="fixed top-4 right-4 z-50">
+          <Alert className="w-96 bg-green-900/30 border-green-700">
+            <FiCheck className="h-4 w-4" />
+            <AlertTitle>Success</AlertTitle>
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+      
+      <div className="flex h-screen">
+        {/* Desktop Sidebar (same as before) */}
+        {!isMobile && isSidebarOpen && (
+          <div className="hidden lg:flex lg:shrink-0 transition-all duration-300 w-64">
+            <div className="flex flex-col w-64">
+              <div className="flex flex-col grow bg-slate-900 border-r border-slate-800 pt-5 pb-4 overflow-y-auto">
+                <div className="flex items-center justify-between shrink-0 px-4">
+                  <div className="flex items-center">
+                    <FiShoppingBag className="h-8 w-8 text-blue-500" />
+                    <div className="ml-3">
+                      <h1 className="text-xl font-bold text-white">KM MGNT</h1>
+                      <p className="text-xs text-slate-400">Manager Panel</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="hidden lg:inline-flex"
+                  >
+                    <FiChevronLeft className="h-5 w-5 text-white" />
+                  </Button>
+                </div>
+                <div className="mt-8 flex-1 flex flex-col">
+                  <nav className="flex-1 px-2 space-y-1">
+                    {navItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => handleTabChange(item.id)}
+                        className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full justify-between ${
+                          activeTab === item.id
+                            ? 'bg-blue-900/30 text-white border-l-4 border-blue-500'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        } ${tabLoading && activeTab !== item.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={tabLoading && activeTab !== item.id}
+                      >
+                        <div className="flex items-center">
+                          {item.icon}
+                          <span className="ml-3">{item.name}</span>
+                        </div>
+                        {item.count && stockRequests.length > 0 && (
+                          <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                            {stockRequests.length}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </nav>
+                </div>
+                <div className="shrink-0 flex border-t border-slate-800 p-4">
+                  <div className="flex items-center">
+                    <Avatar>
+                      <AvatarFallback className="bg-blue-600">
+                        {user?.fullName?.charAt(0) || 'M'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-white">{user?.fullName}</p>
+                      <p className="text-xs text-slate-400">Manager • {user?.location}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
-
-      {/* Navigation Tabs */}
-      <div className={'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'}>
-        <div className={'border-b border-white/20'}>
-          <nav className={'-mb-px flex flex-wrap space-x-4 sm:space-x-8 overflow-x-auto'}>
-            {[
-              { id: 'dashboard', name: 'Dashboard', mobileName: 'Dashboard' },
-              { id: 'allStocks', name: 'View All Stocks', mobileName: 'All Stocks' },
-              { id: 'myStocks', name: 'My Location Stocks', mobileName: 'My Stocks' },
-              { id: 'quickSale', name: 'Quick Sale', mobileName: 'Quick Sale' },
-              { id: 'salesHistory', name: 'Sales History', mobileName: 'Sales Hist.' },
-              { id: 'faultyPhones', name: 'Faulty Phones', mobileName: 'Faulty' },
-              { id: 'installments', name: 'Installments', mobileName: 'Installments' },
-              { id: 'salesAnalysis', name: 'Sales Analysis', mobileName: 'Analysis' },
-              { id: 'transfer', name: 'Stock Transfer', mobileName: 'Transfer' },
-              { id: 'personnel', name: 'Personnel', mobileName: 'Personnel' },
-              { id: 'requests', name: 'Requests', mobileName: 'Requests', count: getFilteredStockRequests().filter(r => r.status === 'pending').length }
-            ].map((tab, index) => (
-              <button
-                key={generateSafeKey('tab', index, tab.id)}
-                onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap py-2 sm:py-4 px-1 border-b-2 font-medium text-xs sm:text-sm ${
-                  activeTab === tab.id
-                    ? 'border-orange-500 text-orange-400'
-                    : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
-                }`}
-              >
-                <span className="hidden sm:inline">{tab.name}</span>
-                <span className="sm:hidden">{tab.mobileName}</span>
-                {tab.count > 0 && (
-                  <span className={'ml-1 sm:ml-2 bg-orange-500 text-white py-0.5 px-1 sm:px-2 rounded-full text-xs'}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Content */}
-        <div className={'py-6'}>
-          {/* Dashboard Tab */}
-          {activeTab === 'dashboard' && (
-            <div className={'space-y-6'}>
-              {/* Analytics Cards */}
-              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6'>
-                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-xs sm:text-sm'>Total Stock Value (All Locations)</h3>
-                  <p className='text-xl sm:text-2xl font-bold text-green-400'>
-                    MK {calculateTotalStockValue(stocksTable).toLocaleString()}
-                  </p>
+        )}
+        
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile Header (same as before) */}
+          <div className="lg:hidden sticky top-0 z-40 bg-slate-900 border-b border-slate-800">
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="lg:hidden"
+                  onClick={() => setIsSidebarOpen(true)}
+                >
+                  <FiMenu className="h-6 w-6 text-white" />
+                </Button>
+                <div className="ml-4">
+                  <h1 className="text-lg font-semibold text-white">KM ELECTRONICS</h1>
+                  <p className="text-xs text-slate-400">Manager</p>
                 </div>
-                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-xs sm:text-sm'>My Location Stock Value</h3>
-                  <p className='text-xl sm:text-2xl font-bold text-blue-400'>
-                    MK {calculateTotalStockValue(locationStocks).toLocaleString()}
-                  </p>
-                </div>
-                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-xs sm:text-sm'>Total Sales (All)</h3>
-                  <p className='text-xl sm:text-2xl font-bold text-purple-400'>
-                    {salesAnalysis.totalSales}
-                  </p>
-                </div>
-                <div className='bg-white/5 rounded-lg p-4 sm:p-6 border border-white/10'>
-                  <h3 className='text-white/70 text-xs sm:text-sm'>Faulty Phones (My Location)</h3>
-                  <p className='text-xl sm:text-2xl font-bold text-orange-400'>
-                    {faultyTable.length}
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="bg-blue-600">
+                        {user?.fullName?.charAt(0) || 'M'}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end">
+                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => signOut(auth).then(() => router.push('/login'))}>
+                    <FiLogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+          
+          {/* Desktop Header */}
+          <div className="hidden lg:block sticky top-0 z-40 bg-slate-900/80 backdrop-blur-lg border-b border-slate-800">
+            <div className="flex items-center justify-between px-6 py-4">
+              <div className="flex items-center">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  className="mr-4"
+                >
+                  <FiMenu className="h-6 w-6 text-white" />
+                </Button>
+                <div>
+                  <h1 className="text-xl font-semibold text-white">
+                    {navItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
+                  </h1>
+                  <p className="text-sm text-slate-400">
+                    Welcome, {user?.fullName} | Manager • {user?.location}
                   </p>
                 </div>
               </div>
+              
+              <div className="flex items-center space-x-4">
+                <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30">
+                  {user?.location}
+                </Badge>
+                
+                <Button
+                  onClick={handleRefreshData}
+                  variant="outline"
+                  size="sm"
+                  className="text-slate-300 hover:text-white"
+                  disabled={loading}
+                >
+                  <FiRefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh Data
+                </Button>
+                
+                <Button
+                  onClick={() => validateDatabaseConsistency()}
+                  variant="outline"
+                  size="sm"
+                  className="text-slate-300 hover:text-white"
+                  disabled={loading}
+                >
+                  <FiDatabase className="w-4 h-4 mr-2" />
+                  Validate DB
+                </Button>
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="bg-blue-600">
+                          {user?.fullName?.charAt(0) || 'M'}
+                        </AvatarFallback>
+                      </Avatar>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56" align="end" forceMount>
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">{user?.fullName}</p>
+                        <p className="text-xs leading-none text-slate-500">
+                          Manager • {user?.location}
+                        </p>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => signOut(auth).then(() => router.push('/login'))}>
+                      <FiLogOut className="mr-2 h-4 w-4" />
+                      <span>Log out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
 
-              <div className={'grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6'}>
-                {/* Live Sales Feed */}
-                <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-4 sm:p-6'}>
-                  <h2 className={'text-lg sm:text-xl font-semibold text-white mb-4'}>Live Sales Feed</h2>
-                  <div className={'space-y-3 max-h-80 overflow-y-auto'}>
-                    {realTimeSales.liveSales.slice(0, 5).map((sale, index) => (
-                      <div key={generateSafeKey('live-sale', index, sale.id)} className={'flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 bg-white/5 rounded-lg space-y-2 sm:space-y-0'}>
-                        <div>
-                          <div className={'text-white font-medium text-sm sm:text-base'}>{sale.brand} {sale.model}</div>
-                          <div className={'text-white/70 text-xs sm:text-sm'}>
-                            {sale.location} • {sale.soldByName}
-                          </div>
+          {/* Mobile Sidebar (same as before) */}
+          {isMobile && (
+            <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
+              <SheetContent side="left" className="w-64 bg-slate-900 border-r border-slate-800 p-0">
+                <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
+                  <div className="flex items-center">
+                    <FiShoppingBag className="h-8 w-8 text-blue-500" />
+                    <div className="ml-3">
+                      <h1 className="text-xl font-bold text-white">KM ELECTRONICS</h1>
+                      <p className="text-xs text-slate-400">Manager Panel</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)}>
+                    <FiX className="h-5 w-5 text-white" />
+                  </Button>
+                </div>
+                <ScrollArea className="h-[calc(100vh-4rem)]">
+                  <div className="p-4 space-y-2">
+                    {navItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          handleTabChange(item.id);
+                          setIsSidebarOpen(false);
+                        }}
+                        className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full justify-between ${
+                          activeTab === item.id
+                            ? 'bg-blue-900/30 text-white border-l-4 border-blue-500'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        } ${tabLoading && activeTab !== item.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={tabLoading && activeTab !== item.id}
+                      >
+                        <div className="flex items-center">
+                          {item.icon}
+                          <span className="ml-3">{item.name}</span>
                         </div>
-                        <div className={'text-left sm:text-right'}>
-                          <div className={'text-green-400 font-semibold text-sm sm:text-base'}>MK {sale.finalSalePrice || 0}</div>
-                          <div className={'text-white/50 text-xs'}>
-                            {sale.soldAt?.toDate().toLocaleTimeString() || 'Just now'}
+                        {item.count && stockRequests.length > 0 && (
+                          <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                            {stockRequests.length}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="p-4 border-t border-slate-800">
+                    <div className="flex items-center">
+                      <Avatar>
+                        <AvatarFallback className="bg-blue-600">
+                          {user?.fullName?.charAt(0) || 'M'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="ml-3">
+                        <p className="text-sm font-medium text-white">{user?.fullName}</p>
+                        <p className="text-xs text-slate-400">Manager • {user?.location}</p>
+                      </div>
+                    </div>
+                  </div>
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
+          )}
+
+          {/* Main Content Area */}
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+            {tabLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                  <p className="mt-4 text-slate-300 font-medium">Loading {navItems.find(item => item.id === activeTab)?.name || 'Data'}...</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Dashboard Tab (same as before) */}
+                {activeTab === 'dashboard' && (
+                  <div className="space-y-6">
+                    {/* Analytics Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-slate-400">Today's Sales</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-green-400">{calculateTodaySales().count}</div>
+                          <p className="text-xs text-slate-500 mt-1">{formatCurrency(calculateTodaySales().revenue)}</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-slate-400">Stock Value</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-blue-400">
+                            {formatCurrency(calculateTotalStockValue())}
                           </div>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-slate-400">Faulty Phones</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-orange-400">
+                            {faultyPhones.length}
+                          </div>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-slate-400">Pending Requests</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-yellow-400">
+                            {stockRequests.length}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader>
+                          <CardTitle className="text-white">Quick Actions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Button
+                              onClick={() => handleTabChange('quickSale')}
+                              className="w-full h-auto py-4 bg-blue-600 hover:bg-blue-700"
+                            >
+                              <FiShoppingCart className="mr-2 h-5 w-5" />
+                              Quick Sale
+                            </Button>
+                            <Button
+                              onClick={() => setReportModalOpen(true)}
+                              className="w-full h-auto py-4 bg-orange-600 hover:bg-orange-700"
+                            >
+                              <FiAlertTriangle className="mr-2 h-5 w-5" />
+                              Report Faulty
+                            </Button>
+                            <Button
+                              onClick={() => setTransferModalOpen(true)}
+                              className="w-full h-auto py-4 bg-green-600 hover:bg-green-700"
+                            >
+                              <FiTruck className="mr-2 h-5 w-5" />
+                              Request Stock
+                            </Button>
+                            <Button
+                              onClick={() => setInstallmentModalOpen(true)}
+                              className="w-full h-auto py-4 bg-purple-600 hover:bg-purple-700"
+                            >
+                              <FiCreditCard className="mr-2 h-5 w-5" />
+                              Create Installment
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Recent Sales */}
+                      <Card className="bg-slate-800/50 border-slate-700">
+                        <CardHeader>
+                          <CardTitle className="text-white">Recent Sales</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ScrollArea className="h-64">
+                            <div className="space-y-3">
+                              {sales.slice(0, 5).map((sale) => (
+                                <div key={sale.id} className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                                  <div>
+                                    <div className="text-white font-medium">{sale.brand} {sale.model}</div>
+                                    <div className="text-slate-400 text-sm">
+                                      {sale.customerName} • {sale.soldByName}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-green-400 font-semibold">{formatCurrency(sale.finalSalePrice)}</div>
+                                    <div className="text-slate-500 text-xs">
+                                      {sale.soldAt?.toDate().toLocaleTimeString() || 'Just now'}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Stock Overview */}
+                    <Card className="bg-slate-800/50 border-slate-700">
+                      <CardHeader>
+                        <CardTitle className="text-white">Stock Overview - {user?.location}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-slate-700">
+                              <TableHead className="text-slate-300">Item Code</TableHead>
+                              <TableHead className="text-slate-300">Product</TableHead>
+                              <TableHead className="text-slate-300">Price</TableHead>
+                              <TableHead className="text-slate-300">Quantity</TableHead>
+                              <TableHead className="text-slate-300">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {stocks.slice(0, 5).map((stock) => (
+                              <TableRow key={stock.id} className="border-slate-700">
+                                <TableCell className="font-mono text-white">{stock.itemCode}</TableCell>
+                                <TableCell className="text-white">{stock.brand} {stock.model}</TableCell>
+                                <TableCell className="text-green-400">{formatCurrency(stock.retailPrice)}</TableCell>
+                                <TableCell>
+                                  <Badge className={getStockStatusBadge(stock.quantity)}>
+                                    {stock.quantity}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    onClick={() => {
+                                      setQuickSale(prev => ({
+                                        ...prev,
+                                        itemCode: stock.itemCode,
+                                        customerName: 'Walk-in Customer'
+                                      }));
+                                      handleTabChange('quickSale');
+                                    }}
+                                    size="sm"
+                                    disabled={stock.quantity === 0}
+                                  >
+                                    Sell
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* My Stocks Tab - FIXED Select Error */}
+                {activeTab === 'myStocks' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex justify-between items-center">
+                        <CardTitle className="text-white">
+                          My Stocks - {user?.location || 'Loading...'}
+                        </CardTitle>
+                        {!loading && (
+                          <div className="text-lg font-medium">
+                            <span className="text-slate-300">Total Value: </span>
+                            <span className="text-green-400 font-bold">
+                              {formatCurrency(calculateTotalStockValue())}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {/* Search and Filter - FIXED Select Error */}
+                      <div className="flex flex-col lg:flex-row gap-4 mb-6">
+                        <div className="relative flex-1">
+                          <FiSearch className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                          <Input
+                            type="text"
+                            placeholder="Search by item code, brand, or model..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-12 bg-slate-800/50 border-slate-600 text-white"
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="flex gap-4">
+                          <Select value={filterBrand} onValueChange={setFilterBrand}>
+                            <SelectTrigger className="w-48 bg-slate-800/50 border-slate-600 text-white">
+                              <SelectValue placeholder="All Brands" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* FIXED: Changed empty string value to "all" */}
+                              <SelectItem value="all">All Brands</SelectItem>
+                              {[...new Set(stocks.map(stock => stock.brand).filter(Boolean))].map(brand => (
+                                <SelectItem key={brand} value={brand}>{brand}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            onClick={() => { setSearchTerm(''); setFilterBrand('all'); }}
+                            variant="outline"
+                            className="bg-slate-700 hover:bg-slate-600 border-slate-600"
+                          >
+                            Clear
+                          </Button>
                         </div>
                       </div>
-                    ))}
-                    {realTimeSales.liveSales.length === 0 && (
-                      <p className={'text-white/70 text-center py-4'}>No sales today</p>
+
+                      {loading ? (
+                        // Loading skeleton
+                        <div className="space-y-4">
+                          {[...Array(5)].map((_, i) => (
+                            <div key={i} className="flex items-center space-x-4 p-4 bg-slate-800/30 rounded-lg">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-4 w-48" />
+                              <Skeleton className="h-4 w-24" />
+                              <Skeleton className="h-4 w-24" />
+                              <Skeleton className="h-8 w-20" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : stocks.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiPackage className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No stocks found for {user?.location}</p>
+                          <Button
+                            onClick={() => fetchLocationStocks(location)}
+                            variant="outline"
+                            className="mt-4"
+                          >
+                            <FiRefreshCw className="w-4 h-4 mr-2" />
+                            Refresh Stocks
+                          </Button>
+                        </div>
+                      ) : (
+                        <ScrollArea className="h-600px">
+                          <Table>
+                            <TableHeader className="bg-slate-800/50">
+                              <TableRow className="border-slate-700">
+                                <TableHead className="text-slate-300">Item Code</TableHead>
+                                <TableHead className="text-slate-300">Product</TableHead>
+                                <TableHead className="text-slate-300">Cost Price</TableHead>
+                                <TableHead className="text-slate-300">Retail Price</TableHead>
+                                <TableHead className="text-slate-300">Quantity</TableHead>
+                                <TableHead className="text-slate-300">Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {getFilteredStocks().map((stock) => (
+                                <TableRow key={stock.id} className="border-slate-700">
+                                  <TableCell className="font-mono text-white">{stock.itemCode}</TableCell>
+                                  <TableCell>
+                                    <div className="text-white font-medium">{stock.brand} {stock.model}</div>
+                                    <div className="text-slate-400 text-xs">{stock.color} • {stock.storage}</div>
+                                  </TableCell>
+                                  <TableCell className="text-slate-300">{formatCurrency(stock.costPrice)}</TableCell>
+                                  <TableCell className="text-green-400 font-medium">{formatCurrency(stock.retailPrice)}</TableCell>
+                                  <TableCell>
+                                    <Badge className={getStockStatusBadge(stock.quantity)}>
+                                      {stock.quantity}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex space-x-2">
+                                      <Button
+                                        onClick={() => {
+                                          setQuickSale(prev => ({
+                                            ...prev,
+                                            itemCode: stock.itemCode,
+                                            customerName: 'Walk-in Customer'
+                                          }));
+                                          handleTabChange('quickSale');
+                                        }}
+                                        size="sm"
+                                        disabled={stock.quantity === 0}
+                                      >
+                                        Sell
+                                      </Button>
+                                      {stock.quantity > 1 && (
+                                        <Button
+                                          onClick={() => {
+                                            const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
+                                            if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
+                                              setQuickSale(prev => ({
+                                                ...prev,
+                                                itemCode: stock.itemCode,
+                                                quantity: parseInt(quantity),
+                                                customerName: 'Walk-in Customer'
+                                              }));
+                                              handleTabChange('quickSale');
+                                            }
+                                          }}
+                                          variant="outline"
+                                          size="sm"
+                                        >
+                                          Bulk
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      )}
+                    </CardContent>
+                    {!loading && (
+                      <CardFooter className="flex justify-between border-t border-slate-700 pt-4">
+                        <div className="text-slate-400 text-sm">
+                          Showing {getFilteredStocks().length} of {stocks.length} items
+                        </div>
+                        <Button
+                          onClick={() => fetchLocationStocks(location)}
+                          variant="outline"
+                          size="sm"
+                          className="text-slate-300 hover:text-white"
+                        >
+                          <FiRefreshCw className="w-4 h-4 mr-2" />
+                          Refresh
+                        </Button>
+                      </CardFooter>
                     )}
-                  </div>
-                </div>
+                  </Card>
+                )}
 
-                {/* Quick Actions */}
-                <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-4 sm:p-6'>
-                  <h2 className='text-lg sm:text-xl font-semibold text-white mb-4'>Quick Actions</h2>
-                  <div className='space-y-3'>
-                    <button
-                      onClick={() => setActiveTab('quickSale')}
-                      className='w-full bg-blue-600 hover:bg-blue-700 text-blue-200 px-4 py-3 rounded-lg transition-colors text-left'
-                    >
-                      <div className='font-semibold text-sm sm:text-base'>Quick Sale</div>
-                      <div className='text-xs sm:text-sm'>Process a sale from your location</div>
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('myStocks')}
-                      className='w-full bg-green-600 hover:bg-green-700 text-green-200 px-4 py-3 rounded-lg transition-colors text-left'
-                    >
-                      <div className='font-semibold text-sm sm:text-base'>Sell from My Location</div>
-                      <div className='text-xs sm:text-sm'>Browse and sell items from {user?.location}</div>
-                    </button>
-                    <button
-                      onClick={() => setReportModal(true)}
-                      className='w-full bg-orange-600 hover:bg-orange-700 text-orange-200 px-4 py-3 rounded-lg transition-colors text-left'
-                    >
-                      <div className='font-semibold text-sm sm:text-base'>Report Faulty Phone</div>
-                      <div className='text-xs sm:text-sm'>Report a faulty device from your location</div>
-                    </button>
-                  </div>
-                </div>
-              </div>
+                {/* Quick Sale Tab (same as before) */}
+                {activeTab === 'quickSale' && (
+                  <div className="space-y-6">
+                    <Card className="bg-slate-800/50 border-slate-700">
+                      <CardHeader>
+                        <div className="flex items-center space-x-3">
+                          <div className="w-12 h-12 rounded-xl bg-linear-to-br from-green-500 to-green-600 flex items-center justify-center">
+                            <FiShoppingCart className="text-white w-6 h-6" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-white">Quick Sale</CardTitle>
+                            <CardDescription>Process sale from {user?.location}</CardDescription>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          {/* Quick Sale Form */}
+                          <Card className="bg-slate-800/30 border-slate-700">
+                            <CardHeader>
+                              <div className="flex items-center space-x-2">
+                                <FiShoppingCart className="text-green-400" />
+                                <CardTitle className="text-lg">Process Sale</CardTitle>
+                              </div>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-6">
+                                <div>
+                                  <Label className="text-slate-300">Customer Name *</Label>
+                                  <Input
+                                    type="text"
+                                    placeholder="Enter customer name..."
+                                    value={quickSale.customerName}
+                                    onChange={(e) => setQuickSale({...quickSale, customerName: e.target.value})}
+                                    className="bg-slate-800/50 border-slate-600 text-white"
+                                    disabled={isProcessingSale}
+                                  />
+                                </div>
+                                
+                                <div>
+                                  <Label className="text-slate-300">Customer Phone</Label>
+                                  <Input
+                                    type="tel"
+                                    placeholder="Enter phone number..."
+                                    value={quickSale.customerPhone}
+                                    onChange={(e) => setQuickSale({...quickSale, customerPhone: e.target.value})}
+                                    className="bg-slate-800/50 border-slate-600 text-white"
+                                    disabled={isProcessingSale}
+                                  />
+                                </div>
+                                
+                                <div>
+                                  <Label className="text-slate-300">Item Code *</Label>
+                                  <Input
+                                    type="text"
+                                    placeholder="Enter item code..."
+                                    value={quickSale.itemCode}
+                                    onChange={(e) => setQuickSale({...quickSale, itemCode: e.target.value})}
+                                    className="bg-slate-800/50 border-slate-600 text-white"
+                                    disabled={isProcessingSale}
+                                  />
+                                  <p className="text-xs text-orange-300 mt-2">Only items from {user?.location} can be sold</p>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <Label className="text-slate-300">Quantity</Label>
+                                    <Input
+                                      type="number"
+                                      min="1"
+                                      value={quickSale.quantity}
+                                      onChange={(e) => setQuickSale({...quickSale, quantity: parseInt(e.target.value) || 1})}
+                                      className="bg-slate-800/50 border-slate-600 text-white"
+                                      disabled={isProcessingSale}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-slate-300">
+                                      Custom Price (Optional)
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      placeholder="Enter custom price..."
+                                      value={quickSale.customPrice}
+                                      onChange={(e) => setQuickSale({...quickSale, customPrice: e.target.value})}
+                                      className="bg-slate-800/50 border-slate-600 text-white"
+                                      disabled={isProcessingSale}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                <Button
+                                  onClick={handleQuickSale}
+                                  disabled={!quickSale.itemCode || !quickSale.customerName || isProcessingSale}
+                                  className="w-full bg-linear-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                                >
+                                  {isProcessingSale ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                      <span>Processing Sale...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FiShoppingCart className="w-5 h-5 mr-2" />
+                                      <span>Process Sale & Download Receipt</span>
+                                    </>
+                                  )}
+                                </Button>
 
-              {/* Stock Overview - My Location */}
-              <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-                <h2 className={'text-xl font-semibold text-white mb-4'}>Stock Overview - {user?.location} (Your Location)</h2>
-                <div className={'overflow-x-auto'}>
-                  <table className={'w-full text-white'}>
-                    <thead>
-                      <tr className={'border-b border-white/20'}>
-                        <th className={'text-left py-2'}>Item Code</th>
-                        <th className={'text-left py-2'}>Brand & Model</th>
-                        <th className={'text-left py-2 hidden sm:table-cell'}>Retail Price</th>
-                        <th className={'text-left py-2'}>Available</th>
-                        <th className={'text-left py-2'}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {locationStocks.slice(0, 5).map((stock, index) => {
-                        return (
-                          <tr key={generateSafeKey('stock', index, stock.id)} className={'border-b border-white/10'}>
-                            <td className={'py-2 font-mono'}>{stock.itemCode}</td>
-                            <td className={'py-2'}>
-                              <div className={'font-semibold'}>{stock.brand} {stock.model}</div>
-                              {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
-                              {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
-                            </td>
-                            <td className={'py-2 hidden sm:table-cell'}>
-                              <div className={'text-green-400'}>MK {stock.retailPrice || 0}</div>
-                              {stock.discountPercentage > 0 && (
-                                <div className={'text-orange-400 text-sm'}>
-                                  After discount: MK {(stock.retailPrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
+                                {isProcessingSale && (
+                                  <div className="text-center text-slate-400 text-sm">
+                                    <p>Validating database and processing transaction...</p>
+                                    <p className="text-xs mt-1">This ensures data consistency and prevents errors</p>
+                                  </div>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Available Items */}
+                          <Card className="bg-slate-800/30 border-slate-700">
+                            <CardHeader>
+                              <div className="flex items-center space-x-2">
+                                <FiPackage className="text-blue-400" />
+                                <CardTitle className="text-lg">Available Items in {user?.location}</CardTitle>
+                              </div>
+                            </CardHeader>
+                            <CardContent>
+                              <ScrollArea className="h-400px">
+                                <div className="space-y-3">
+                                  {stocks.slice(0, 10).map((stock) => (
+                                    <Card 
+                                      key={stock.id} 
+                                      className="border-slate-700 hover:border-green-500/30 cursor-pointer bg-slate-900/30 hover:bg-slate-900/50"
+                                      onClick={() => !isProcessingSale && setQuickSale(prev => ({...prev, itemCode: stock.itemCode}))}
+                                    >
+                                      <CardContent className="p-4">
+                                        <div className="flex justify-between items-center">
+                                          <div>
+                                            <div className="text-white font-mono text-sm font-medium">{stock.itemCode}</div>
+                                            <div className="text-slate-400 text-xs">{stock.brand} {stock.model}</div>
+                                            <div className="text-slate-500 text-xs">{stock.quantity} available</div>
+                                          </div>
+                                          <div className="text-right">
+                                            <div className="text-green-400 text-sm font-medium">{formatCurrency(stock.retailPrice)}</div>
+                                            {stock.discountPercentage > 0 && (
+                                              <Badge variant="outline" className="mt-1 bg-orange-500/20 text-orange-300 border-orange-500/30">
+                                                Save {stock.discountPercentage}%
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Sales History Tab (same as before) */}
+                {activeTab === 'salesHistory' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <CardTitle className="text-white">Sales History - {user?.location}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {loading ? (
+                        <div className="space-y-4">
+                          {[...Array(5)].map((_, i) => (
+                            <Skeleton key={i} className="h-16 w-full bg-slate-700/50" />
+                          ))}
+                        </div>
+                      ) : sales.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiDollarSign className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No sales history found for {user?.location}</p>
+                          <Button
+                            onClick={() => fetchLocationSales(location)}
+                            variant="outline"
+                            className="mt-4"
+                          >
+                            <FiRefreshCw className="w-4 h-4 mr-2" />
+                            Refresh Sales
+                          </Button>
+                        </div>
+                      ) : (
+                        <ScrollArea className="h-600px">
+                          <Table>
+                            <TableHeader className="bg-slate-800/50">
+                              <TableRow className="border-slate-700">
+                                <TableHead className="text-slate-300">Date</TableHead>
+                                <TableHead className="text-slate-300">Customer</TableHead>
+                                <TableHead className="text-slate-300">Item</TableHead>
+                                <TableHead className="text-slate-300">Quantity</TableHead>
+                                <TableHead className="text-slate-300">Price</TableHead>
+                                <TableHead className="text-slate-300">Sold By</TableHead>
+                                <TableHead className="text-slate-300">Receipt</TableHead>
+                                <TableHead className="text-slate-300">Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sales.map((sale) => (
+                                <TableRow key={sale.id} className="border-slate-700">
+                                  <TableCell>
+                                    {sale.soldAt?.toDate().toLocaleDateString() || 'Unknown'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="text-white font-medium">{sale.customerName || 'Walk-in'}</div>
+                                    {sale.customerPhone && <div className="text-slate-400 text-xs">{sale.customerPhone}</div>}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="font-semibold text-white">{sale.brand} {sale.model}</div>
+                                    <div className="text-slate-400 text-xs">{sale.itemCode}</div>
+                                  </TableCell>
+                                  <TableCell className="text-white font-medium">{sale.quantity}</TableCell>
+                                  <TableCell>
+                                    <div className="text-green-400 font-medium">{formatCurrency(sale.finalSalePrice)}</div>
+                                  </TableCell>
+                                  <TableCell className="text-white">{sale.soldByName}</TableCell>
+                                  <TableCell>
+                                    <div className="font-mono text-xs text-slate-400">{sale.receiptNumber}</div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      onClick={() => generateSalesReceipt(sale)}
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-blue-500/30 hover:bg-blue-500/20"
+                                    >
+                                      <FiDownload className="w-4 h-4 mr-2" />
+                                      Receipt
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Faulty Phones Tab - Working without indexes */}
+                {activeTab === 'faultyPhones' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 rounded-xl bg-linear-to-br from-orange-500 to-orange-600 flex items-center justify-center">
+                          <FiPhone className="text-white w-6 h-6" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-white">Faulty Phones - {user?.location}</CardTitle>
+                          <CardDescription>Reported faulty devices</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex justify-between items-center mb-6">
+                        <Button
+                          onClick={() => setReportModalOpen(true)}
+                          className="bg-linear-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800"
+                        >
+                          <FiPlus className="w-5 h-5 mr-2" />
+                          Report New Faulty Phone
+                        </Button>
+                      </div>
+
+                      {loading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <Skeleton key={i} className="h-32 w-full bg-slate-700/50" />
+                          ))}
+                        </div>
+                      ) : faultyPhones.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiPhone className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No faulty phones reported for {user?.location}</p>
+                          <Button
+                            onClick={() => setReportModalOpen(true)}
+                            className="mt-4 bg-orange-600 hover:bg-orange-700"
+                          >
+                            <FiPlus className="w-4 h-4 mr-2" />
+                            Report First Faulty Phone
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {faultyPhones.map((faulty) => (
+                            <Card key={faulty.id} className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6">
+                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-4 lg:space-y-0">
+                                  <div className="space-y-3">
+                                    <div className="flex items-center space-x-3">
+                                      <span className="font-semibold text-white">{faulty.brand} {faulty.model}</span>
+                                      <Badge className={getStatusBadgeColor(faulty.status)}>
+                                        {faulty.status}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-slate-400 text-sm">
+                                      <span className="text-slate-300">Item Code: {faulty.itemCode}</span>
+                                      {faulty.imei && <span className="ml-4">IMEI: {faulty.imei}</span>}
+                                    </div>
+                                    <div className="text-slate-500 text-sm">
+                                      Reported on {faulty.reportedAt?.toDate().toLocaleDateString()} by {faulty.reportedByName}
+                                    </div>
+                                    {faulty.faultDescription && (
+                                      <div className="text-slate-400 text-sm">
+                                        <span className="text-slate-300">Issue: </span>
+                                        {faulty.faultDescription}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="lg:text-right">
+                                    <div className="text-slate-300 text-lg font-medium">
+                                      {formatCurrency(faulty.reportedCost)}
+                                    </div>
+                                    <div className="text-slate-500 text-sm">Reported Cost</div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Installments Tab - Working without indexes */}
+                {activeTab === 'installments' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500 to-purple-600 flex items-center justify-center">
+                          <FiCreditCard className="text-white w-6 h-6" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-white">Installment Plans - {user?.location}</CardTitle>
+                          <CardDescription>Active installment payment plans</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex justify-between items-center mb-6">
+                        <Button
+                          onClick={() => setInstallmentModalOpen(true)}
+                          className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+                        >
+                          <FiPlus className="w-5 h-5 mr-2" />
+                          Create New Installment Plan
+                        </Button>
+                      </div>
+
+                      {loading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <Skeleton key={i} className="h-32 w-full bg-slate-700/50" />
+                          ))}
+                        </div>
+                      ) : installments.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiCreditCard className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No installment plans created for {user?.location}</p>
+                          <Button
+                            onClick={() => setInstallmentModalOpen(true)}
+                            className="mt-4 bg-purple-600 hover:bg-purple-700"
+                          >
+                            <FiPlus className="w-4 h-4 mr-2" />
+                            Create First Installment Plan
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {installments.map((installment) => (
+                            <Card key={installment.id} className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6">
+                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-4 lg:space-y-0">
+                                  <div className="space-y-3">
+                                    <div className="flex items-center space-x-3">
+                                      <span className="font-semibold text-white">{installment.customerName}</span>
+                                      <Badge className={getInstallmentStatusBadge(installment.status)}>
+                                        {installment.status}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-slate-400 text-sm">
+                                      <span className="text-slate-300">Phone: {installment.phoneNumber}</span>
+                                      <span className="ml-4">Plan: {installment.installmentPlan} months</span>
+                                    </div>
+                                    <div className="text-slate-500 text-sm">
+                                      Created on {installment.createdAt?.toDate().toLocaleDateString()}
+                                    </div>
+                                  </div>
+                                  <div className="lg:text-right space-y-2">
+                                    <div>
+                                      <div className="text-slate-300 text-lg font-medium">
+                                        {formatCurrency(installment.totalAmount)}
+                                      </div>
+                                      <div className="text-slate-500 text-sm">Total Amount</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-green-400 text-sm">
+                                        {formatCurrency(installment.remainingAmount)} remaining
+                                      </div>
+                                      <div className="text-slate-500 text-xs">
+                                        {installment.monthlyPayment > 0 && 
+                                          `${formatCurrency(installment.monthlyPayment)}/month`}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Stock Transfer Tab - FIXED Select Error */}
+                {activeTab === 'transfer' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 rounded-xl bg-linear-to-br from-green-500 to-green-600 flex items-center justify-center">
+                          <FiTruck className="text-white w-6 h-6" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-white">Stock Transfer Requests</CardTitle>
+                          <CardDescription>Request stock from other locations</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {/* Request Form */}
+                      <Card className="bg-slate-800/30 border-slate-700 mb-8">
+                        <CardContent className="p-6">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div>
+                              <Label className="text-slate-300">Item Code *</Label>
+                              <Input
+                                type="text"
+                                placeholder="Enter item code"
+                                value={transferStock.itemCode}
+                                onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
+                                className="bg-slate-800/50 border-slate-600 text-white"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-slate-300">Quantity *</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                placeholder="Enter quantity"
+                                value={transferStock.quantity}
+                                onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
+                                className="bg-slate-800/50 border-slate-600 text-white"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-slate-300">From Location</Label>
+                              <div className="px-4 py-3.5 bg-slate-800/50 border border-slate-600 rounded-md text-slate-300">
+                                {user?.location} (Your Location)
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-slate-300">To Location *</Label>
+                              <Select
+                                value={transferStock.toLocation}
+                                onValueChange={(value) => setTransferStock({...transferStock, toLocation: value})}
+                              >
+                                <SelectTrigger className="bg-slate-800/50 border-slate-600 text-white">
+                                  <SelectValue placeholder="Select destination" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {/* FIXED: Removed empty string SelectItem */}
+                                  {LOCATIONS.filter(loc => loc !== user?.location).map((location) => (
+                                    <SelectItem key={location} value={location}>{location}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          
+                          <Button
+                            onClick={handleRequestStock}
+                            className="w-full mt-8 bg-linear-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                          >
+                            <FiTruck className="w-5 h-5 mr-2" />
+                            Request Stock Transfer
+                          </Button>
+                        </CardContent>
+                      </Card>
+
+                      {/* Recent Requests */}
+                      <Card className="bg-slate-800/30 border-slate-700">
+                        <CardHeader>
+                          <CardTitle className="text-lg">Recent Transfer Requests</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {loading ? (
+                            <div className="space-y-4">
+                              {[...Array(3)].map((_, i) => (
+                                <Skeleton key={i} className="h-32 w-full bg-slate-700/50" />
+                              ))}
+                            </div>
+                          ) : stockRequests.length === 0 ? (
+                            <div className="text-center py-8">
+                              <FiTruck className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                              <p className="text-slate-400">No transfer requests made from {user?.location}</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              {stockRequests.slice(0, 5).map((request) => (
+                                <Card key={request.id} className="bg-slate-900/30 border-slate-700">
+                                  <CardContent className="p-5">
+                                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-4 lg:space-y-0">
+                                      <div className="space-y-3">
+                                        <div className="flex items-center space-x-3">
+                                          <span className="font-semibold text-white">{request.itemCode}</span>
+                                          <Badge className={getStatusBadgeColor(request.status)}>
+                                            {request.status}
+                                          </Badge>
+                                        </div>
+                                        <div className="text-slate-400 text-sm">
+                                          <span className="text-slate-300">{request.quantity} units</span> • 
+                                          <span className="text-blue-400 mx-2">{request.fromLocation}</span>
+                                          <FiArrowRight className="inline text-slate-500 mx-1" />
+                                          <span className="text-green-400 mx-2">{request.toLocation}</span>
+                                        </div>
+                                        <div className="text-slate-500 text-xs">
+                                          Requested on {request.requestedAt?.toDate().toLocaleDateString()}
+                                        </div>
+                                      </div>
+                                      <div className="lg:text-right">
+                                        <div className="text-slate-300 text-sm font-medium">
+                                          {request.status === 'pending' ? '⏳ Awaiting Approval' : 
+                                          request.status === 'approved' ? '✅ Approved' : 
+                                          request.status === 'rejected' ? '❌ Rejected' : 
+                                          request.status === 'completed' ? '✅ Completed' : ''}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Sales Analysis Tab (same as before) */}
+                {activeTab === 'salesAnalysis' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 rounded-xl bg-linear-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                          <FiBarChart2 className="text-white w-6 h-6" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-white">Sales Analysis - {user?.location}</CardTitle>
+                          <CardDescription>Performance metrics and insights</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {sales.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiBarChart2 className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No sales data available for analysis</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {/* Summary Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <Card className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6 text-center">
+                                <div className="text-3xl font-bold text-green-400">{salesAnalysis.todaySales}</div>
+                                <div className="text-slate-400 text-sm">Today's Sales</div>
+                                <div className="text-slate-500 text-xs mt-1">{formatCurrency(salesAnalysis.todayRevenue)}</div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6 text-center">
+                                <div className="text-3xl font-bold text-blue-400">{formatCurrency(salesAnalysis.monthlyRevenue)}</div>
+                                <div className="text-slate-400 text-sm">Monthly Revenue</div>
+                                <div className="text-slate-500 text-xs mt-1">This Month</div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6 text-center">
+                                <div className="text-3xl font-bold text-purple-400">{sales.length}</div>
+                                <div className="text-slate-400 text-sm">Total Sales</div>
+                                <div className="text-slate-500 text-xs mt-1">All Time</div>
+                              </CardContent>
+                            </Card>
+                          </div>
+
+                          {/* Top Products */}
+                          <Card className="bg-slate-800/30 border-slate-700">
+                            <CardHeader>
+                              <CardTitle className="text-lg">Top Selling Products</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              {salesAnalysis.topProducts.length === 0 ? (
+                                <p className="text-slate-400 text-center py-4">No product sales data</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  {salesAnalysis.topProducts.map((product, index) => (
+                                    <div key={index} className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                                      <div className="flex items-center space-x-3">
+                                        <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                                          <span className="text-blue-300 font-bold">{index + 1}</span>
+                                        </div>
+                                        <div>
+                                          <div className="text-white font-medium">{product.product}</div>
+                                          <div className="text-slate-400 text-xs">{product.count} sales</div>
+                                        </div>
+                                      </div>
+                                      <div className="text-green-400 font-medium">
+                                        {formatCurrency(product.revenue)}
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
-                            </td>
-                            <td className={'py-2'}>
-                              <span className={`px-2 py-1 rounded-full text-xs ${getStockStatusBadge(stock.quantity)}`}>
-                                {stock.quantity || 0} units
-                              </span>
-                            </td>
-                            <td className={'py-2'}>
-                              <button
-                                onClick={() => handleSellItem(stock.id, stock, 1)}
-                                disabled={!stock.quantity || stock.quantity === 0}
-                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
-                              >
-                                Sell 1
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {locationStocks.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="text-center py-4 text-white/70">
-                            No stocks available in your location
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
+                            </CardContent>
+                          </Card>
 
-          {/* View All Stocks Tab */}
-          {activeTab === 'allStocks' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <div className={'flex justify-between items-center mb-6'}>
-                <h2 className={'text-xl font-semibold text-white'}>
-                  All Stocks - {selectedLocation === 'all' ? 'All Locations' : selectedLocation}
-                </h2>
-                <div className={'text-white'}>
-                  Total Value: MK {calculateTotalStockValue(getFilteredAllStocks()).toLocaleString()}
-                  <div className="text-sm text-white/70">(View Only - Cannot Sell)</div>
-                </div>
-              </div>
-
-              {/* Search and Filter */}
-              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
-                <input
-                  type={'text'}
-                  placeholder={'Search by item code, brand, or model...'}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={'flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <select
-                  value={filterBrand}
-                  onChange={(e) => setFilterBrand(e.target.value)}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>All Brands</option>
-                  {getUniqueBrands().map(brand => (
-                    <option key={brand} value={brand}>{brand}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => { setSearchTerm(''); setFilterBrand(''); }}
-                  className={'bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'}
-                >
-                  Clear
-                </button>
-              </div>
-
-              {/* Stocks Table - View Only */}
-              <div className={'overflow-x-auto'}>
-                <table className={'w-full text-white'}>
-                  <thead>
-                    <tr className={'border-b border-white/20'}>
-                      <th className={'text-left py-2'}>Location</th>
-                      <th className={'text-left py-2'}>Item Code</th>
-                      <th className={'text-left py-2'}>Brand & Model</th>
-                      <th className={'text-left py-2'}>Retail Price</th>
-                      <th className={'text-left py-2'}>Quantity</th>
-                      <th className={'text-left py-2'}>Min Level</th>
-                      <th className={'text-left py-2'}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getFilteredAllStocks().map((stock, index) => (
-                      <tr key={generateSafeKey('all-stock', index, stock.id)} className={'border-b border-white/10'}>
-                        <td className={'py-2'}>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            stock.location === user?.location 
-                              ? 'bg-green-500/20 text-green-300' 
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}>
-                            {stock.location}
-                            {stock.location === user?.location && ' (Yours)'}
-                          </span>
-                        </td>
-                        <td className={'py-2 font-mono'}>{stock.itemCode}</td>
-                        <td className={'py-2'}>{stock.brand} {stock.model}</td>
-                        <td className={'py-2'}>MK {stock.retailPrice || 0}</td>
-                        <td className={'py-2'}>{stock.quantity || 0}</td>
-                        <td className={'py-2'}>{stock.minStockLevel || 0}</td>
-                        <td className={'py-2'}>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            stock.location === user?.location 
-                              ? 'bg-green-500/20 text-green-300' 
-                              : 'bg-gray-500/20 text-gray-300'
-                          }`}>
-                            {stock.location === user?.location ? 'Can Sell' : 'View Only'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {getFilteredAllStocks().length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="text-center py-8 text-white/70">
-                          No stocks found matching your search criteria.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* My Location Stocks Tab */}
-          {activeTab === 'myStocks' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <div className={'flex justify-between items-center mb-6'}>
-                <h2 className={'text-xl font-semibold text-white'}>
-                  My Location Stocks - {user?.location}
-                </h2>
-                <div className={'text-white'}>
-                  Total Value: MK {calculateTotalStockValue(locationStocks).toLocaleString()}
-                  <div className="text-sm text-green-400">(Can Sell)</div>
-                </div>
-              </div>
-
-              {/* Search and Filter */}
-              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
-                <input
-                  type={'text'}
-                  placeholder={'Search by item code, brand, or model...'}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={'flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'}
-                />
-                <select
-                  value={filterBrand}
-                  onChange={(e) => setFilterBrand(e.target.value)}
-                  className={'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'}
-                >
-                  <option value={''}>All Brands</option>
-                  {[...new Set(locationStocks.map(stock => stock.brand).filter(Boolean))].map(brand => (
-                    <option key={brand} value={brand}>{brand}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => { setSearchTerm(''); setFilterBrand(''); }}
-                  className={'bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'}
-                >
-                  Clear
-                </button>
-              </div>
-
-              {/* Stocks Table - Can Sell */}
-              <div className={'overflow-x-auto'}>
-                <table className={'w-full text-white'}>
-                  <thead>
-                    <tr className={'border-b border-white/20'}>
-                      <th className={'text-left py-2'}>Item Code</th>
-                      <th className={'text-left py-2'}>Brand & Model</th>
-                      <th className={'text-left py-2 hidden sm:table-cell'}>Retail Price</th>
-                      <th className={'text-left py-2 hidden md:table-cell'}>Discount</th>
-                      <th className={'text-left py-2'}>Available</th>
-                      <th className={'text-left py-2'}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getFilteredLocationStocks().map((stock, index) => {
-                      return (
-                        <tr key={generateSafeKey('my-stock', index, stock.id)} className={'border-b border-white/10'}>
-                          <td className={'py-2 font-mono'}>{stock.itemCode}</td>
-                          <td className={'py-2'}>
-                            <div className={'font-semibold'}>{stock.brand} {stock.model}</div>
-                            {stock.storage && <div className={'text-white/70 text-sm'}>Storage: {stock.storage}</div>}
-                            {stock.color && <div className={'text-white/70 text-sm'}>Color: {stock.color}</div>}
-                          </td>
-                          <td className={'py-2 hidden sm:table-cell'}>
-                            <div className={'text-green-400'}>MK {stock.retailPrice || 0}</div>
-                            {stock.discountPercentage > 0 && (
-                              <div className={'text-orange-400 text-sm'}>
-                                After discount: MK {(stock.retailPrice * (1 - (stock.discountPercentage || 0) / 100)).toFixed(2)}
-                              </div>
-                            )}
-                          </td>
-                          <td className={'py-2 hidden md:table-cell'}>
-                            {stock.discountPercentage > 0 ? (
-                              <span className={'text-orange-400'}>{stock.discountPercentage}% OFF</span>
-                            ) : (
-                              <span className={'text-white/50'}>No discount</span>
-                            )}
-                          </td>
-                          <td className={'py-2'}>
-                            <span className={`px-2 py-1 rounded-full text-xs ${getStockStatusBadge(stock.quantity)}`}>
-                              {stock.quantity || 0} units
-                            </span>
-                          </td>
-                          <td className={'py-2'}>
-                            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
-                              <button
-                                onClick={() => handleSellItem(stock.id, stock, 1)}
-                                disabled={!stock.quantity || stock.quantity === 0}
-                                className={'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
-                              >
-                                Sell 1
-                              </button>
-                              {stock.quantity > 1 && (
-                                <button
-                                  onClick={() => {
-                                    const quantity = prompt(`Enter quantity to sell (Available: ${stock.quantity}):`, '1');
-                                    if (quantity && !isNaN(quantity) && parseInt(quantity) > 0) {
-                                      handleSellItem(stock.id, stock, parseInt(quantity));
-                                    }
-                                  }}
-                                  className={'bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'}
-                                >
-                                  Sell Multiple
-                                </button>
+                          {/* Sales by User */}
+                          <Card className="bg-slate-800/30 border-slate-700">
+                            <CardHeader>
+                              <CardTitle className="text-lg">Sales Performance by User</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              {Object.keys(salesAnalysis.salesByUser).length === 0 ? (
+                                <p className="text-slate-400 text-center py-4">No user sales data</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  {Object.entries(salesAnalysis.salesByUser)
+                                    .sort(([,a], [,b]) => b - a)
+                                    .map(([userName, revenue]) => (
+                                      <div key={userName} className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+                                        <div className="flex items-center space-x-3">
+                                          <Avatar className="h-8 w-8">
+                                            <AvatarFallback className="bg-blue-600">
+                                              {userName.charAt(0)}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="text-white font-medium">{userName}</div>
+                                        </div>
+                                        <div className="text-green-400 font-medium">
+                                          {formatCurrency(revenue)}
+                                        </div>
+                                      </div>
+                                    ))
+                                  }
+                                </div>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {getFilteredLocationStocks().length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="text-center py-8 text-white/70">
-                          No stocks available in your location matching your search criteria.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+                            </CardContent>
+                          </Card>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
-          {/* Quick Sale Tab */}
-          {activeTab === 'quickSale' && (
-            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>Quick Sale - {user?.location}</h2>
-              
-              <div className='max-w-md mx-auto space-y-6'>
-                {/* Quick Sale Form */}
-                <div className='bg-white/5 rounded-lg p-6'>
-                  <h3 className='text-lg font-semibold text-white mb-4'>Process Sale from Your Location</h3>
-                  <div className='space-y-4'>
-                    <div>
-                      <label className='block text-white/70 text-sm mb-2'>Item Code</label>
-                      <input
-                        type='text'
-                        placeholder='Enter item code...'
-                        value={quickSale.itemCode}
-                        onChange={(e) => setQuickSale({...quickSale, itemCode: e.target.value})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
-                      />
-                      <p className="text-xs text-orange-300 mt-1">Only items from {user?.location} can be sold</p>
-                    </div>
-                    <div>
-                      <label className='block text-white/70 text-sm mb-2'>Quantity</label>
-                      <input
-                        type='number'
-                        min='1'
-                        value={quickSale.quantity}
-                        onChange={(e) => setQuickSale({...quickSale, quantity: parseInt(e.target.value) || 1})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                      />
-                    </div>
-                    <div>
-                      <label className='block text-white/70 text-sm mb-2'>
-                        Custom Price (Optional)
-                        <span className='text-white/50 text-xs ml-1'>- Leave empty for standard price</span>
-                      </label>
-                      <input
-                        type='number'
-                        placeholder='Enter custom price...'
-                        value={quickSale.customPrice}
-                        onChange={(e) => setQuickSale({...quickSale, customPrice: e.target.value})}
-                        className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
-                      />
-                    </div>
-                    <button
-                      onClick={handleQuickSale}
-                      disabled={!quickSale.itemCode}
-                      className='w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors font-semibold'
-                    >
-                      Process Sale
-                    </button>
-                  </div>
-                </div>
-
-                {/* Recent Items from Your Location */}
-                <div className='bg-white/5 rounded-lg p-6'>
-                  <h3 className='text-lg font-semibold text-white mb-4'>Available Items in {user?.location}</h3>
-                  <div className='space-y-2'>
-                    {locationStocks.slice(0, 5).map((stock) => (
-                      <div 
-                        key={stock.id} 
-                        className='flex justify-between items-center p-2 hover:bg-white/5 rounded cursor-pointer'
-                        onClick={() => setQuickSale(prev => ({...prev, itemCode: stock.itemCode}))}
-                      >
+                {/* Requests Tab - Working without indexes */}
+                {activeTab === 'requests' && (
+                  <Card className="bg-slate-800/50 border-slate-700">
+                    <CardHeader>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 rounded-xl bg-linear-to-br from-orange-500 to-orange-600 flex items-center justify-center">
+                          <FiClipboard className="text-white w-6 h-6" />
+                        </div>
                         <div>
-                          <div className='text-white font-mono text-sm'>{stock.itemCode}</div>
-                          <div className='text-white/70 text-xs'>{stock.brand} {stock.model}</div>
-                        </div>
-                        <div className='text-right'>
-                          <div className='text-green-400 text-sm'>MK {stock.retailPrice || 0}</div>
-                          <div className='text-white/50 text-xs'>{stock.quantity} available</div>
+                          <CardTitle className="text-white">Stock Transfer Requests</CardTitle>
+                          <CardDescription>View Only - Awaiting Admin/SuperAdmin Approval</CardDescription>
                         </div>
                       </div>
-                    ))}
-                    {locationStocks.length === 0 && (
-                      <div className="text-center py-4 text-white/70">
-                        No stocks available in your location
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Sales History Tab */}
-          {activeTab === 'salesHistory' && (
-            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>Sales History</h2>
-              
-              <div className="flex items-center space-x-4 mb-6">
-                <select
-                  value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
-                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                >
-                  <option value='all'>All Locations</option>
-                  <option value={user?.location}>My Location: {user?.location}</option>
-                  {LOCATIONS.map((location, index) => (
-                    <option key={generateSafeKey('sales-loc', index, location)} value={location}>{location}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className='overflow-x-auto'>
-                <table className='w-full text-white'>
-                  <thead>
-                    <tr className='border-b border-white/20'>
-                      <th className='text-left py-2'>Date</th>
-                      <th className='text-left py-2'>Item</th>
-                      <th className='text-left py-2'>Location</th>
-                      <th className='text-left py-2'>Quantity</th>
-                      <th className='text-left py-2'>Price</th>
-                      <th className='text-left py-2'>Sold By</th>
-                      <th className='text-left py-2'>Type</th>
-                      <th className='text-left py-2'>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getFilteredSales().map((sale) => (
-                      <tr key={sale.id} className='border-b border-white/10'>
-                        <td className='py-2'>
-                          {sale.soldAt?.toDate().toLocaleDateString() || 'Unknown date'}
-                        </td>
-                        <td className='py-2'>
-                          <div className='font-semibold'>{sale.brand} {sale.model}</div>
-                          <div className='text-white/70 text-sm'>{sale.itemCode}</div>
-                        </td>
-                        <td className='py-2'>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            sale.location === user?.location 
-                              ? 'bg-green-500/20 text-green-300' 
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}>
-                            {sale.location}
-                          </span>
-                        </td>
-                        <td className='py-2'>{sale.quantity}</td>
-                        <td className='py-2 text-green-400'>MK {sale.finalSalePrice || 0}</td>
-                        <td className='py-2'>{sale.soldByName}</td>
-                        <td className='py-2'>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            sale.saleType === 'custom_price' 
-                              ? 'bg-purple-500/20 text-purple-300' 
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}>
-                            {sale.saleType === 'custom_price' ? 'Custom Price' : 'Standard'}
-                          </span>
-                        </td>
-                        <td className='py-2 space-x-2'>
-                          <button
-                            onClick={() => openInstallmentModal(sale)}
-                            className='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors'
+                    </CardHeader>
+                    <CardContent>
+                      {loading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <Skeleton key={i} className="h-32 w-full bg-slate-700/50" />
+                          ))}
+                        </div>
+                      ) : stockRequests.length === 0 ? (
+                        <div className="text-center py-12">
+                          <FiClipboard className="h-16 w-16 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No transfer requests made from {user?.location}</p>
+                          <Button
+                            onClick={() => handleTabChange('transfer')}
+                            className="mt-4 bg-orange-600 hover:bg-orange-700"
                           >
-                            Process Installment
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {getFilteredSales().length === 0 && (
-                      <tr>
-                        <td colSpan='8' className='text-center py-8 text-white/70'>
-                          No sales history found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Faulty Phones Tab */}
-          {activeTab === 'faultyPhones' && (
-            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <div className='flex justify-between items-center mb-6'>
-                <h2 className='text-xl font-semibold text-white'>Faulty Phones - {user?.location}</h2>
-                <div className='space-x-2'>
-                  <button
-                    onClick={() => setReportModal(true)}
-                    className='bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition-colors'
-                  >
-                    + Report New Faulty
-                  </button>
-                </div>
-              </div>
-
-              {/* Search and Filter */}
-              <div className={'flex flex-col md:flex-row gap-4 mb-6'}>
-                <input
-                  type='text'
-                  placeholder='Search by item code, brand, model, or customer...'
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className='flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50'
-                />
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className='bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                >
-                  <option value=''>All Status</option>
-                  {FAULTY_STATUS.map(status => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => { setSearchTerm(''); setFilterStatus(''); }}
-                  className='bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors'
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className='overflow-x-auto'>
-                <table className='w-full text-white'>
-                  <thead>
-                    <tr className='border-b border-white/20'>
-                      <th className='text-left py-2'>Item Code</th>
-                      <th className='text-left py-2'>Brand & Model</th>
-                      <th className='text-left py-2 hidden sm:table-cell'>Fault Description</th>
-                      <th className='text-left py-2'>Status</th>
-                      <th className='text-left py-2 hidden md:table-cell'>Cost</th>
-                      <th className='text-left py-2 hidden lg:table-cell'>Reported Date</th>
-                      <th className='text-left py-2'>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getFilteredFaultyPhones().map((faulty, index) => (
-                      <tr key={generateSafeKey('faulty', index, faulty.id)} className='border-b border-white/10 hover:bg-white/5'>
-                        <td className='py-2 font-mono'>{faulty.itemCode}</td>
-                        <td className='py-2'>
-                          <div className='font-semibold'>{faulty.brand} {faulty.model}</div>
-                          {faulty.imei && <div className='text-white/70 text-sm'>IMEI: {faulty.imei}</div>}
-                        </td>
-                        <td className='py-2 hidden sm:table-cell'>{faulty.faultDescription}</td>
-                        <td className='py-2'>
-                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(faulty.status)}`}>
-                            {faulty.status}
-                          </span>
-                        </td>
-                        <td className='py-2 hidden md:table-cell'>
-                          <div className='text-orange-400'>MK {faulty.reportedCost?.toLocaleString() || 0}</div>
-                          {faulty.estimatedRepairCost > 0 && (
-                            <div className='text-white/70 text-sm'>Est. Repair: MK {faulty.estimatedRepairCost}</div>
-                          )}
-                        </td>
-                        <td className='py-2 hidden lg:table-cell'>
-                          {faulty.reportedAt?.toDate().toLocaleDateString() || 'Unknown'}
-                        </td>
-                        <td className='py-2'>
-                          <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
-                            <button
-                              onClick={() => generateFaultyPhonePDFReport(faulty)}
-                              className='bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'
-                              title='Generate PDF Report'
-                            >
-                              PDF
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedFaulty(faulty);
-                                setEditModal(true);
-                              }}
-                              className='bg-green-600 hover:bg-green-700 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors'
-                              title='Update Status'
-                            >
-                              Update
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {getFilteredFaultyPhones().length === 0 && (
-                      <tr>
-                        <td colSpan='4' className='text-center py-8 text-white/70'>
-                          No faulty phones found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Installments Tab */}
-          {activeTab === 'installments' && (
-            <div className='bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'>
-              <h2 className='text-xl font-semibold text-white mb-6'>Installment Plans - {user?.location}</h2>
-              
-              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'>
-                {getFilteredSales().filter(sale => !sale.paymentType || sale.paymentType === 'full').slice(0, 6).map((sale) => (
-                  <div key={sale.id} className='bg-white/5 rounded-lg p-4 border border-white/10'>
-                    <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 space-y-2 sm:space-y-0'>
-                      <div>
-                        <div className='font-semibold text-white text-sm sm:text-base'>{sale.brand} {sale.model}</div>
-                        <div className='text-white/70 text-xs sm:text-sm'>{sale.itemCode}</div>
-                      </div>
-                      <div className='text-green-400 font-semibold text-sm sm:text-base'>MK {sale.finalSalePrice}</div>
-                    </div>
-                    <div className='text-white/70 text-xs sm:text-sm mb-3'>
-                      Sold on: {sale.soldAt?.toDate().toLocaleDateString()}
-                    </div>
-                    <button
-                      onClick={() => openInstallmentModal(sale)}
-                      className='w-full bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors text-sm'
-                    >
-                      Create Installment Plan
-                    </button>
-                  </div>
-                ))}
-                {getFilteredSales().filter(sale => !sale.paymentType || sale.paymentType === 'full').length === 0 && (
-                  <div className='col-span-3 text-center py-8 text-white/70'>
-                    No sales available for installment plans.
-                  </div>
+                            <FiTruck className="w-4 h-4 mr-2" />
+                            Make Your First Request
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {stockRequests.map((request) => (
+                            <Card key={request.id} className="bg-slate-800/30 border-slate-700">
+                              <CardContent className="p-6">
+                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-6 lg:space-y-0">
+                                  <div className="space-y-4">
+                                    <div className="flex items-center space-x-3">
+                                      <div className="font-semibold text-white text-lg">{request.itemCode}</div>
+                                      <Badge className={getStatusBadgeColor(request.status)}>
+                                        {request.status}
+                                      </Badge>
+                                    </div>
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                      <div>
+                                        <div className="text-slate-400 text-sm">Quantity</div>
+                                        <div className="text-white text-lg font-semibold">{request.quantity} units</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-slate-400 text-sm">Route</div>
+                                        <div className="text-white">
+                                          <span className="text-blue-400">{request.fromLocation}</span>
+                                          <FiArrowRight className="inline mx-3 text-slate-500" />
+                                          <span className="text-green-400">{request.toLocation}</span>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-slate-400 text-sm">Requested By</div>
+                                        <div className="text-white">{request.requestedByName}</div>
+                                      </div>
+                                    </div>
+                                    <div className="text-slate-500 text-sm">
+                                      {request.requestedAt?.toDate().toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
-              </div>
-            </div>
-          )}
+              </>
+            )}
+          </main>
 
-          {/* UPDATED: Sales Analysis Report Tab */}
-          {activeTab === 'salesAnalysis' && (
-            <div className="bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6">
-              <h2 className="text-xl font-semibold text-white mb-6">
-                Sales Analysis Report - {user?.location}
-              </h2>
-              
-              {/* Report Filters */}
-              <div className="bg-white/5 rounded-lg p-6 mb-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Report Filters</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  <div>
-                    <label className="block text-white/70 text-sm mb-2">Start Date *</label>
-                    <input
-                      type="date"
-                      value={reportFilters.startDate}
-                      onChange={(e) => setReportFilters({...reportFilters, startDate: e.target.value})}
-                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-white/70 text-sm mb-2">End Date *</label>
-                    <input
-                      type="date"
-                      value={reportFilters.endDate}
-                      onChange={(e) => setReportFilters({...reportFilters, endDate: e.target.value})}
-                      className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-white/70 text-sm mb-2">Location</label>
-                    <div className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white">
-                      {user?.location} (Your Location)
-                    </div>
-                    <p className="text-xs text-orange-300 mt-1">
-                      Managers can only generate reports for their assigned location
-                    </p>
-                  </div>
+          {/* Footer (same as before) */}
+          <footer className="w-full py-6 mt-8 border-t border-slate-800 bg-slate-900/30">
+            <div className="max-w-full mx-auto px-8">
+              <div className="flex flex-col lg:flex-row justify-between items-center">
+                <div className="text-center lg:text-left mb-4 lg:mb-0">
+                  <p className="text-slate-400">
+                    © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
+                  </p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Manager Dashboard v2.0 • ACID-Compliant Transactions • All receipts include 7 Days Warranty
+                  </p>
                 </div>
-                
-                <div className="flex space-x-4">
-                  <button
-                    onClick={generateSalesReport}
-                    disabled={generatingReport || !reportFilters.startDate || !reportFilters.endDate}
-                    className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-                  >
-                    <span>{generatingReport ? 'Generating...' : 'Generate Report'}</span>
-                    {generatingReport && (
-                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={() => reportData && generateStylishPDFReport(reportData, 'sales')}
-                    disabled={!reportData}
-                    className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-                  >
-                    <span>Download PDF Report</span>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                  </button>
+                <div className="flex items-center space-x-2">
+                  <FiShield className="text-green-400" />
+                  <span className="text-slate-400 text-sm">Secure • ACID • Professional</span>
                 </div>
               </div>
-
-              {/* Report Preview */}
-              {reportData && (
-                <div className="space-y-6">
-                  {/* Report Summary */}
-                  <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Report Summary</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <div className="text-xl sm:text-2xl font-bold text-blue-400">{reportData.summary.totalSales}</div>
-                        <div className="text-white/70 text-sm">Total Sales</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-xl sm:text-2xl font-bold text-green-400">
-                          MK {reportData.summary.totalRevenue.toLocaleString()}
-                        </div>
-                        <div className="text-white/70 text-sm">Total Revenue</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-xl sm:text-2xl font-bold text-purple-400">
-                          MK {reportData.summary.averageSaleValue.toFixed(2)}
-                        </div>
-                        <div className="text-white/70 text-sm">Average Sale Value</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-xl sm:text-2xl font-bold text-orange-400">
-                          {Object.keys(reportData.salesByProduct).length}
-                        </div>
-                        <div className="text-white/70 text-sm">Unique Products Sold</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Top Products */}
-                  <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Top Products</h3>
-                    {reportData.topProducts.length > 0 ? (
-                      <div className="space-y-2">
-                        {reportData.topProducts.slice(0, 5).map((product, index) => (
-                          <div key={`top-product-${index}`} className="flex justify-between items-center p-3 bg-white/5 rounded">
-                            <div>
-                              <div className="font-semibold text-white">{product.product}</div>
-                              <div className="text-white/70 text-sm">{product.count} units sold</div>
-                            </div>
-                            <div className="text-green-400 font-semibold">
-                              MK {product.revenue.toLocaleString()}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-white/70 text-center py-4">No sales data available for the selected period.</p>
-                    )}
-                  </div>
-
-                  {/* Top Sellers */}
-                  <div className="bg-white/5 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">Top Performers</h3>
-                    {reportData.topSellers.length > 0 ? (
-                      <div className="space-y-2">
-                        {reportData.topSellers.slice(0, 5).map((seller, index) => (
-                          <div key={`top-seller-${index}`} className="flex justify-between items-center p-3 bg-white/5 rounded">
-                            <div>
-                              <div className="font-semibold text-white">{seller.seller}</div>
-                              <div className="text-white/70 text-sm">{seller.count} sales</div>
-                            </div>
-                            <div className="text-purple-400 font-semibold">
-                              MK {seller.revenue.toLocaleString()}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-white/70 text-center py-4">No sales data available for the selected period.</p>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
-          )}
-
-          {/* Stock Transfer Tab */}
-          {activeTab === 'transfer' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <h2 className={'text-xl font-semibold text-white mb-4'}>Request Stock Transfer</h2>
-              <p className="text-white/70 mb-6">Managers can initiate transfer requests. All fields are required and will be validated before submission.</p>
-              
-              <div className={'grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6'}>
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">Item Code *</label>
-                  <input
-                    type={'text'}
-                    placeholder={'Enter item code'}
-                    value={transferStock.itemCode}
-                    onChange={(e) => setTransferStock({...transferStock, itemCode: e.target.value})}
-                    className={`w-full bg-white/10 border ${transferErrors.itemCode ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
-                  />
-                  {transferErrors.itemCode && (
-                    <p className="text-red-400 text-sm mt-1">{transferErrors.itemCode}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">Quantity *</label>
-                  <input
-                    type={'number'}
-                    min="1"
-                    placeholder={'Enter quantity'}
-                    value={transferStock.quantity}
-                    onChange={(e) => setTransferStock({...transferStock, quantity: e.target.value})}
-                    className={`w-full bg-white/10 border ${transferErrors.quantity ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white placeholder-white/50`}
-                  />
-                  {transferErrors.quantity && (
-                    <p className="text-red-400 text-sm mt-1">{transferErrors.quantity}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">Source Location *</label>
-                  <select
-                    value={transferStock.fromLocation}
-                    onChange={(e) => setTransferStock({...transferStock, fromLocation: e.target.value})}
-                    className={`w-full bg-white/10 border ${transferErrors.fromLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
-                  >
-                    <option value={''}>Select Source Location</option>
-                    {LOCATIONS.map((location, index) => (
-                      <option key={generateSafeKey('from-location', index, location)} value={location}>{location}</option>
-                    ))}
-                  </select>
-                  {transferErrors.fromLocation && (
-                    <p className="text-red-400 text-sm mt-1">{transferErrors.fromLocation}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-white/70 text-sm mb-2">Destination Location *</label>
-                  <select
-                    value={transferStock.toLocation}
-                    onChange={(e) => setTransferStock({...transferStock, toLocation: e.target.value})}
-                    className={`w-full bg-white/10 border ${transferErrors.toLocation ? 'border-red-500' : 'border-white/20'} rounded-lg px-3 py-2 text-white`}
-                  >
-                    <option value={''}>Select Destination Location</option>
-                    {LOCATIONS.map((location, index) => (
-                      <option key={generateSafeKey('to-location', index, location)} value={location}>{location}</option>
-                    ))}
-                  </select>
-                  {transferErrors.toLocation && (
-                    <p className="text-red-400 text-sm mt-1">{transferErrors.toLocation}</p>
-                  )}
-                </div>
-                
-                {transferErrors.submission && (
-                  <div className="col-span-2">
-                    <p className="text-red-400 text-sm">{transferErrors.submission}</p>
-                  </div>
-                )}
-                
-                <button
-                  onClick={handleRequestStock}
-                  disabled={isTransferValidating}
-                  className={'bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800 text-white px-6 py-3 rounded-lg transition-colors col-span-2 font-semibold'}
-                >
-                  {isTransferValidating ? 'Validating...' : 'Request Stock Transfer'}
-                </button>
-                <p className="text-white/50 text-sm col-span-2 text-center">
-                  Note: All transfer requests require approval from Admin/SuperAdmin
-                </p>
-              </div>
-
-              {/* Recent Transfer Requests */}
-              <div className="mt-8">
-                <h3 className="text-lg font-semibold text-white mb-4">Recent Transfer Requests</h3>
-                {getFilteredStockRequests().length > 0 ? (
-                  <div className="space-y-4">
-                    {getFilteredStockRequests().slice(0, 5).map((request, index) => (
-                      <div key={generateSafeKey('request', index, request.id)} className="bg-white/5 rounded-lg p-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-semibold text-white">Item: {request.itemCode}</div>
-                            <div className="text-white/70 text-sm">
-                              From: {request.fromLocation} → To: {request.toLocation}
-                            </div>
-                            <div className="text-white/70 text-sm">Quantity: {request.quantity}</div>
-                            <div className="text-white/70 text-sm">Requested by: {request.requestedByName}</div>
-                            <div className="text-white/70 text-sm mt-1">
-                              Status: <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(request.status)}`}>
-                                {request.status}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-white/50 text-sm">
-                              {request.requestedAt?.toDate().toLocaleDateString()}
-                            </div>
-                            <div className="text-white/70 text-sm">
-                              {request.status === 'pending' ? 'Awaiting Approval' : 
-                               request.status === 'approved' ? 'Approved' : 
-                               request.status === 'rejected' ? 'Rejected' : ''}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-white/70">No transfer requests found.</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Personnel Management Tab */}
-          {activeTab === 'personnel' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <h2 className={'text-xl font-semibold text-white mb-4'}>Personnel Management</h2>
-              
-              <div className={'overflow-x-auto'}>
-                <table className={'w-full text-white'}>
-                  <thead>
-                    <tr className={'border-b border-white/20'}>
-                      <th className={'text-left py-2 text-xs sm:text-sm'}>Name</th>
-                      <th className={'text-left py-2 hidden sm:table-cell text-xs sm:text-sm'}>Email</th>
-                      <th className={'text-left py-2 text-xs sm:text-sm'}>Role</th>
-                      <th className={'text-left py-2 text-xs sm:text-sm'}>Location</th>
-                      <th className={'text-left py-2 text-xs sm:text-sm'}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getFilteredUsers().map((userItem, index) => (
-                      <tr key={generateSafeKey('user', index, userItem.id)} className={'border-b border-white/10'}>
-                        <td className={'py-2'}>
-                          <div className="font-medium text-sm sm:text-base">{userItem.fullName}</div>
-                          <div className="text-white/70 text-xs sm:hidden">{userItem.email}</div>
-                        </td>
-                        <td className={'py-2 hidden sm:table-cell text-sm'}>{userItem.email}</td>
-                        <td className={'py-2'}>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            userItem.role === 'manager' ? 'bg-orange-500/20 text-orange-300' :
-                            userItem.role === 'sales' ? 'bg-blue-500/20 text-blue-300' :
-                            userItem.role === 'dataEntry' ? 'bg-green-500/20 text-green-300' :
-                            'bg-gray-500/20 text-gray-300'
-                          }`}>
-                            {userItem.role}
-                          </span>
-                        </td>
-                        <td className={'py-2 text-sm'}>{userItem.location || 'Not assigned'}</td>
-                        <td className={'py-2'}>
-                          <div className="flex flex-col gap-2">
-                            <select
-                              value={userItem.role}
-                              onChange={(e) => handleAssignRole(userItem.id, e.target.value, userItem.role)}
-                              className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs sm:text-sm w-full'}
-                            >
-                              <option value={'sales'}>Sales Personnel</option>
-                              <option value={'dataEntry'}>Data Entry Clerk</option>
-                              <option value={'user'}>Regular User</option>
-                            </select>
-                            <select
-                              value={userItem.location || ''}
-                              onChange={(e) => handleUpdateUserLocation(userItem.id, e.target.value, userItem.role)}
-                              className={'bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs sm:text-sm w-full'}
-                            >
-                              <option value={''}>Select Location</option>
-                              {LOCATIONS.map((location, index) => (
-                                <option key={generateSafeKey('user-location', index, location)} value={location}>{location}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Stock Requests Tab (View Only - Cannot Approve) */}
-          {activeTab === 'requests' && (
-            <div className={'bg-white/5 backdrop-blur-lg rounded-lg border border-white/10 p-6'}>
-              <h2 className={'text-xl font-semibold text-white mb-4'}>
-                Stock Transfer Requests (View Only)
-              </h2>
-              <p className="text-white/70 mb-6">You can view all transfer requests. Only Admin/SuperAdmin can approve requests.</p>
-              
-              {getFilteredStockRequests().length === 0 ? (
-                <p className={'text-white/70'}>No stock transfer requests found.</p>
-              ) : (
-                <div className={'space-y-4'}>
-                  {getFilteredStockRequests().map((request, index) => (
-                    <div key={generateSafeKey('stock-request', index, request.id)} className={'bg-white/5 rounded-lg p-4 border border-white/10'}>
-                      <div className={'flex justify-between items-start'}>
-                        <div className={'flex-1'}>
-                          <div className={'flex items-center space-x-3 mb-2'}>
-                            <h3 className={'font-semibold text-white'}>Item: {request.itemCode}</h3>
-                            <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(request.status)}`}>
-                              {request.status}
-                            </span>
-                          </div>
-                          <div className={'grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm'}>
-                            <div>
-                              <span className={'text-white/70'}>Quantity: </span>
-                              <span className={'text-white'}>{request.quantity}</span>
-                            </div>
-                            <div>
-                              <span className={'text-white/70'}>From: </span>
-                              <span className={'text-blue-300'}>{request.fromLocation}</span>
-                            </div>
-                            <div>
-                              <span className={'text-white/70'}>To: </span>
-                              <span className={'text-green-300'}>{request.toLocation}</span>
-                            </div>
-                            <div>
-                              <span className={'text-white/70'}>Requested by: </span>
-                              <span className={'text-white'}>{request.requestedByName}</span>
-                            </div>
-                            <div>
-                              <span className={'text-white/70'}>Requested at: </span>
-                              <span className={'text-white/50'}>
-                                {request.requestedAt?.toDate().toLocaleString() || 'Unknown date'}
-                              </span>
-                            </div>
-                            {request.validatedAt && (
-                              <div>
-                                <span className={'text-white/70'}>Validated by Manager: </span>
-                                <span className={'text-white'}>{request.validatedByName || 'N/A'}</span>
-                              </div>
-                            )}
-                            {request.approvedByName && (
-                              <div>
-                                <span className={'text-white/70'}>Approved by: </span>
-                                <span className={'text-green-300'}>{request.approvedByName}</span>
-                              </div>
-                            )}
-                            {request.rejectedByName && (
-                              <div>
-                                <span className={'text-white/70'}>Rejected by: </span>
-                                <span className={'text-red-300'}>{request.rejectedByName}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className={'text-right'}>
-                          <div className={'text-white/50 text-sm mb-2'}>
-                            {request.status === 'pending' ? '⏳ Pending Approval' : 
-                             request.status === 'approved' ? '✅ Approved' : 
-                             request.status === 'rejected' ? '❌ Rejected' : 
-                             request.status === 'failed' ? '⚠️ Failed' : ''}
-                          </div>
-                          {request.status === 'pending' && (
-                            <div className="text-orange-300 text-sm font-semibold">
-                              Awaiting Admin/SuperAdmin
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          </footer>
         </div>
       </div>
 
-      {/* Report Faulty Phone Modal */}
-      {reportModal && (
-        <div className='fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4'>
-          <div className='bg-slate-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto'>
-            <div className='p-6'>
-              <div className='flex justify-between items-center mb-6'>
-                <h2 className='text-xl font-semibold text-white'>Report Faulty Phone - {user?.location}</h2>
-                <button
-                  onClick={() => setReportModal(false)}
-                  className='text-white/70 hover:text-white'
-                >
-                  ✕
-                </button>
+      {/* Report Faulty Phone Modal (same as before) */}
+      <Dialog open={reportModalOpen} onOpenChange={setReportModalOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-xl bg-linear-to-br from-orange-500 to-orange-600 flex items-center justify-center">
+                <FiAlertTriangle className="text-white w-6 h-6" />
               </div>
-
-              <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Item Code *</label>
-                  <input
-                    type='text'
-                    value={faultyReport.itemCode}
-                    onChange={(e) => setFaultyReport({...faultyReport, itemCode: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter item code'
-                  />
-                  <p className="text-xs text-orange-300 mt-1">Only items from {user?.location} can be reported</p>
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>IMEI (Optional)</label>
-                  <input
-                    type='text'
-                    value={faultyReport.imei}
-                    onChange={(e) => setFaultyReport({...faultyReport, imei: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter IMEI number'
-                  />
-                </div>
-
-                <div className='sm:col-span-2'>
-                  <label className='block text-white/70 text-sm mb-2'>Fault Description *</label>
-                  <textarea
-                    value={faultyReport.faultDescription}
-                    onChange={(e) => setFaultyReport({...faultyReport, faultDescription: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-24'
-                    placeholder='Describe the fault in detail...'
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Reported Cost (MWK)</label>
-                  <input
-                    type='number'
-                    value={faultyReport.reportedCost}
-                    onChange={(e) => setFaultyReport({...faultyReport, reportedCost: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='0'
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Estimated Repair Cost (MWK)</label>
-                  <input
-                    type='number'
-                    value={faultyReport.estimatedRepairCost}
-                    onChange={(e) => setFaultyReport({...faultyReport, estimatedRepairCost: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='0'
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Status</label>
-                  <select
-                    value={faultyReport.status}
-                    onChange={(e) => setFaultyReport({...faultyReport, status: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                  >
-                    {FAULTY_STATUS.map(status => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className='sm:col-span-2'>
-                  <label className='block text-white/70 text-sm mb-2'>Spares Needed</label>
-                  <div className='grid grid-cols-2 sm:grid-cols-4 gap-2'>
-                    {SPARES_OPTIONS.map(spare => (
-                      <label key={spare} className='flex items-center'>
-                        <input
-                          type='checkbox'
-                          checked={faultyReport.sparesNeeded.includes(spare)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFaultyReport({
-                                ...faultyReport,
-                                sparesNeeded: [...faultyReport.sparesNeeded, spare]
-                              });
-                            } else {
-                              setFaultyReport({
-                                ...faultyReport,
-                                sparesNeeded: faultyReport.sparesNeeded.filter(s => s !== spare)
-                              });
-                            }
-                          }}
-                          className='mr-2'
-                        />
-                        <span className='text-white/80 text-sm'>{spare}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className='md:col-span-2'>
-                  <label className='block text-white/70 text-sm mb-2'>Other Spares (Specify)</label>
-                  <input
-                    type='text'
-                    value={faultyReport.otherSpares}
-                    onChange={(e) => setFaultyReport({...faultyReport, otherSpares: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Specify other spares needed...'
-                  />
-                </div>
-
-                <div className='md:col-span-2'>
-                  <label className='block text-white/70 text-sm mb-2'>Notes</label>
-                  <textarea
-                    value={faultyReport.notes}
-                    onChange={(e) => setFaultyReport({...faultyReport, notes: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-20'
-                    placeholder='Additional notes...'
-                  />
-                </div>
-              </div>
-
-              <div className='flex justify-end space-x-3 mt-6'>
-                <button
-                  onClick={() => setReportModal(false)}
-                  className='px-4 py-2 text-white/70 hover:text-white'
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleReportFaulty}
-                  className='bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg transition-colors'
-                >
-                  Report Faulty
-                </button>
+              <div>
+                <DialogTitle className="text-2xl text-white">Report Faulty Phone</DialogTitle>
+                <DialogDescription>Report a faulty device from your location</DialogDescription>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogHeader>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <Label className="text-slate-300">Item Code *</Label>
+              <Input
+                type="text"
+                value={faultyReport.itemCode}
+                onChange={(e) => setFaultyReport({...faultyReport, itemCode: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter item code"
+              />
+            </div>
 
-      {/* Installment Modal */}
-      {installmentModal && selectedSaleForInstallment && (
-        <div className='fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4'>
-          <div className='bg-slate-800 rounded-lg max-w-md w-full'>
-            <div className='p-6'>
-              <div className='flex justify-between items-center mb-6'>
-                <h2 className='text-xl font-semibold text-white'>Create Installment Plan</h2>
-                <button
-                  onClick={() => {
-                    setInstallmentModal(false);
-                    setSelectedSaleForInstallment(null);
-                  }}
-                  className='text-white/70 hover:text-white'
-                >
-                  ✕
-                </button>
-              </div>
+            <div>
+              <Label className="text-slate-300">IMEI (Optional)</Label>
+              <Input
+                type="text"
+                value={faultyReport.imei}
+                onChange={(e) => setFaultyReport({...faultyReport, imei: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter IMEI number"
+              />
+            </div>
 
-              <div className='space-y-4'>
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Customer Name *</label>
-                  <input
-                    type='text'
-                    value={installmentData.customerName}
-                    onChange={(e) => setInstallmentData({...installmentData, customerName: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter customer name'
-                  />
-                </div>
+            <div className="lg:col-span-2">
+              <Label className="text-slate-300">Fault Description *</Label>
+              <Textarea
+                value={faultyReport.faultDescription}
+                onChange={(e) => setFaultyReport({...faultyReport, faultDescription: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white h-40"
+                placeholder="Describe the fault in detail..."
+              />
+            </div>
 
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Phone Number</label>
-                  <input
-                    type='tel'
-                    value={installmentData.phoneNumber}
-                    onChange={(e) => setInstallmentData({...installmentData, phoneNumber: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter phone number'
-                  />
-                </div>
+            <div>
+              <Label className="text-slate-300">Customer Name</Label>
+              <Input
+                type="text"
+                value={faultyReport.customerName}
+                onChange={(e) => setFaultyReport({...faultyReport, customerName: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter customer name"
+              />
+            </div>
 
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Total Amount (MWK)</label>
-                  <input
-                    type='number'
-                    value={installmentData.totalAmount}
-                    onChange={(e) => setInstallmentData({...installmentData, totalAmount: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    readOnly
-                  />
-                </div>
+            <div>
+              <Label className="text-slate-300">Customer Phone</Label>
+              <Input
+                type="tel"
+                value={faultyReport.customerPhone}
+                onChange={(e) => setFaultyReport({...faultyReport, customerPhone: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter phone number"
+              />
+            </div>
 
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Down Payment (MWK)</label>
-                  <input
-                    type='number'
-                    value={installmentData.downPayment}
-                    onChange={(e) => {
-                      const downPayment = parseFloat(e.target.value) || 0;
-                      setInstallmentData({
-                        ...installmentData,
-                        downPayment: downPayment,
-                        remainingAmount: installmentData.totalAmount - downPayment
-                      });
-                    }}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    placeholder='Enter down payment'
-                  />
-                </div>
+            <div>
+              <Label className="text-slate-300">Reported Cost (MWK)</Label>
+              <Input
+                type="number"
+                value={faultyReport.reportedCost}
+                onChange={(e) => setFaultyReport({...faultyReport, reportedCost: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="0"
+              />
+            </div>
 
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Installment Plan (Months)</label>
-                  <select
-                    value={installmentData.installmentPlan}
-                    onChange={(e) => {
-                      const months = parseInt(e.target.value);
-                      const monthlyPayment = (installmentData.totalAmount - installmentData.downPayment) / months;
-                      setInstallmentData({
-                        ...installmentData,
-                        installmentPlan: e.target.value,
-                        monthlyPayment: monthlyPayment
-                      });
-                    }}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                  >
-                    <option value='1'>1 Month</option>
-                    <option value='2'>2 Months</option>
-                    <option value='3'>3 Months</option>
-                    <option value='4'>4 Months</option>
-                    <option value='5'>5 Months</option>
-                    <option value='6'>6 Months</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Monthly Payment (MWK)</label>
-                  <input
-                    type='number'
-                    value={installmentData.monthlyPayment}
-                    onChange={(e) => setInstallmentData({...installmentData, monthlyPayment: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                    readOnly
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Next Payment Date</label>
-                  <input
-                    type='date'
-                    value={installmentData.nextPaymentDate}
-                    onChange={(e) => setInstallmentData({...installmentData, nextPaymentDate: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white'
-                  />
-                </div>
-
-                <div>
-                  <label className='block text-white/70 text-sm mb-2'>Note</label>
-                  <textarea
-                    value={installmentData.notes}
-                    onChange={(e) => setInstallmentData({...installmentData, notes: e.target.value})}
-                    className='w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white h-20'
-                    placeholder='Additional notes...'
-                  />
-                </div>
-              </div>
-
-              <div className='flex justify-end space-x-3 mt-6'>
-                <button
-                  onClick={() => {
-                    setInstallmentModal(false);
-                    setSelectedSaleForInstallment(null);
-                  }}
-                  className='px-4 py-2 text-white/70 hover:text-white'
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleProcessInstallment}
-                  className='bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg transition-colors'
-                >
-                  Create Installment
-                </button>
-              </div>
+            <div>
+              <Label className="text-slate-300">Status</Label>
+              <Select
+                value={faultyReport.status}
+                onValueChange={(value) => setFaultyReport({...faultyReport, status: value})}
+              >
+                <SelectTrigger className="bg-slate-800/50 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Reported">Reported</SelectItem>
+                  <SelectItem value="In Repair">In Repair</SelectItem>
+                  <SelectItem value="Fixed">Fixed</SelectItem>
+                  <SelectItem value="EOS (End of Service)">EOS (End of Service)</SelectItem>
+                  <SelectItem value="Scrapped">Scrapped</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Footer */}
-      <footer className="w-full fixed bottom-0 left-0 z-10 bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 py-4">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-200 text-sm">
-          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
-        </div>
-      </footer>
+          <DialogFooter className="gap-2">
+            <Button
+              onClick={() => setReportModalOpen(false)}
+              variant="outline"
+              className="bg-slate-700 hover:bg-slate-600 border-slate-600"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReportFaultyPhone}
+              className="bg-linear-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800"
+            >
+              <FiPlus className="w-5 h-5 mr-2" />
+              Report Faulty
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Installment Modal (same as before) */}
+      <Dialog open={installmentModalOpen} onOpenChange={setInstallmentModalOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-xl bg-linear-to-br from-purple-500 to-purple-600 flex items-center justify-center">
+                <FiCreditCard className="text-white w-6 h-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-2xl text-white">Create Installment Plan</DialogTitle>
+                <DialogDescription>Setup payment plan for customer</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            <div>
+              <Label className="text-slate-300">Customer Name *</Label>
+              <Input
+                type="text"
+                value={installmentData.customerName}
+                onChange={(e) => setInstallmentData({...installmentData, customerName: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter customer name"
+              />
+            </div>
+
+            <div>
+              <Label className="text-slate-300">Phone Number</Label>
+              <Input
+                type="tel"
+                value={installmentData.phoneNumber}
+                onChange={(e) => setInstallmentData({...installmentData, phoneNumber: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter phone number"
+              />
+            </div>
+
+            <div>
+              <Label className="text-slate-300">Total Amount (MWK)</Label>
+              <Input
+                type="number"
+                value={installmentData.totalAmount}
+                onChange={(e) => setInstallmentData({...installmentData, totalAmount: e.target.value})}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter total amount"
+              />
+            </div>
+
+            <div>
+              <Label className="text-slate-300">Down Payment (MWK)</Label>
+              <Input
+                type="number"
+                value={installmentData.downPayment}
+                onChange={(e) => {
+                  const downPayment = parseFloat(e.target.value) || 0;
+                  setInstallmentData({
+                    ...installmentData,
+                    downPayment: downPayment,
+                    remainingAmount: installmentData.totalAmount - downPayment
+                  });
+                }}
+                className="bg-slate-800/50 border-slate-600 text-white"
+                placeholder="Enter down payment"
+              />
+            </div>
+
+            <div>
+              <Label className="text-slate-300">Installment Plan (Months)</Label>
+              <Select
+                value={installmentData.installmentPlan}
+                onValueChange={(value) => {
+                  const months = parseInt(value);
+                  const monthlyPayment = (installmentData.totalAmount - installmentData.downPayment) / months;
+                  setInstallmentData({
+                    ...installmentData,
+                    installmentPlan: value,
+                    monthlyPayment: monthlyPayment
+                  });
+                }}
+              >
+                <SelectTrigger className="bg-slate-800/50 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 Month</SelectItem>
+                  <SelectItem value="2">2 Months</SelectItem>
+                  <SelectItem value="3">3 Months</SelectItem>
+                  <SelectItem value="4">4 Months</SelectItem>
+                  <SelectItem value="5">5 Months</SelectItem>
+                  <SelectItem value="6">6 Months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              onClick={() => setInstallmentModalOpen(false)}
+              variant="outline"
+              className="bg-slate-700 hover:bg-slate-600 border-slate-600"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateInstallment}
+              className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800"
+            >
+              <FiCreditCard className="w-5 h-5 mr-2" />
+              Create Installment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

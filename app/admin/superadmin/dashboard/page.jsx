@@ -224,8 +224,8 @@ export default function SuperAdminDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const router = useRouter();
 
   // User Management State
@@ -376,12 +376,13 @@ export default function SuperAdminDashboard() {
     { id: 'approvalSettings', name: 'Approval Settings', icon: <FiSettings className="w-5 h-5" /> }
   ];
 
-    // Update the externalLinks to use onClick handlers instead of href
-    const externalLinks = [
-      { name: 'Operations', icon: <FiMessageSquare className="w-5 h-5" />, route: '/operations' },
-      { name: 'Manage', icon: <FiTool className="w-5 h-5" />, route: '/manage' },
-      { name: 'Shops', icon: <FiHome className="w-5 h-5" />, route: '/shops' }
-    ];
+  // Update the externalLinks to use onClick handlers instead of href
+  const externalLinks = [
+    { name: 'Operations', icon: <FiMessageSquare className="w-5 h-5" />, route: '/operations' },
+    { name: 'Manage', icon: <FiTool className="w-5 h-5" />, route: '/manage' },
+    { name: 'Shops', icon: <FiHome className="w-5 h-5" />, route: '/shops' }
+  ];
+
   // Calculate real-time sales
   const calculateRealTimeSales = useCallback((salesData) => {
     const today = new Date();
@@ -1758,6 +1759,41 @@ export default function SuperAdminDashboard() {
     return () => unsubscribe();
   }, [router, initializeDashboard]);
 
+  // Add this useEffect to detect screen size
+  useEffect(() => {
+    const checkIfMobile = () => {
+      const mobile = window.innerWidth < 1024; // lg breakpoint
+      setIsMobile(mobile);
+      if (!mobile) {
+        setIsSidebarOpen(true); // Always open on desktop
+      } else {
+        setIsSidebarOpen(false); // Always closed on mobile by default
+      }
+    };
+
+    // Initial check
+    checkIfMobile();
+
+    // Add event listener
+    window.addEventListener('resize', checkIfMobile);
+
+    // Cleanup
+    return () => window.removeEventListener('resize', checkIfMobile);
+  }, []);
+
+  // Add this effect to prevent body scrolling when mobile sidebar is open
+  useEffect(() => {
+    if (isMobile && isSidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isMobile, isSidebarOpen]);
+
   // Clear messages after 5 seconds
   useEffect(() => {
     if (error || success) {
@@ -1769,9 +1805,14 @@ export default function SuperAdminDashboard() {
     }
   }, [error, success]);
 
+  // Add this function to handle sidebar toggle
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-white">Loading SuperAdmin Dashboard...</div>
       </div>
     );
@@ -1779,10 +1820,10 @@ export default function SuperAdminDashboard() {
 
   // Desktop Sidebar Component
   const DesktopSidebar = () => (
-    <div className="hidden lg:flex lg:flex-shrink-0">
+    <div className={`hidden lg:flex lg:shrink-0 transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0'}`}>
       <div className="flex flex-col w-64">
-        <div className="flex flex-col flex-grow bg-gray-900 border-r border-gray-800 pt-5 pb-4 overflow-y-auto">
-          <div className="flex items-center flex-shrink-0 px-4">
+        <div className="flex flex-col grow bg-gray-900 border-r border-gray-800 pt-5 pb-4 overflow-y-auto">
+          <div className="flex items-center justify-between shrink-0 px-4">
             <div className="flex items-center">
               <FiShoppingBag className="h-8 w-8 text-purple-500" />
               <div className="ml-3">
@@ -1790,13 +1831,24 @@ export default function SuperAdminDashboard() {
                 <p className="text-xs text-gray-400">SuperAdmin Panel</p>
               </div>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsSidebarOpen(false)}
+              className="hidden lg:inline-flex"
+            >
+              <FiChevronLeft className="h-5 w-5 text-white" />
+            </Button>
           </div>
           <div className="mt-8 flex-1 flex flex-col">
             <nav className="flex-1 px-2 space-y-1">
               {navItems.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    if (isMobile) setIsSidebarOpen(false);
+                  }}
                   className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full justify-between ${
                     activeTab === item.id
                       ? 'bg-purple-900/30 text-white border-l-4 border-purple-500'
@@ -1815,22 +1867,25 @@ export default function SuperAdminDashboard() {
                 </button>
               ))}
               {/* External Links Section */}
-            <div className="pt-2">
-              {externalLinks.map((link) => (
-                <button
-                  key={link.name}
-                  onClick={() => router.push(link.route)}
-                  className="group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full text-gray-300 hover:bg-gray-800 hover:text-white"
-                >
-                  {link.icon}
-                  <span className="ml-3">{link.name}</span>
-                  <FiChevronRight className="ml-auto h-4 w-4 text-gray-400 group-hover:text-white" />
-                </button>
-              ))}
-            </div>
+              <div className="pt-2">
+                {externalLinks.map((link) => (
+                  <button
+                    key={link.name}
+                    onClick={() => {
+                      router.push(link.route);
+                      if (isMobile) setIsSidebarOpen(false);
+                    }}
+                    className="group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full text-gray-300 hover:bg-gray-800 hover:text-white"
+                  >
+                    {link.icon}
+                    <span className="ml-3">{link.name}</span>
+                    <FiChevronRight className="ml-auto h-4 w-4 text-gray-400 group-hover:text-white" />
+                  </button>
+                ))}
+              </div>
             </nav>
           </div>
-          <div className="flex-shrink-0 flex border-t border-gray-800 p-4">
+          <div className="shrink-0 flex border-t border-gray-800 p-4">
             <div className="flex items-center">
               <Avatar>
                 <AvatarFallback className="bg-purple-600">
@@ -1848,74 +1903,20 @@ export default function SuperAdminDashboard() {
     </div>
   );
 
-  // Mobile Sidebar Component
-  const MobileSidebar = () => (
-    <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="lg:hidden">
-          <FiMenu className="h-6 w-6 text-white" />
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="left" className="w-64 bg-gray-900 border-r border-gray-800 p-0">
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-800">
-          <div className="flex items-center">
-            <FiShoppingBag className="h-8 w-8 text-purple-500" />
-            <div className="ml-3">
-              <h1 className="text-xl font-bold text-white">KM ELECTRONICS</h1>
-              <p className="text-xs text-gray-400">SuperAdmin Panel</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => setMobileSidebarOpen(false)}>
-            <FiX className="h-5 w-5 text-white" />
-          </Button>
-        </div>
-        <ScrollArea className="h-[calc(100vh-4rem)]">
-          <div className="p-4 space-y-2">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setMobileSidebarOpen(false);
-                }}
-                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full justify-between ${
-                  activeTab === item.id
-                    ? 'bg-purple-900/30 text-white border-l-4 border-purple-500'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center">
-                  {item.icon}
-                  <span className="ml-3">{item.name}</span>
-                </div>
-                {item.count > 0 && (
-                  <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
-                    {item.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="p-4 border-t border-gray-800">
-            <div className="flex items-center">
-              <Avatar>
-                <AvatarFallback className="bg-purple-600">
-                  {user?.fullName?.charAt(0) || 'A'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-white">{user?.fullName}</p>
-                <p className="text-xs text-gray-400">Super Admin</p>
-              </div>
-            </div>
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
+  // Mobile Navigation Trigger Component
+  const MobileNavTrigger = () => (
+    <Button 
+      variant="ghost" 
+      size="icon" 
+      className="lg:hidden"
+      onClick={() => setIsSidebarOpen(true)}
+    >
+      <FiMenu className="h-6 w-6 text-white" />
+    </Button>
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Error Display */}
       {error && (
         <div className="fixed top-4 right-4 z-50">
@@ -1942,13 +1943,95 @@ export default function SuperAdminDashboard() {
         {/* Desktop Sidebar */}
         <DesktopSidebar />
         
+        {/* Mobile Sidebar (Sheet) */}
+        <Sheet open={isSidebarOpen && isMobile} onOpenChange={setIsSidebarOpen}>
+          <SheetContent side="left" className="w-64 bg-gray-900 border-r border-gray-800 p-0 sm:max-w-xs">
+            <div className="flex items-center justify-between h-16 px-4 border-b border-gray-800">
+              <div className="flex items-center">
+                <FiShoppingBag className="h-8 w-8 text-purple-500" />
+                <div className="ml-3">
+                  <h1 className="text-xl font-bold text-white">KM MGNT</h1>
+                  <p className="text-xs text-gray-400">SuperAdmin Panel</p>
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                <FiX className="h-5 w-5 text-white" />
+              </Button>
+            </div>
+            <ScrollArea className="h-[calc(100vh-4rem)]">
+              <div className="p-4 space-y-2">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab(item.id);
+                      setIsSidebarOpen(false);
+                    }}
+                    className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full justify-between ${
+                      activeTab === item.id
+                        ? 'bg-purple-900/30 text-white border-l-4 border-purple-500'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      {item.icon}
+                      <span className="ml-3">{item.name}</span>
+                    </div>
+                    {item.count > 0 && (
+                      <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+                {/* External Links in Mobile */}
+                <div className="pt-2">
+                  {externalLinks.map((link) => (
+                    <button
+                      key={link.name}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(link.route);
+                        setIsSidebarOpen(false);
+                      }}
+                      className="group flex items-center px-2 py-2 text-sm font-medium rounded-md w-full text-gray-300 hover:bg-gray-800 hover:text-white"
+                    >
+                      {link.icon}
+                      <span className="ml-3">{link.name}</span>
+                      <FiChevronRight className="ml-auto h-4 w-4 text-gray-400 group-hover:text-white" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="p-4 border-t border-gray-800">
+                <div className="flex items-center">
+                  <Avatar>
+                    <AvatarFallback className="bg-purple-600">
+                      {user?.fullName?.charAt(0) || 'A'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-white">{user?.fullName}</p>
+                    <p className="text-xs text-gray-400">Super Admin</p>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
+
         {/* Main Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 z-40 bg-gray-900 border-b border-gray-800">
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center">
-                <MobileSidebar />
+                <MobileNavTrigger />
                 <div className="ml-4">
                   <h1 className="text-lg font-semibold text-white">KM ELECTRONICS</h1>
                   <p className="text-xs text-gray-400">SuperAdmin</p>
@@ -1992,13 +2075,23 @@ export default function SuperAdminDashboard() {
           {/* Desktop Header */}
           <div className="hidden lg:block sticky top-0 z-40 bg-gray-900/80 backdrop-blur-lg border-b border-gray-800">
             <div className="flex items-center justify-between px-6 py-4">
-              <div>
-                <h1 className="text-xl font-semibold text-white">
-                  {navItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
-                </h1>
-                <p className="text-sm text-gray-400">
-                  Welcome, {user?.fullName} | System Administrator
-                </p>
+              <div className="flex items-center">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={toggleSidebar}
+                  className="mr-4"
+                >
+                  <FiMenu className="h-6 w-6 text-white" />
+                </Button>
+                <div>
+                  <h1 className="text-xl font-semibold text-white">
+                    {navItems.find(item => item.id === activeTab)?.name || 'Dashboard'}
+                  </h1>
+                  <p className="text-sm text-gray-400">
+                    Welcome, {user?.fullName} | System Administrator
+                  </p>
+                </div>
               </div>
               
               <div className="flex items-center space-x-4">
@@ -2431,7 +2524,7 @@ export default function SuperAdminDashboard() {
                     </div>
                     </CardHeader>
                   <CardContent>
-                    <ScrollArea className="h-[600px]">
+                    <ScrollArea className="h-600px">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-gray-700">
@@ -2885,11 +2978,11 @@ export default function SuperAdminDashboard() {
                           <Input
                             id="autoApproveBelow"
                             type="number"
-                            min="2"
+                            min="1"
                             value={approvalSettings.autoApproveBelow}
                             onChange={(e) => setApprovalSettings({
                               ...approvalSettings,
-                              autoApproveBelow: parseInt(e.target.value) || 2
+                              autoApproveBelow: parseInt(e.target.value) || 1
                             })}
                             className="bg-gray-800 border-gray-700 text-white"
                           />
@@ -2962,7 +3055,7 @@ export default function SuperAdminDashboard() {
                   <CardTitle className="text-white">Personnel Management</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[600px]">
+                  <ScrollArea className="h-600px">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-gray-700">

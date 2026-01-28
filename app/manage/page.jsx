@@ -10,6 +10,8 @@ import {
 } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// React Icons
 import { 
   FaTrash, FaFilePdf, FaFileExcel, 
   FaMoneyBillWave, FaWarehouse, FaChartBar,
@@ -23,17 +25,116 @@ import {
   FaUserCog, FaUserSlash, FaUserPlus, FaKey, FaTachometerAlt,
   FaBox, FaBoxes, FaDollarSign, FaCreditCard, FaMobileAlt,
   FaBan, FaUndo, FaEye, FaEyeSlash, FaArchive, FaTrashAlt,
-  FaUserCheck
+  FaUserCheck, FaSignOutAlt, FaHome, FaCog, FaBell, FaChartLine
 } from 'react-icons/fa';
+import { FiMenu, FiX, FiChevronRight, FiChevronLeft, FiAlertCircle } from 'react-icons/fi';
+import { 
+  MdDashboard, MdPerson, MdDelete, MdHistory, 
+  MdReport, MdSettings, MdLogout, MdWarning 
+} from 'react-icons/md';
+
+// shadcn/ui components
+import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+  SheetClose,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
+} from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TableCaption,
+} from "@/components/ui/table"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuGroup,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 // Locations
 const LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
 
 export default function DeletionManagementDashboard() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('sales');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const router = useRouter();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const navItems = [
+    { id: 'dashboard', name: 'Dashboard', icon: <MdDashboard className="w-5 h-5" /> },
+    { id: 'sales', name: 'Sales', icon: <FaShoppingCart className="w-5 h-5" /> },
+    { id: 'users', name: 'Users', icon: <FaUsers className="w-5 h-5" /> },
+    { id: 'deletions', name: 'Deletion History', icon: <MdHistory className="w-5 h-5" /> },
+    { id: 'reports', name: 'Reports', icon: <MdReport className="w-5 h-5" /> },
+  ];
+
+  const externalLinks = [
+    { name: 'Operations', icon: <FaTachometerAlt className="w-5 h-5" />, route: '/operations' },
+    { name: 'SuperAdmin', icon: <FaUserCog className="w-5 h-5" />, route: '/admin/superadmin/dashboard' },
+    { name: 'Shops', icon: <FaStore className="w-5 h-5" />, route: '/shops' }
+  ];
 
   // Dashboard Stats
   const [dashboardStats, setDashboardStats] = useState({
@@ -83,7 +184,8 @@ export default function DeletionManagementDashboard() {
     show: false,
     type: '',
     id: '',
-    data: null
+    data: null,
+    permanent: false
   });
 
   // Format currency
@@ -120,6 +222,7 @@ export default function DeletionManagementDashboard() {
         ...doc.data()
       }));
       setSales(salesData);
+      setFilteredSales(salesData);
 
       // Fetch users
       const usersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
@@ -129,6 +232,7 @@ export default function DeletionManagementDashboard() {
         ...doc.data()
       }));
       setUsers(usersData);
+      setFilteredUsers(usersData);
 
       // Fetch deletion history
       const deletionQuery = query(collection(db, 'deletionLogs'), orderBy('deletedAt', 'desc'));
@@ -388,10 +492,6 @@ export default function DeletionManagementDashboard() {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete ${selectedDeletions.length} selected sales?`)) {
-      return;
-    }
-
     try {
       const batch = [];
       for (const saleId of selectedDeletions) {
@@ -634,86 +734,102 @@ export default function DeletionManagementDashboard() {
     }
   };
 
-  // ==================== CONFIRMATION MODAL ====================
+  // ==================== CONFIRMATION DIALOG ====================
 
-  const ConfirmDeleteModal = () => {
-    if (!confirmDelete.show) return null;
-
-    const { type, id, data } = confirmDelete;
-    const isPermanent = confirmDelete.permanent;
+  const ConfirmDeleteDialog = () => {
+    const { type, id, data, permanent } = confirmDelete;
 
     return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full border border-red-500/30">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-red-400">
-              <FaExclamationTriangle className="inline mr-2" />
-              Confirm {isPermanent ? 'Permanent ' : ''}Deletion
-            </h3>
-            <button
+      <Dialog open={confirmDelete.show} onOpenChange={(open) => !open && setConfirmDelete({ show: false, type: '', id: '', data: null })}>
+        <DialogContent className="sm:max-w-md bg-gray-900 border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MdWarning className="text-red-500" />
+              Confirm {permanent ? 'Permanent ' : ''}Deletion
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Are you sure you want to {permanent ? 'permanently delete' : 'delete'} this {type}? 
+              {permanent && ' This action cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {type === 'sale' && data && (
+            <Card className="bg-gray-800 border-gray-700">
+              <CardContent className="p-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Receipt:</span>
+                    <span className="font-mono">{data.receiptNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Customer:</span>
+                    <span>{data.customerName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Amount:</span>
+                    <span className="font-semibold">{formatCurrency(data.finalSalePrice)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Date:</span>
+                    <span>{formatDate(data.soldAt)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {type === 'user' && data && (
+            <Card className="bg-gray-800 border-gray-700">
+              <CardContent className="p-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Name:</span>
+                    <span>{data.fullName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Email:</span>
+                    <span>{data.email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Role:</span>
+                    <Badge variant={data.role === 'superadmin' ? 'destructive' : data.role === 'manager' ? 'default' : 'secondary'}>
+                      {data.role}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Location:</span>
+                    <span>{data.location}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
               onClick={() => setConfirmDelete({ show: false, type: '', id: '', data: null })}
-              className="text-gray-400 hover:text-white"
+              className="flex-1"
             >
-              ✕
-            </button>
-          </div>
-          
-          <div className="mb-6">
-            <p className="text-gray-300 mb-4">
-              Are you sure you want to {isPermanent ? 'permanently delete' : 'delete'} this {type}?
-            </p>
-            
-            {type === 'sale' && data && (
-              <div className="bg-gray-700/50 p-4 rounded-lg mb-4">
-                <p><strong>Receipt:</strong> {data.receiptNumber}</p>
-                <p><strong>Customer:</strong> {data.customerName}</p>
-                <p><strong>Amount:</strong> {formatCurrency(data.finalSalePrice)}</p>
-                <p><strong>Profit:</strong> {formatCurrency(data.profit || 0)}</p>
-                <p><strong>Date:</strong> {formatDate(data.soldAt)}</p>
-              </div>
-            )}
-            
-            {type === 'user' && data && (
-              <div className="bg-gray-700/50 p-4 rounded-lg mb-4">
-                <p><strong>Name:</strong> {data.fullName}</p>
-                <p><strong>Email:</strong> {data.email}</p>
-                <p><strong>Role:</strong> {data.role}</p>
-                <p><strong>Location:</strong> {data.location}</p>
-              </div>
-            )}
-            
-            {isPermanent && (
-              <div className="bg-red-900/20 border border-red-700/50 p-3 rounded-lg mb-4">
-                <p className="text-red-300 text-sm">
-                  ⚠️ <strong>Warning:</strong> Permanent deletion cannot be undone. This action will permanently remove the record from the database.
-                </p>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex space-x-4">
-            <button
+              Cancel
+            </Button>
+            <Button
+              variant={permanent ? "destructive" : "default"}
               onClick={() => {
                 if (type === 'sale') {
-                  handleDeleteSale(id, isPermanent);
+                  handleDeleteSale(id, permanent);
                 } else if (type === 'user') {
-                  handleDeleteUser(id, isPermanent);
+                  handleDeleteUser(id, permanent);
                 }
                 setConfirmDelete({ show: false, type: '', id: '', data: null });
               }}
-              className="flex-1 bg-red-600 hover:bg-red-700 px-4 py-3 rounded-lg transition-colors font-semibold"
+              className="flex-1"
             >
-              {isPermanent ? 'Delete Permanently' : 'Delete'}
-            </button>
-            <button
-              onClick={() => setConfirmDelete({ show: false, type: '', id: '', data: null })}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 px-4 py-3 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
+              {permanent ? 'Delete Permanently' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   };
 
@@ -746,7 +862,6 @@ export default function DeletionManagementDashboard() {
       } else {
         router.push('/login');
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -763,1018 +878,1022 @@ export default function DeletionManagementDashboard() {
     }
   }, [error, success]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-        <div className="text-white">Loading Deletion Management Dashboard...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-gray-900 to-gray-800 text-white">
-      {/* Messages */}
-      {error && (
-        <div className="fixed top-4 right-4 z-50 animate-fade-in">
-          <div className="bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
-            <FaExclamationTriangle />
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="ml-4 text-white hover:text-gray-200">✕</button>
-          </div>
-        </div>
-      )}
-      
-      {success && (
-        <div className="fixed top-4 right-4 z-50 animate-fade-in">
-          <div className="bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
-            <FaCheckCircle />
-            <span>{success}</span>
-            <button onClick={() => setSuccess(null)} className="ml-4 text-white hover:text-gray-200">✕</button>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmation Modal */}
-      <ConfirmDeleteModal />
-
-      {/* Header */}
-      <header className="bg-gray-800/80 backdrop-blur-lg border-b border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 space-y-4 sm:space-y-0">
-            <div>
-              <h1 className="text-2xl font-bold">
-                KM ELECTRONICS <span className="text-red-400">Deletion Management</span>
-              </h1>
-              <p className="text-gray-400 text-sm">
-                Welcome, {user?.fullName || user?.email} | SUPER ADMIN
-              </p>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
-              <button
-                onClick={generateDeletionReportPDF}
-                disabled={isGeneratingReport}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2 text-sm w-full sm:w-auto ${
-                  isGeneratingReport 
-                    ? 'bg-gray-600 cursor-not-allowed' 
-                    : 'bg-purple-600 hover:bg-purple-700'
-                }`}
-              >
-                {isGeneratingReport ? (
-                  <>
-                    <FaSync className="animate-spin" />
-                    <span>Generating...</span>
-                  </>
-                ) : (
-                  <>
-                    <FaFilePdf />
-                    <span className="hidden sm:inline">Generate Report</span>
-                    <span className="sm:hidden">Report</span>
-                  </>
-                )}
-              </button>
+      {/* Mobile Sidebar */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="left" className="w-80 bg-gray-900 border-r border-gray-800 p-0">
+          <ScrollArea className="h-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-purple-600 p-2 rounded-lg">
+                  <FaStore className="h-8 w-8" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold">KM ELECTRONICS</h1>
+                  <p className="text-xs text-gray-400">Deletion Management</p>
+                </div>
+              </div>
               
-              <button
-                onClick={() => signOut(auth).then(() => router.push('/login'))}
-                className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors text-sm w-full sm:w-auto"
-              >
-                Logout
-              </button>
+              <nav className="space-y-2">
+                {navItems.map((item) => (
+                  <Button
+                    key={item.id}
+                    variant={activeTab === item.id ? "secondary" : "ghost"}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileSidebarOpen(false);
+                    }}
+                    className="w-full justify-start gap-3"
+                  >
+                    {item.icon}
+                    {item.name}
+                  </Button>
+                ))}
+                
+                <Separator className="my-4" />
+                
+                <h3 className="text-sm font-medium text-gray-400 mb-2">External Links</h3>
+                {externalLinks.map((link) => (
+                  <Button
+                    key={link.name}
+                    variant="ghost"
+                    onClick={() => router.push(link.route)}
+                    className="w-full justify-start gap-3"
+                  >
+                    {link.icon}
+                    {link.name}
+                  </Button>
+                ))}
+              </nav>
+              
+              <div className="mt-auto pt-8">
+                <Card className="bg-gray-800 border-gray-700">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarFallback className="bg-purple-600">
+                          {user?.fullName?.charAt(0) || 'A'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{user?.fullName}</p>
+                        <p className="text-xs text-gray-400">Super Admin</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:flex fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800">
+        <div className="flex flex-col h-full p-6">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="bg-purple-600 p-2 rounded-lg">
+              <FaStore className="h-8 w-8" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">KM ELECTRONICS</h1>
+              <p className="text-xs text-gray-400">Deletion Management</p>
             </div>
           </div>
-        </div>
-      </header>
-
-      {/* Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="border-b border-gray-700">
-          <nav className="flex flex-wrap gap-1 sm:gap-0 sm:space-x-8 overflow-x-auto py-2">
-            {[
-              { id: 'dashboard', name: 'Dashboard', icon: FaTachometerAlt },
-              { id: 'sales', name: 'Sales Deletion', icon: FaShoppingCart },
-              { id: 'users', name: 'User Deletion', icon: FaUsers },
-              { id: 'history', name: 'Deletion History', icon: FaHistory }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 whitespace-nowrap py-3 px-2 sm:px-1 border-b-2 font-medium text-sm flex items-center space-x-2 rounded-t-lg sm:rounded-none transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-red-500 text-red-400 bg-red-500/10 sm:bg-transparent'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600 hover:bg-gray-700/30 sm:hover:bg-transparent'
-                }`}
-              >
-                <tab.icon className="text-sm sm:text-base" />
-                <span className="hidden xs:inline sm:inline">{tab.name}</span>
-                <span className="xs:hidden sm:hidden">{tab.name.split(' ')[0]}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Content */}
-        <div className="py-6">
-          {/* Dashboard Tab */}
-          {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Total Sales Records</h3>
-                      <p className="text-xl sm:text-2xl font-bold text-blue-400 truncate">
-                        {dashboardStats.totalSales}
-                      </p>
-                    </div>
-                    <div className="bg-blue-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
-                      <FaShoppingCart className="text-blue-400 text-lg sm:text-xl" />
-                    </div>
-                  </div>
-                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
-                    {dashboardStats.deletedSales} deleted
-                  </p>
-                </div>
-                
-                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">User Accounts</h3>
-                      <p className="text-xl sm:text-2xl font-bold text-green-400 truncate">
-                        {dashboardStats.totalUsers}
-                      </p>
-                    </div>
-                    <div className="bg-green-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
-                      <FaUsers className="text-green-400 text-lg sm:text-xl" />
-                    </div>
-                  </div>
-                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
-                    {dashboardStats.activeUsers} active • {dashboardStats.inactiveUsers} inactive
-                  </p>
-                </div>
-                
-                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Today's Sales</h3>
-                      <p className="text-xl sm:text-2xl font-bold text-purple-400 truncate">
-                        {dashboardStats.todaySales}
-                      </p>
-                    </div>
-                    <div className="bg-purple-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
-                      <FaDollarSign className="text-purple-400 text-lg sm:text-xl" />
-                    </div>
-                  </div>
-                  <p className="text-gray-500 text-xs sm:text-sm mt-2">
-                    This month: {dashboardStats.monthlySales}
-                  </p>
-                </div>
-                
-                <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-red-700/50 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-gray-400 text-xs sm:text-sm mb-2 truncate">Deletion Actions</h3>
-                      <p className="text-xl sm:text-2xl font-bold text-red-400 truncate">
-                        {deletionHistory.length}
-                      </p>
-                    </div>
-                    <div className="bg-red-500/20 p-2 sm:p-3 rounded-lg ml-2 shrink-0">
-                      <FaTrash className="text-red-400 text-lg sm:text-xl" />
-                    </div>
-                  </div>
-                    <p className="text-gray-500 text-xs sm:text-sm mt-2">
-                      Total deletion records
-                    </p>
-                  </div>
-                </div>
-
-              {/* Quick Actions */}
-              <div className="bg-gray-800/50 rounded-xl p-4 sm:p-6 border border-gray-700">
-                <h2 className="text-lg sm:text-xl font-semibold mb-4">Quick Actions</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                  <button
-                    onClick={() => setActiveTab('sales')}
-                    className="bg-blue-600 hover:bg-blue-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
-                  >
-                    <FaShoppingCart className="text-xl sm:text-2xl mb-2" />
-                    <span className="text-xs sm:text-sm">Manage Sales</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('users')}
-                    className="bg-green-600 hover:bg-green-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
-                  >
-                    <FaUsers className="text-xl sm:text-2xl mb-2" />
-                    <span className="text-xs sm:text-sm">Manage Users</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('history')}
-                    className="bg-purple-600 hover:bg-purple-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
-                  >
-                    <FaHistory className="text-xl sm:text-2xl mb-2" />
-                    <span className="text-xs sm:text-sm">View History</span>
-                  </button>
-                  <button
-                    onClick={generateDeletionReportPDF}
-                    className="bg-orange-600 hover:bg-orange-700 p-3 sm:p-4 rounded-lg transition-colors flex flex-col items-center"
-                  >
-                    <FaFilePdf className="text-xl sm:text-2xl mb-2" />
-                    <span className="text-xs sm:text-sm">Generate Report</span>
-                  </button>
+          
+          <ScrollArea className="flex-1">
+            <nav className="space-y-2">
+              {navItems.map((item) => (
+                <Button
+                  key={item.id}
+                  variant={activeTab === item.id ? "secondary" : "ghost"}
+                  onClick={() => setActiveTab(item.id)}
+                  className="w-full justify-start gap-3"
+                >
+                  {item.icon}
+                  {item.name}
+                </Button>
+              ))}
+              
+              <Separator className="my-4" />
+              
+              <h3 className="text-sm font-medium text-gray-400 mb-2">External Links</h3>
+              {externalLinks.map((link) => (
+                <Button
+                  key={link.name}
+                  variant="ghost"
+                  onClick={() => router.push(link.route)}
+                  className="w-full justify-start gap-3"
+                >
+                  {link.icon}
+                  {link.name}
+                </Button>
+              ))}
+            </nav>
+          </ScrollArea>
+          
+          <Card className="bg-gray-800 border-gray-700">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <Avatar>
+                  <AvatarFallback className="bg-purple-600">
+                    {user?.fullName?.charAt(0) || 'A'}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">{user?.fullName}</p>
+                  <p className="text-xs text-gray-400">Super Admin</p>
                 </div>
               </div>
-
-              {/* Recent Deletions */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <h2 className="text-xl font-semibold mb-4">Recent Deletion Activities</h2>
-                <div className="space-y-3">
-                  {deletionHistory.slice(0, 5).map((log, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 bg-gray-700/30 rounded-lg">
-                      <div>
-                        <div className="font-medium text-sm">
-                          <span className={`px-2 py-1 rounded-full text-xs mr-2 ${
-                            log.type === 'sale' ? 'bg-blue-900/50 text-blue-300' :
-                            'bg-green-900/50 text-green-300'
-                          }`}>
-                            {log.type.toUpperCase()}
-                          </span>
-                          {log.action}
-                        </div>
-                        <div className="text-gray-400 text-xs">
-                          {log.recordData?.receiptNumber || log.recordData?.email || log.recordId}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-gray-300 text-sm">{log.deletedByName}</div>
-                        <div className="text-gray-400 text-xs">
-                          {formatDate(log.deletedAt)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Sales Deletion Tab */}
-          {activeTab === 'sales' && (
-            <div className="space-y-6">
-              {/* Sales Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-blue-400">{filteredSales.length}</div>
-                  <div className="text-gray-400 text-sm">Filtered Sales</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-400">
-                    {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0))}
-                  </div>
-                  <div className="text-gray-400 text-sm">Total Value</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-yellow-400">
-                    {formatCurrency(filteredSales.reduce((sum, sale) => sum + (parseFloat(sale.profit) || 0), 0))}
-                  </div>
-                  <div className="text-gray-400 text-sm">Total Profit</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-400">
-                    {filteredSales.filter(s => s.isDeleted).length}
-                  </div>
-                  <div className="text-gray-400 text-sm">Deleted</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-orange-400">
-                    {selectedDeletions.length}
-                  </div>
-                  <div className="text-gray-400 text-sm">Selected</div>
-                </div>
-              </div>
-
-              {/* Bulk Actions */}
-              {selectedDeletions.length > 0 && (
-                <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-semibold text-red-300">
-                        <FaExclamationTriangle className="inline mr-2" />
-                        {selectedDeletions.length} sales selected
-                      </h3>
-                      <p className="text-gray-400 text-sm mt-1">
-                        Total value: {formatCurrency(
-                          filteredSales
-                            .filter(s => selectedDeletions.includes(s.id))
-                            .reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0)
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={handleBulkDeleteSales}
-                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors flex items-center space-x-2"
-                      >
-                        <FaTrash />
-                        <span>Delete Selected</span>
-                      </button>
-                      <button
-                        onClick={() => setSelectedDeletions([])}
-                        className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg transition-colors"
-                      >
-                        Clear Selection
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Sales Filters */}
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Search Sales</label>
-                    <div className="relative">
-                      <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                      <input
-                        type="text"
-                        value={salesSearch}
-                        onChange={(e) => setSalesSearch(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2"
-                        placeholder="Search by customer, receipt, item..."
-                      />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Location</label>
-                    <select
-                      value={salesFilter.location}
-                      onChange={(e) => setSalesFilter({...salesFilter, location: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Locations</option>
-                      {LOCATIONS.map((location, index) => (
-                        <option key={index} value={location}>{location}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Payment Method</label>
-                    <select
-                      value={salesFilter.paymentMethod}
-                      onChange={(e) => setSalesFilter({...salesFilter, paymentMethod: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Methods</option>
-                      <option value="cash">Cash</option>
-                      <option value="mobile_money">Mobile Money</option>
-                      <option value="bank_transfer">Bank Transfer</option>
-                      <option value="installment">Installment</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Date Range</label>
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                      <input
-                        type="date"
-                        value={salesFilter.startDate}
-                        onChange={(e) => setSalesFilter({...salesFilter, startDate: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
-                        placeholder="Start"
-                      />
-                      <input
-                        type="date"
-                        value={salesFilter.endDate}
-                        onChange={(e) => setSalesFilter({...salesFilter, endDate: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
-                        placeholder="End"
-                      />
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Amount Range (MK)</label>
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                      <input
-                        type="number"
-                        placeholder="Min"
-                        value={salesFilter.minAmount}
-                        onChange={(e) => setSalesFilter({...salesFilter, minAmount: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Max"
-                        value={salesFilter.maxAmount}
-                        onChange={(e) => setSalesFilter({...salesFilter, maxAmount: e.target.value})}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center">
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={salesFilter.showDeleted}
-                        onChange={(e) => setSalesFilter({...salesFilter, showDeleted: e.target.checked})}
-                        className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                      />
-                      <span className="text-gray-400 text-sm">Show Deleted Sales</span>
-                    </label>
-                  </div>
-                  
-                  <div className="flex items-end">
-                    <button
-                      onClick={() => {
-                        setSalesSearch('');
-                        setSalesFilter({
-                          startDate: '',
-                          endDate: '',
-                          location: 'all',
-                          paymentMethod: 'all',
-                          minAmount: '',
-                          maxAmount: '',
-                          showDeleted: false
-                        });
-                        setSelectedDeletions([]);
-                      }}
-                      className="w-full bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg transition-colors"
-                    >
-                      Clear Filters
-                    </button>
-                  </div>
-                  
-                  <div className="flex items-end">
-                    <button
-                      onClick={() => setSelectedDeletions(filteredSales.map(s => s.id))}
-                      className="w-full bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg transition-colors"
-                    >
-                      Select All
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sales List */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">
-                    <FaShoppingCart className="inline mr-2" />
-                    Sales Records ({filteredSales.length})
-                  </h2>
-                  <div className="text-sm text-gray-400">
-                    {selectedDeletions.length > 0 && `${selectedDeletions.length} selected`}
-                  </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-2 w-12">
-                          <input
-                            type="checkbox"
-                            checked={selectedDeletions.length === filteredSales.length && filteredSales.length > 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedDeletions(filteredSales.map(s => s.id));
-                              } else {
-                                setSelectedDeletions([]);
-                              }
-                            }}
-                            className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                          />
-                        </th>
-                        <th className="text-left py-2">Receipt No.</th>
-                        <th className="text-left py-2">Customer</th>
-                        <th className="text-left py-2 hidden sm:table-cell">Item</th>
-                        <th className="text-left py-2">Amount</th>
-                        <th className="text-left py-2 hidden md:table-cell">Profit</th>
-                        <th className="text-left py-2 hidden lg:table-cell">Date</th>
-                        <th className="text-left py-2 hidden md:table-cell">Location</th>
-                        <th className="text-left py-2">Status</th>
-                        <th className="text-left py-2">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSales.map((sale, index) => (
-                        <tr key={index} className={`border-b border-gray-700/50 ${
-                          sale.isDeleted ? 'bg-red-900/20' : ''
-                        }`}>
-                          <td className="py-2">
-                            <input
-                              type="checkbox"
-                              checked={selectedDeletions.includes(sale.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedDeletions([...selectedDeletions, sale.id]);
-                                } else {
-                                  setSelectedDeletions(selectedDeletions.filter(id => id !== sale.id));
-                                }
-                              }}
-                              className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
-                            />
-                          </td>
-                          <td className="py-2 font-mono text-sm">{sale.receiptNumber}</td>
-                          <td className="py-2">
-                            <div>{sale.customerName || 'Walk-in'}</div>
-                            <div className="text-gray-400 text-xs">{sale.customerPhone}</div>
-                          </td>
-                          <td className="py-2 hidden sm:table-cell">
-                            <div>{sale.brand} {sale.model}</div>
-                            <div className="text-gray-400 text-xs">{sale.itemCode}</div>
-                          </td>
-                          <td className="py-2 font-semibold">{formatCurrency(sale.finalSalePrice)}</td>
-                          <td className="py-2 font-semibold text-green-400 hidden md:table-cell">{formatCurrency(sale.profit || 0)}</td>
-                          <td className="py-2 text-sm hidden lg:table-cell">
-                            {formatDate(sale.soldAt)}
-                          </td>
-                          <td className="py-2 hidden md:table-cell">{sale.location}</td>
-                          <td className="py-2">
-                            {sale.isDeleted ? (
-                              <span className="px-2 py-1 rounded-full text-xs bg-red-900/50 text-red-300">
-                                Deleted
-                              </span>
-                            ) : (
-                              <span className="px-2 py-1 rounded-full text-xs bg-green-900/50 text-green-300">
-                                Active
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2">
-                            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
-                              {sale.isDeleted ? (
-                                <button
-                                  onClick={() => handleRestoreSale(sale.id)}
-                                  className="bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
-                                >
-                                  <FaUndo size={12} />
-                                  <span>Restore</span>
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => setConfirmDelete({
-                                      show: true,
-                                      type: 'sale',
-                                      id: sale.id,
-                                      data: sale,
-                                      permanent: false
-                                    })}
-                                    className="bg-red-600 hover:bg-red-700 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <FaTrash size={12} />
-                                    <span>Delete</span>
-                                  </button>
-                                  <button
-                                    onClick={() => setConfirmDelete({
-                                      show: true,
-                                      type: 'sale',
-                                      id: sale.id,
-                                      data: sale,
-                                      permanent: true
-                                    })}
-                                    className="bg-red-800 hover:bg-red-900 px-2 sm:px-3 py-1 rounded text-xs sm:text-sm transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <FaTrashAlt size={12} />
-                                    <span>Perm. Delete</span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {filteredSales.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    No sales found matching your criteria
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* User Deletion Tab */}
-          {activeTab === 'users' && (
-            <div className="space-y-6">
-              {/* User Stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
-                  <div className="text-lg sm:text-xl font-bold text-blue-400">{filteredUsers.length}</div>
-                  <div className="text-gray-400 text-xs sm:text-sm">Filtered Users</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
-                  <div className="text-lg sm:text-xl font-bold text-green-400">
-                    {filteredUsers.filter(u => u.isActive !== false && !u.deletedAt).length}
-                  </div>
-                  <div className="text-gray-400 text-xs sm:text-sm">Active</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
-                  <div className="text-lg sm:text-xl font-bold text-orange-400">
-                    {filteredUsers.filter(u => u.isActive === false && !u.deletedAt).length}
-                  </div>
-                  <div className="text-gray-400 text-xs sm:text-sm">Inactive</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-3 sm:p-4 text-center">
-                  <div className="text-lg sm:text-xl font-bold text-red-400">
-                    {filteredUsers.filter(u => u.deletedAt).length}
-                  </div>
-                  <div className="text-gray-400 text-xs sm:text-sm">Deleted</div>
-                </div>
-              </div>
-
-              {/* User Filters */}
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Search Users</label>
-                    <div className="relative">
-                      <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                      <input
-                        type="text"
-                        value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-lg pl-10 pr-3 py-2"
-                        placeholder="Search by name, email, phone..."
-                      />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Role</label>
-                    <select
-                      value={userFilter.role}
-                      onChange={(e) => setUserFilter({...userFilter, role: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Roles</option>
-                      <option value="superadmin">Super Admin</option>
-                      <option value="manager">Manager</option>
-                      <option value="sales">Sales Personnel</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Location</label>
-                    <select
-                      value={userFilter.location}
-                      onChange={(e) => setUserFilter({...userFilter, location: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Locations</option>
-                      {LOCATIONS.map((location, index) => (
-                        <option key={index} value={location}>{location}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Status</label>
-                    <select
-                      value={userFilter.status}
-                      onChange={(e) => setUserFilter({...userFilter, status: e.target.value})}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="deleted">Deleted</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="mt-4">
-                  <button
-                    onClick={() => {
-                      setUserSearch('');
-                      setUserFilter({
-                        role: 'all',
-                        location: 'all',
-                        status: 'all'
-                      });
-                    }}
-                    className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Clear Filters
-                  </button>
-                </div>
-              </div>
-
-              {/* Users List */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">
-                    <FaUsers className="inline mr-2" />
-                    User Management ({filteredUsers.length})
-                  </h2>
-                  <div className="text-sm text-gray-400">
-                    Super Admin can manage all user accounts
-                  </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-2">Name</th>
-                        <th className="text-left py-2">Email</th>
-                        <th className="text-left py-2">Phone</th>
-                        <th className="text-left py-2">Role</th>
-                        <th className="text-left py-2">Location</th>
-                        <th className="text-left py-2">Status</th>
-                        <th className="text-left py-2">Created</th>
-                        <th className="text-left py-2">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUsers.map((userData, index) => (
-                        <tr key={index} className={`border-b border-gray-700/50 ${
-                          userData.deletedAt ? 'bg-red-900/20' :
-                          userData.isActive === false ? 'bg-orange-900/20' : ''
-                        }`}>
-                          <td className="py-2">
-                            <div className="font-medium">{userData.fullName}</div>
-                            {userData.email === user.email && (
-                              <div className="text-blue-400 text-xs">(You)</div>
-                            )}
-                          </td>
-                          <td className="py-2">{userData.email}</td>
-                          <td className="py-2">{userData.phone}</td>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              userData.role === 'superadmin' ? 'bg-red-900/50 text-red-300' :
-                              userData.role === 'manager' ? 'bg-blue-900/50 text-blue-300' :
-                              'bg-green-900/50 text-green-300'
-                            }`}>
-                              {userData.role}
-                            </span>
-                          </td>
-                          <td className="py-2">{userData.location}</td>
-                          <td className="py-2">
-                            {userData.deletedAt ? (
-                              <span className="px-2 py-1 rounded-full text-xs bg-red-900/50 text-red-300">
-                                Deleted
-                              </span>
-                            ) : userData.isActive === false ? (
-                              <span className="px-2 py-1 rounded-full text-xs bg-orange-900/50 text-orange-300">
-                                Inactive
-                              </span>
-                            ) : (
-                              <span className="px-2 py-1 rounded-full text-xs bg-green-900/50 text-green-300">
-                                Active
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2 text-sm">
-                            {formatDate(userData.createdAt)}
-                          </td>
-                          <td className="py-2">
-                            <div className="flex space-x-2">
-                              {userData.deletedAt ? (
-                                <button
-                                  onClick={() => handleRestoreUser(userData.id)}
-                                  className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                >
-                                  <FaUndo size={12} />
-                                  <span>Restore</span>
-                                </button>
-                              ) : userData.isActive === false ? (
-                                <>
-                                  <button
-                                    onClick={() => handleRestoreUser(userData.id)}
-                                    className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                  >
-                                    <FaUserCheck size={12} />
-                                    <span>Activate</span>
-                                  </button>
-                                  <button
-                                    onClick={() => setConfirmDelete({
-                                      show: true,
-                                      type: 'user',
-                                      id: userData.id,
-                                      data: userData,
-                                      permanent: true
-                                    })}
-                                    className="bg-red-800 hover:bg-red-900 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                  >
-                                    <FaTrashAlt size={12} />
-                                    <span>Perm. Delete</span>
-                                  </button>
-                                </>
-                              ) : userData.email !== user.email ? (
-                                <>
-                                  <button
-                                    onClick={() => setConfirmDelete({
-                                      show: true,
-                                      type: 'user',
-                                      id: userData.id,
-                                      data: userData,
-                                      permanent: false
-                                    })}
-                                    className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                  >
-                                    <FaUserSlash size={12} />
-                                    <span>Deactivate</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleResetUserPassword(userData.id, userData.email)}
-                                    className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1"
-                                  >
-                                    <FaKey size={12} />
-                                    <span>Reset Pass</span>
-                                  </button>
-                                </>
-                              ) : (
-                                <span className="text-gray-400 text-sm px-2">Current User</span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {filteredUsers.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    No users found matching your criteria
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Deletion History Tab */}
-          {activeTab === 'history' && (
-            <div className="space-y-6">
-              {/* History Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-blue-400">{deletionHistory.length}</div>
-                  <div className="text-gray-400 text-sm">Total Actions</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-green-400">
-                    {deletionHistory.filter(d => d.type === 'sale').length}
-                  </div>
-                  <div className="text-gray-400 text-sm">Sales Actions</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-red-400">
-                    {deletionHistory.filter(d => d.type === 'user').length}
-                  </div>
-                  <div className="text-gray-400 text-sm">User Actions</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 text-center">
-                  <div className="text-xl font-bold text-purple-400">
-                    {deletionHistory.filter(d => d.action.includes('permanent')).length}
-                  </div>
-                  <div className="text-gray-400 text-sm">Permanent Deletions</div>
-                </div>
-              </div>
-
-              {/* History Filters */}
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Type</label>
-                    <select
-                      onChange={(e) => {
-                        // Filter logic would go here
-                      }}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Types</option>
-                      <option value="sale">Sales</option>
-                      <option value="user">Users</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Action</label>
-                    <select
-                      onChange={(e) => {
-                        // Filter logic would go here
-                      }}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2"
-                    >
-                      <option value="all">All Actions</option>
-                      <option value="delete">Deletions</option>
-                      <option value="restore">Restorations</option>
-                      <option value="deactivate">Deactivations</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-400 text-sm mb-2">Date Range</label>
-                    <div className="flex space-x-2">
-                      <input
-                        type="date"
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
-                        placeholder="Start"
-                      />
-                      <input
-                        type="date"
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-2 py-2 text-sm"
-                        placeholder="End"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Deletion History List */}
-              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">
-                    <FaHistory className="inline mr-2" />
-                    Deletion History ({deletionHistory.length})
-                  </h2>
-                  <div className="text-sm text-gray-400">
-                    Log of all deletion and restoration activities
-                  </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-700">
-                        <th className="text-left py-2">Type</th>
-                        <th className="text-left py-2">Action</th>
-                        <th className="text-left py-2">Record ID</th>
-                        <th className="text-left py-2">Identifier</th>
-                        <th className="text-left py-2">Performed By</th>
-                        <th className="text-left py-2">Date & Time</th>
-                        <th className="text-left py-2">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deletionHistory.map((log, index) => (
-                        <tr key={index} className={`border-b border-gray-700/50 ${
-                          log.action.includes('permanent') ? 'bg-red-900/10' :
-                          log.action.includes('delete') ? 'bg-red-900/5' :
-                          log.action.includes('restore') ? 'bg-green-900/5' : ''
-                        }`}>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              log.type === 'sale' ? 'bg-blue-900/50 text-blue-300' :
-                              'bg-green-900/50 text-green-300'
-                            }`}>
-                              {log.type.toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="py-2">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              log.action.includes('permanent') ? 'bg-red-900/50 text-red-300' :
-                              log.action.includes('delete') ? 'bg-orange-900/50 text-orange-300' :
-                              log.action.includes('restore') ? 'bg-green-900/50 text-green-300' :
-                              'bg-blue-900/50 text-blue-300'
-                            }`}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td className="py-2 font-mono text-sm">{log.recordId.slice(0, 8)}...</td>
-                          <td className="py-2">
-                            {log.recordData?.receiptNumber || log.recordData?.email || 'N/A'}
-                          </td>
-                          <td className="py-2">{log.deletedByName || log.performedByName}</td>
-                          <td className="py-2 text-sm">
-                            {formatDate(log.deletedAt || log.performedAt)}
-                          </td>
-                          <td className="py-2 text-sm text-gray-400">
-                            {log.reason || 'No reason provided'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {deletionHistory.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    No deletion history found
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="w-full py-4 mt-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-400 text-sm">
-          © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
-        </div>
-      </footer>
+      {/* Main Content */}
+      <div className="lg:pl-64">
+        {/* Header */}
+        <header className="sticky top-0 z-40 bg-gray-900/80 backdrop-blur-lg border-b border-gray-800">
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="lg:hidden"
+                  onClick={() => setMobileSidebarOpen(true)}
+                >
+                  <FiMenu className="h-5 w-5" />
+                </Button>
+                <div>
+                  <h1 className="text-xl font-bold">
+                    <span className="text-purple-400">Deletion</span> Management Dashboard
+                  </h1>
+                  <p className="text-sm text-gray-400">
+                    Welcome, {user?.fullName || user?.email}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <FaBell className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 bg-gray-900 border-gray-800">
+                    <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <div className="p-4 text-center text-gray-400">
+                      No new notifications
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                
+                <Button
+                  onClick={() => signOut(auth).then(() => router.push('/login'))}
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <FaSignOutAlt />
+                  Logout
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content Area */}
+        <main className="p-6">
+          {/* Messages */}
+          {error && (
+            <div className="mb-6">
+              <Card className="bg-red-900/20 border-red-700">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <FiAlertCircle className="h-5 w-5 text-red-400" />
+                    <div>
+                      <p className="font-medium text-red-300">{error}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setError(null)}
+                      className="ml-auto"
+                    >
+                      <FiX className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          
+          {success && (
+            <div className="mb-6">
+              <Card className="bg-green-900/20 border-green-700">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <FaCheckCircle className="h-5 w-5 text-green-400" />
+                    <div>
+                      <p className="font-medium text-green-300">{success}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSuccess(null)}
+                      className="ml-auto"
+                    >
+                      <FiX className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Confirmation Dialog */}
+          <ConfirmDeleteDialog />
+
+          {/* Tabs Navigation */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
+            <TabsList className="bg-gray-800 border border-gray-700">
+              {navItems.map((item) => (
+                <TabsTrigger key={item.id} value={item.id} className="gap-2">
+                  {item.icon}
+                  {item.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            
+            {/* Dashboard Tab */}
+            <TabsContent value="dashboard" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-400">Total Sales</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold">{dashboardStats.totalSales}</div>
+                      <div className="p-2 bg-blue-500/20 rounded-lg">
+                        <FaShoppingCart className="h-6 w-6 text-blue-400" />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400">
+                      {dashboardStats.deletedSales} deleted
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-400">Total Users</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold">{dashboardStats.totalUsers}</div>
+                      <div className="p-2 bg-green-500/20 rounded-lg">
+                        <FaUsers className="h-6 w-6 text-green-400" />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400">
+                      {dashboardStats.activeUsers} active
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-400">Today's Sales</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold">{dashboardStats.todaySales}</div>
+                      <div className="p-2 bg-purple-500/20 rounded-lg">
+                        <FaChartLine className="h-6 w-6 text-purple-400" />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400">
+                      This month: {dashboardStats.monthlySales}
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-400">Deletion Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold">{deletionHistory.length}</div>
+                      <div className="p-2 bg-red-500/20 rounded-lg">
+                        <FaTrash className="h-6 w-6 text-red-400" />
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400">
+                      Total deletion records
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader>
+                    <CardTitle>Quick Actions</CardTitle>
+                    <CardDescription>Frequently used actions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Button 
+                        onClick={() => setActiveTab('sales')}
+                        variant="outline"
+                        className="h-24 flex-col gap-3"
+                      >
+                        <FaShoppingCart className="h-8 w-8" />
+                        <span>Manage Sales</span>
+                      </Button>
+                      <Button 
+                        onClick={() => setActiveTab('users')}
+                        variant="outline"
+                        className="h-24 flex-col gap-3"
+                      >
+                        <FaUsers className="h-8 w-8" />
+                        <span>Manage Users</span>
+                      </Button>
+                      <Button 
+                        onClick={() => setActiveTab('deletions')}
+                        variant="outline"
+                        className="h-24 flex-col gap-3"
+                      >
+                        <MdHistory className="h-8 w-8" />
+                        <span>View History</span>
+                      </Button>
+                      <Button 
+                        onClick={generateDeletionReportPDF}
+                        disabled={isGeneratingReport}
+                        variant="outline"
+                        className="h-24 flex-col gap-3"
+                      >
+                        {isGeneratingReport ? (
+                          <FaSync className="h-8 w-8 animate-spin" />
+                        ) : (
+                          <FaFilePdf className="h-8 w-8" />
+                        )}
+                        <span>Generate Report</span>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-gray-800/50 border-gray-700">
+                  <CardHeader>
+                    <CardTitle>Recent Activities</CardTitle>
+                    <CardDescription>Latest deletion actions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-64">
+                      <div className="space-y-3">
+                        {deletionHistory.slice(0, 5).map((log, index) => (
+                          <div key={index} className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg ${
+                                log.type === 'sale' ? 'bg-blue-500/20' : 'bg-green-500/20'
+                              }`}>
+                                {log.type === 'sale' ? (
+                                  <FaShoppingCart className="h-4 w-4 text-blue-400" />
+                                ) : (
+                                  <FaUsers className="h-4 w-4 text-green-400" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-medium">{log.action}</p>
+                                <p className="text-sm text-gray-400">
+                                  {log.recordData?.receiptNumber || log.recordData?.email}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm">{log.deletedByName}</p>
+                              <p className="text-xs text-gray-400">{formatDate(log.deletedAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+            
+            {/* Sales Tab */}
+            <TabsContent value="sales" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sales Management</CardTitle>
+                  <CardDescription>Manage and delete sales records</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Filters */}
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="space-y-2">
+                        <Label>Search Sales</Label>
+                        <div className="relative">
+                          <FaSearch className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                          <Input
+                            placeholder="Search..."
+                            value={salesSearch}
+                            onChange={(e) => setSalesSearch(e.target.value)}
+                            className="pl-10"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Location</Label>
+                        <Select value={salesFilter.location} onValueChange={(val) => setSalesFilter({...salesFilter, location: val})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Locations" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Locations</SelectItem>
+                            {LOCATIONS.map((location, index) => (
+                              <SelectItem key={index} value={location}>{location}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Payment Method</Label>
+                        <Select value={salesFilter.paymentMethod} onValueChange={(val) => setSalesFilter({...salesFilter, paymentMethod: val})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Methods" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Methods</SelectItem>
+                            <SelectItem value="cash">Cash</SelectItem>
+                            <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label>Show Deleted</Label>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            checked={salesFilter.showDeleted}
+                            onCheckedChange={(checked) => setSalesFilter({...salesFilter, showDeleted: !!checked})}
+                            id="showDeleted"
+                          />
+                          <Label htmlFor="showDeleted">Show deleted sales</Label>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Bulk Actions */}
+                    {selectedDeletions.length > 0 && (
+                      <Card className="bg-red-900/20 border-red-700">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <FaExclamationTriangle className="h-5 w-5 text-red-400" />
+                              <div>
+                                <p className="font-medium">{selectedDeletions.length} sales selected</p>
+                                <p className="text-sm text-gray-400">
+                                  Total value: {formatCurrency(
+                                    filteredSales
+                                      .filter(s => selectedDeletions.includes(s.id))
+                                      .reduce((sum, sale) => sum + (parseFloat(sale.finalSalePrice) || 0), 0)
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive">Delete Selected</Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent className="bg-gray-900 border-gray-700">
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Selected Sales</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete {selectedDeletions.length} selected sales?
+                                      This action cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleBulkDeleteSales}>
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                              <Button variant="outline" onClick={() => setSelectedDeletions([])}>
+                                Clear
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    
+                    {/* Sales Table */}
+                    <div className="rounded-md border border-gray-700">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-12">
+                              <Checkbox
+                                checked={selectedDeletions.length === filteredSales.length && filteredSales.length > 0}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setSelectedDeletions(filteredSales.map(s => s.id));
+                                  } else {
+                                    setSelectedDeletions([]);
+                                  }
+                                }}
+                              />
+                            </TableHead>
+                            <TableHead>Receipt</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredSales.map((sale) => (
+                            <TableRow key={sale.id}>
+                              <TableCell>
+                                <Checkbox
+                                  checked={selectedDeletions.includes(sale.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedDeletions([...selectedDeletions, sale.id]);
+                                    } else {
+                                      setSelectedDeletions(selectedDeletions.filter(id => id !== sale.id));
+                                    }
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell className="font-mono">{sale.receiptNumber}</TableCell>
+                              <TableCell>
+                                <div>{sale.customerName}</div>
+                                <div className="text-sm text-gray-400">{sale.customerPhone}</div>
+                              </TableCell>
+                              <TableCell className="font-semibold">
+                                {formatCurrency(sale.finalSalePrice)}
+                              </TableCell>
+                              <TableCell>{formatDate(sale.soldAt)}</TableCell>
+                              <TableCell>
+                                {sale.isDeleted ? (
+                                  <Badge variant="destructive">Deleted</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-green-700 text-green-400">
+                                    Active
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {sale.isDeleted ? (
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => handleRestoreSale(sale.id)}
+                                    >
+                                      <FaUndo className="h-3 w-3 mr-2" />
+                                      Restore
+                                    </Button>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setConfirmDelete({
+                                          show: true,
+                                          type: 'sale',
+                                          id: sale.id,
+                                          data: sale,
+                                          permanent: false
+                                        })}
+                                      >
+                                        <FaTrash className="h-3 w-3 mr-2" />
+                                        Delete
+                                      </Button>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        onClick={() => setConfirmDelete({
+                                          show: true,
+                                          type: 'sale',
+                                          id: sale.id,
+                                          data: sale,
+                                          permanent: true
+                                        })}
+                                      >
+                                        <FaTrashAlt className="h-3 w-3 mr-2" />
+                                        Perm
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            {/* Users Tab */}
+            <TabsContent value="users" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>User Management</CardTitle>
+                  <CardDescription>Manage and deactivate user accounts</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Filters */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="space-y-2">
+                      <Label>Search Users</Label>
+                      <div className="relative">
+                        <FaSearch className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search..."
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Role</Label>
+                      <Select value={userFilter.role} onValueChange={(val) => setUserFilter({...userFilter, role: val})}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Roles" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Roles</SelectItem>
+                          <SelectItem value="superadmin">Super Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="sales">Sales Personnel</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <Select value={userFilter.status} onValueChange={(val) => setUserFilter({...userFilter, status: val})}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Statuses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Statuses</SelectItem>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="inactive">Inactive</SelectItem>
+                          <SelectItem value="deleted">Deleted</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  {/* Users Table */}
+                  <div className="rounded-md border border-gray-700">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredUsers.map((userData) => (
+                          <TableRow key={userData.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback className="bg-purple-600">
+                                    {userData.fullName?.charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="font-medium">{userData.fullName}</div>
+                                  {userData.email === user.email && (
+                                    <Badge variant="outline" className="text-xs">You</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{userData.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={
+                                userData.role === 'superadmin' ? 'destructive' :
+                                userData.role === 'manager' ? 'default' : 'secondary'
+                              }>
+                                {userData.role}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{userData.location}</TableCell>
+                            <TableCell>
+                              {userData.deletedAt ? (
+                                <Badge variant="destructive">Deleted</Badge>
+                              ) : userData.isActive === false ? (
+                                <Badge variant="outline" className="border-yellow-700 text-yellow-400">
+                                  Inactive
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-green-700 text-green-400">
+                                  Active
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                {userData.deletedAt ? (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => handleRestoreUser(userData.id)}
+                                  >
+                                    <FaUndo className="h-3 w-3 mr-2" />
+                                    Restore
+                                  </Button>
+                                ) : userData.isActive === false ? (
+                                  <>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => handleRestoreUser(userData.id)}
+                                    >
+                                      <FaUserCheck className="h-3 w-3 mr-2" />
+                                      Activate
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => setConfirmDelete({
+                                        show: true,
+                                        type: 'user',
+                                        id: userData.id,
+                                        data: userData,
+                                        permanent: true
+                                      })}
+                                    >
+                                      <FaTrashAlt className="h-3 w-3 mr-2" />
+                                      Delete
+                                    </Button>
+                                  </>
+                                ) : userData.email !== user.email ? (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setConfirmDelete({
+                                        show: true,
+                                        type: 'user',
+                                        id: userData.id,
+                                        data: userData,
+                                        permanent: false
+                                      })}
+                                    >
+                                      <FaUserSlash className="h-3 w-3 mr-2" />
+                                      Deactivate
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => handleResetUserPassword(userData.id, userData.email)}
+                                    >
+                                      <FaKey className="h-3 w-3 mr-2" />
+                                      Reset Pass
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Badge variant="outline">Current User</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            {/* Deletions History Tab */}
+            <TabsContent value="deletions" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Deletion History</CardTitle>
+                  <CardDescription>Audit trail of all deletion actions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border border-gray-700">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Action</TableHead>
+                          <TableHead>Record ID</TableHead>
+                          <TableHead>Performed By</TableHead>
+                          <TableHead>Date & Time</TableHead>
+                          <TableHead>Reason</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {deletionHistory.map((log) => (
+                          <TableRow key={log.id}>
+                            <TableCell>
+                              <Badge variant={log.type === 'sale' ? 'default' : 'secondary'}>
+                                {log.type.toUpperCase()}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={
+                                log.action.includes('permanent') ? 'destructive' :
+                                log.action.includes('delete') ? 'default' :
+                                'outline'
+                              }>
+                                {log.action}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {log.recordId?.slice(0, 8)}...
+                            </TableCell>
+                            <TableCell>{log.deletedByName}</TableCell>
+                            <TableCell>{formatDate(log.deletedAt)}</TableCell>
+                            <TableCell className="max-w-xs truncate">
+                              {log.reason || 'No reason provided'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            {/* Reports Tab */}
+            <TabsContent value="reports" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Report Generation</CardTitle>
+                  <CardDescription>Generate and download deletion reports</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Card className="bg-gray-800/50 border-gray-700">
+                      <CardHeader>
+                        <CardTitle className="text-lg">Deletion Summary Report</CardTitle>
+                        <CardDescription>PDF report of all deletion activities</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label>Report Period</Label>
+                            <Select defaultValue="all">
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select period" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Time</SelectItem>
+                                <SelectItem value="today">Today</SelectItem>
+                                <SelectItem value="week">This Week</SelectItem>
+                                <SelectItem value="month">This Month</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Report Type</Label>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center space-x-2">
+                                <Checkbox id="sales" defaultChecked />
+                                <Label htmlFor="sales">Include Sales Deletions</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Checkbox id="users" defaultChecked />
+                                <Label htmlFor="users">Include User Deletions</Label>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                      <CardFooter>
+                        <Button
+                          onClick={generateDeletionReportPDF}
+                          disabled={isGeneratingReport}
+                          className="w-full gap-2"
+                        >
+                          {isGeneratingReport ? (
+                            <>
+                              <FaSync className="h-4 w-4 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <FaFilePdf className="h-4 w-4" />
+                              Generate PDF Report
+                            </>
+                          )}
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                    
+                    <Card className="bg-gray-800/50 border-gray-700">
+                      <CardHeader>
+                        <CardTitle className="text-lg">Statistics Overview</CardTitle>
+                        <CardDescription>Quick statistics and metrics</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-gray-900/50 p-4 rounded-lg">
+                              <div className="text-2xl font-bold text-blue-400">
+                                {deletionHistory.length}
+                              </div>
+                              <div className="text-sm text-gray-400">Total Actions</div>
+                            </div>
+                            <div className="bg-gray-900/50 p-4 rounded-lg">
+                              <div className="text-2xl font-bold text-red-400">
+                                {deletionHistory.filter(d => d.action.includes('permanent')).length}
+                              </div>
+                              <div className="text-sm text-gray-400">Permanent Deletions</div>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Most Recent Deletion</Label>
+                            {deletionHistory[0] && (
+                              <Card className="bg-gray-900/50 border-gray-700">
+                                <CardContent className="p-4">
+                                  <div className="space-y-2">
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-400">Type:</span>
+                                      <Badge>{deletionHistory[0].type}</Badge>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-400">Action:</span>
+                                      <span>{deletionHistory[0].action}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-400">By:</span>
+                                      <span>{deletionHistory[0].deletedByName}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-400">Date:</span>
+                                      <span>{formatDate(deletionHistory[0].deletedAt)}</span>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </main>
+        
+        {/* Footer */}
+        <footer className="p-6 border-t border-gray-800">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="text-sm text-gray-400">
+              © {new Date().getFullYear()} KM ELECTRONICS | Deletion Management System
+            </div>
+            <div className="text-sm text-gray-400">
+              DESIGNED BY COD3PACK
+            </div>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

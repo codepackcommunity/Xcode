@@ -22,7 +22,7 @@ import {
   FaArrowRight, FaHome, FaBars, FaTimes, FaUser,
   FaCog, FaSignOutAlt, FaBell, FaExclamationTriangle,
   FaCheckCircle, FaSpinner, FaDatabase, FaChartPie,
-  FaMapMarkerAlt, FaLayerGroup
+  FaMapMarkerAlt, FaLayerGroup, FaExclamationCircle
 } from 'react-icons/fa';
 
 // Shadcn Components
@@ -76,6 +76,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const DEFAULT_LOCATIONS = ['Lilongwe', 'Blantyre', 'Zomba', 'Mzuzu', 'Chitipa', 'Salima'];
 
@@ -89,10 +91,35 @@ const NAV_ITEMS = [
   { name: 'Settings', icon: <FaCog />, path: '/settings' },
 ];
 
+// PDF Layout Configuration
+const PDF_CONFIG = {
+  header: {
+    height: 50,
+    color: [30, 41, 59], // slate-800
+    textColor: [255, 255, 255]
+  },
+  footer: {
+    height: 20,
+    color: [75, 85, 99], // gray-600
+    textColor: [200, 200, 200]
+  },
+  margins: {
+    left: 15,
+    right: 15,
+    top: 70,
+    bottom: 30
+  },
+  fonts: {
+    title: 24,
+    subtitle: 16,
+    body: 10,
+    small: 8
+  }
+};
+
 export default function StocksDashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [stocks, setStocks] = useState([]);
   const [sales, setSales] = useState([]);
   const [locations, setLocations] = useState(DEFAULT_LOCATIONS);
@@ -113,7 +140,7 @@ export default function StocksDashboard() {
 
   // Utility Functions
   const formatCurrency = (amount) => {
-    if (!amount && amount !== 0) return 'MK 0';
+    if (amount === null || amount === undefined || isNaN(amount)) return 'MK 0';
     return new Intl.NumberFormat('en-MW', {
       style: 'currency',
       currency: 'MWK',
@@ -122,18 +149,29 @@ export default function StocksDashboard() {
   };
 
   const formatPercentage = (value) => {
-    if (!value && value !== 0) return '0%';
-    return `${value.toFixed(1)}%`;
+    if (value === null || value === undefined || isNaN(value)) return '0%';
+    return `${parseFloat(value).toFixed(1)}%`;
   };
 
   const formatDate = (date) => {
     if (!date) return 'N/A';
-    const jsDate = date.toDate ? date.toDate() : new Date(date);
-    return jsDate.toLocaleDateString('en-MW', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    
+    try {
+      const jsDate = date.toDate ? date.toDate() : new Date(date);
+      
+      if (isNaN(jsDate.getTime())) return 'Invalid Date';
+      
+      return jsDate.toLocaleDateString('en-MW', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return 'N/A';
+    }
   };
 
   const getTimeFilterRange = (filter) => {
@@ -173,6 +211,61 @@ export default function StocksDashboard() {
     return { start: Timestamp.fromDate(start), end: Timestamp.fromDate(end) };
   };
 
+  // Common PDF Functions
+  const addReportHeader = (doc, title, subtitle = '', location = '', dateRange = '') => {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Header background
+    doc.setFillColor(...PDF_CONFIG.header.color);
+    doc.rect(0, 0, pageWidth, PDF_CONFIG.header.height, 'F');
+    
+    // Main title
+    doc.setFontSize(PDF_CONFIG.fonts.title);
+    doc.setTextColor(...PDF_CONFIG.header.textColor);
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
+    
+    // Report title
+    doc.setFontSize(PDF_CONFIG.fonts.subtitle);
+    doc.text(title.toUpperCase(), pageWidth / 2, 35, { align: 'center' });
+    
+    // Subtitle
+    doc.setFontSize(PDF_CONFIG.fonts.small);
+    if (subtitle) {
+      doc.text(subtitle, pageWidth / 2, 45, { align: 'center' });
+    }
+    
+    // Reset for body text
+    doc.setFontSize(PDF_CONFIG.fonts.body);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+    
+    return PDF_CONFIG.header.height + 10;
+  };
+
+  const addReportFooter = (doc, generatedBy = '', reportType = '') => {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const today = new Date();
+    
+    // Footer background
+    doc.setFillColor(...PDF_CONFIG.footer.color);
+    doc.rect(0, pageHeight - PDF_CONFIG.footer.height, pageWidth, PDF_CONFIG.footer.height, 'F');
+    
+    // Footer text
+    doc.setFontSize(PDF_CONFIG.fonts.small);
+    doc.setTextColor(...PDF_CONFIG.footer.textColor);
+    
+    const footerText = `Generated: ${today.toLocaleDateString()} | KM Electronics • ${reportType} Report | Page ${doc.internal.getNumberOfPages()}`;
+    doc.text(footerText, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    
+    if (generatedBy) {
+      doc.text(`Generated by: ${generatedBy}`, 15, pageHeight - 10);
+    }
+    
+    doc.setTextColor(0, 0, 0);
+  };
+
   // Fetch locations from database
   const fetchLocations = useCallback(async () => {
     try {
@@ -187,7 +280,7 @@ export default function StocksDashboard() {
     }
   }, []);
 
-  // Fetch Stocks Data
+  // Fetch Stocks Data with validation
   const fetchStocks = useCallback(async () => {
     try {
       const stocksQuery = query(
@@ -195,22 +288,36 @@ export default function StocksDashboard() {
         where('isActive', '==', true)
       );
       const stocksSnapshot = await getDocs(stocksQuery);
-      const stocksData = stocksSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        quantity: Number(doc.data().quantity) || 0,
-        costPrice: Number(doc.data().costPrice) || 0,
-        retailPrice: Number(doc.data().retailPrice) || 0,
-        minStockLevel: Number(doc.data().minStockLevel) || 5
-      }));
+      const stocksData = stocksSnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            quantity: Number(data.quantity) || 0,
+            costPrice: Number(data.costPrice) || 0,
+            retailPrice: Number(data.retailPrice) || 0,
+            wholesalePrice: Number(data.wholesalePrice) || 0,
+            minStockLevel: Number(data.minStockLevel) || 5,
+            reorderQuantity: Number(data.reorderQuantity) || 10,
+            discountPercentage: Number(data.discountPercentage) || 0,
+            warrantyPeriod: Number(data.warrantyPeriod) || 0
+          };
+        })
+        .filter(stock => stock && stock.itemCode);
+      
       setStocks(stocksData);
+      
+      if (stocksData.length === 0) {
+        console.warn('No stock data found in database');
+      }
     } catch (error) {
       console.error('Failed to fetch stocks:', error);
       setError('Failed to fetch stocks: ' + error.message);
     }
   }, []);
 
-  // Fetch Sales Data
+  // Fetch Sales Data with validation
   const fetchSales = useCallback(async () => {
     try {
       const salesQuery = query(
@@ -218,15 +325,27 @@ export default function StocksDashboard() {
         orderBy('soldAt', 'desc')
       );
       const salesSnapshot = await getDocs(salesQuery);
-      const salesData = salesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        totalAmount: Number(doc.data().totalAmount) || 0,
-        totalProfit: Number(doc.data().totalProfit) || 0,
-        subTotal: Number(doc.data().subTotal) || 0,
-        discount: Number(doc.data().discount) || 0
-      }));
+      const salesData = salesSnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            quantity: Number(data.quantity) || 1,
+            costPrice: Number(data.costPrice) || 0,
+            salePrice: Number(data.salePrice) || 0,
+            discountPercentage: Number(data.discountPercentage) || 0,
+            finalSalePrice: Number(data.finalSalePrice) || 0,
+            profit: Number(data.profit) || 0
+          };
+        })
+        .filter(sale => sale && (sale.receiptNumber || sale.itemCode));
+      
       setSales(salesData);
+      
+      if (salesData.length === 0) {
+        console.warn('No sales data found in database');
+      }
     } catch (error) {
       console.error('Failed to fetch sales:', error);
       setError('Failed to fetch sales data: ' + error.message);
@@ -270,6 +389,7 @@ export default function StocksDashboard() {
 
     filtered = filtered.filter(sale => {
       try {
+        if (!sale.soldAt) return false;
         const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
         const saleTimestamp = Timestamp.fromDate(saleDate);
         return saleTimestamp >= timeRange.start && saleTimestamp <= timeRange.end;
@@ -330,10 +450,10 @@ export default function StocksDashboard() {
       }
     });
 
-    const todaySales = todaySalesData.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-    const todayProfit = todaySalesData.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0);
-    const monthlySales = monthlySalesData.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-    const monthlyProfit = monthlySalesData.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0);
+    const todaySales = todaySalesData.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0);
+    const todayProfit = todaySalesData.reduce((sum, sale) => sum + (sale.profit || 0), 0);
+    const monthlySales = monthlySalesData.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0);
+    const monthlyProfit = monthlySalesData.reduce((sum, sale) => sum + (sale.profit || 0), 0);
     const avgTransactionValue = monthlySalesData.length > 0 ? monthlySales / monthlySalesData.length : 0;
 
     return {
@@ -365,8 +485,8 @@ export default function StocksDashboard() {
         (stock.quantity || 0) <= (stock.minStockLevel || 5)
       ).length;
       
-      const totalSales = locationSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-      const totalProfit = locationSales.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0);
+      const totalSales = locationSales.reduce((sum, sale) => sum + (sale.finalSalePrice || 0), 0);
+      const totalProfit = locationSales.reduce((sum, sale) => sum + (sale.profit || 0), 0);
       const transactionCount = locationSales.length;
       const avgSaleValue = transactionCount > 0 ? totalSales / transactionCount : 0;
       const avgProfitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
@@ -395,92 +515,154 @@ export default function StocksDashboard() {
   const generateStockReport = async (location = 'all') => {
     setIsGeneratingReport(true);
     try {
-      let reportStocks = location === 'all' ? stocks : stocks.filter(s => s.location === location);
+      let reportStocks = stocks;
       
-      if (reportStocks.length === 0) {
-        setError('No stock data available for the selected location');
+      if (location !== 'all') {
+        reportStocks = reportStocks.filter(stock => stock.location === location);
+      }
+      
+      if (!reportStocks || reportStocks.length === 0) {
+        setError(`No stock data available for ${location === 'all' ? 'any location' : location}`);
         return;
       }
 
       const doc = new jsPDF('landscape');
-      const today = new Date();
       const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
       
-      // Header
-      doc.setFillColor(30, 41, 59);
-      doc.rect(0, 0, pageWidth, 50, 'F');
-      doc.setFontSize(24);
-      doc.setTextColor(255, 255, 255);
+      const startY = addReportHeader(
+        doc, 
+        'STOCK INVENTORY REPORT',
+        location === 'all' ? 'ALL LOCATIONS' : location.toUpperCase(),
+        location
+      );
+      
+      doc.setFontSize(PDF_CONFIG.fonts.small);
+      doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 15, startY);
+      doc.text(`By: ${user?.fullName || user?.email || 'System'}`, pageWidth - 15, startY, { align: 'right' });
+      
+      const summaryStartY = startY + 15;
+      doc.setFontSize(PDF_CONFIG.fonts.body);
       doc.setFont('helvetica', 'bold');
-      doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
-      doc.setFontSize(16);
-      doc.text('STOCK INVENTORY REPORT', pageWidth / 2, 35, { align: 'center' });
-      doc.setFontSize(12);
-      doc.text(location === 'all' ? 'ALL LOCATIONS' : location.toUpperCase(), pageWidth / 2, 45, { align: 'center' });
-      
-      // Report Info
-      doc.setFontSize(10);
-      doc.setTextColor(0, 0, 0);
+      doc.text('SUMMARY', 15, summaryStartY);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Generated: ${today.toLocaleDateString()}`, 15, 60);
-      doc.text(`By: ${user?.fullName || user?.email}`, pageWidth - 15, 60, { align: 'right' });
       
-      // Summary
       const totalItems = reportStocks.length;
-      const totalQuantity = reportStocks.reduce((sum, stock) => sum + (stock.quantity || 0), 0);
-      const totalCostValue = reportStocks.reduce((sum, stock) => sum + ((stock.costPrice || 0) * (stock.quantity || 0)), 0);
-      const totalRetailValue = reportStocks.reduce((sum, stock) => sum + ((stock.retailPrice || 0) * (stock.quantity || 0)), 0);
+      const totalQuantity = reportStocks.reduce((sum, stock) => sum + (Number(stock.quantity) || 0), 0);
+      const totalCostValue = reportStocks.reduce((sum, stock) => 
+        sum + ((Number(stock.costPrice) || 0) * (Number(stock.quantity) || 0)), 0);
+      const totalRetailValue = reportStocks.reduce((sum, stock) => 
+        sum + ((Number(stock.retailPrice) || 0) * (Number(stock.quantity) || 0)), 0);
+      const potentialProfit = totalRetailValue - totalCostValue;
+      const lowStockItems = reportStocks.filter(stock => 
+        (Number(stock.quantity) || 0) <= (Number(stock.minStockLevel) || 5)
+      ).length;
+      const outOfStockItems = reportStocks.filter(stock => (Number(stock.quantity) || 0) <= 0).length;
       
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('SUMMARY', 15, 75);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Total Items: ${totalItems}`, 20, 85);
-      doc.text(`Total Quantity: ${totalQuantity}`, 20, 92);
-      doc.text(`Total Cost Value: ${formatCurrency(totalCostValue)}`, 20, 99);
-      doc.text(`Total Retail Value: ${formatCurrency(totalRetailValue)}`, 20, 106);
-      
-      // Table Data
-      const tableData = reportStocks.map(stock => [
-        stock.itemCode || 'N/A',
-        `${stock.brand || ''} ${stock.model || ''}`.trim(),
-        stock.category || 'N/A',
-        stock.location || 'N/A',
-        stock.quantity || 0,
-        formatCurrency(stock.costPrice || 0),
-        formatCurrency(stock.retailPrice || 0),
-        formatCurrency((stock.costPrice || 0) * (stock.quantity || 0)),
-        formatCurrency((stock.retailPrice || 0) * (stock.quantity || 0))
-      ]);
+      const summaryData = [
+        [`Total Items: ${totalItems}`, `Total Quantity: ${totalQuantity}`],
+        [`Total Cost Value: ${formatCurrency(totalCostValue)}`, `Total Retail Value: ${formatCurrency(totalRetailValue)}`],
+        [`Potential Profit: ${formatCurrency(potentialProfit)}`, `Profit Margin: ${totalCostValue > 0 ? ((potentialProfit / totalCostValue) * 100).toFixed(1) + '%' : '0%'}`],
+        [`Low Stock Items: ${lowStockItems}`, `Out of Stock: ${outOfStockItems}`]
+      ];
       
       autoTable(doc, {
-        startY: 115,
-        head: [['Item Code', 'Product', 'Category', 'Location', 'Qty', 'Cost', 'Retail', 'Total Cost', 'Total Retail']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [30, 41, 59], textColor: 255 },
-        bodyStyles: { fontSize: 8 },
+        startY: summaryStartY + 5,
+        body: summaryData,
+        theme: 'plain',
+        styles: { 
+          fontSize: 9,
+          cellPadding: 3,
+          lineColor: [220, 220, 220],
+          lineWidth: 0.1
+        },
         columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 35 },
-          2: { cellWidth: 25 },
-          3: { cellWidth: 25 },
-          4: { cellWidth: 15 },
-          5: { cellWidth: 20 },
-          6: { cellWidth: 20 },
-          7: { cellWidth: 25 },
-          8: { cellWidth: 25 }
+          0: { cellWidth: '50%', fontStyle: 'bold' },
+          1: { cellWidth: '50%', fontStyle: 'bold' }
         }
       });
       
-      // Footer
-      const finalY = doc.lastAutoTable.finalY + 10;
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.text('© KM Electronics - Confidential Report', pageWidth / 2, finalY + 5, { align: 'center' });
+      const tableStartY = doc.lastAutoTable.finalY + 10;
       
-      const filename = `KM_Stock_${location === 'all' ? 'All_Locations' : location}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
+      const tableData = reportStocks.map(stock => {
+        const qty = Number(stock.quantity) || 0;
+        const cost = Number(stock.costPrice) || 0;
+        const retail = Number(stock.retailPrice) || 0;
+        const totalCost = cost * qty;
+        const totalRetail = retail * qty;
+        const itemProfit = totalRetail - totalCost;
+        const isLowStock = qty <= (Number(stock.minStockLevel) || 5);
+        
+        return [
+          stock.itemCode || 'N/A',
+          stock.brand || 'N/A',
+          stock.model || 'N/A',
+          stock.category || 'N/A',
+          stock.location || 'N/A',
+          {
+            content: qty.toString(),
+            styles: { 
+              fontStyle: isLowStock ? 'bold' : 'normal',
+              textColor: isLowStock ? [220, 38, 38] : qty <= 0 ? [185, 28, 28] : [0, 0, 0]
+            }
+          },
+          formatCurrency(cost),
+          formatCurrency(retail),
+          formatCurrency(totalCost),
+          formatCurrency(totalRetail),
+          {
+            content: formatCurrency(itemProfit),
+            styles: { 
+              fontStyle: 'bold',
+              textColor: itemProfit > 0 ? [34, 197, 94] : [220, 38, 38]
+            }
+          }
+        ];
+      });
+      
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [['Item Code', 'Brand', 'Model', 'Category', 'Location', 'Qty', 'Cost', 'Retail', 'Total Cost', 'Total Retail', 'Profit']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { 
+          fillColor: PDF_CONFIG.header.color,
+          textColor: 255,
+          fontSize: 9,
+          fontStyle: 'bold'
+        },
+        bodyStyles: { 
+          fontSize: 8,
+          cellPadding: 3,
+          overflow: 'linebreak'
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 20 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 15 },
+          6: { cellWidth: 20 },
+          7: { cellWidth: 20 },
+          8: { cellWidth: 25 },
+          9: { cellWidth: 25 },
+          10: { cellWidth: 20 }
+        },
+        margin: { 
+          left: PDF_CONFIG.margins.left, 
+          right: PDF_CONFIG.margins.right 
+        },
+        didDrawPage: function(data) {
+          addReportFooter(doc, user?.fullName, 'Stock Inventory');
+        }
+      });
+      
+      if (!doc.lastAutoTable) {
+        addReportFooter(doc, user?.fullName, 'Stock Inventory');
+      }
+      
+      const filename = `KM_Stock_${location === 'all' ? 'All_Locations' : location}_${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(filename);
       
       setSuccess(`Stock report for ${location === 'all' ? 'all locations' : location} generated successfully!`);
@@ -495,12 +677,17 @@ export default function StocksDashboard() {
   const generateSalesReport = async (location = 'all') => {
     setIsGeneratingReport(true);
     try {
-      let reportSales = location === 'all' ? sales : sales.filter(s => s.location === location);
-      const timeRange = getTimeFilterRange(salesTimeFilter);
+      let reportSales = sales;
       
+      if (location !== 'all') {
+        reportSales = reportSales.filter(sale => sale.location === location);
+      }
+      
+      const timeRange = getTimeFilterRange(salesTimeFilter);
       reportSales = reportSales.filter(sale => {
         try {
-          const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+          if (!sale.soldAt) return false;
+          const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
           const saleTimestamp = Timestamp.fromDate(saleDate);
           return saleTimestamp >= timeRange.start && saleTimestamp <= timeRange.end;
         } catch {
@@ -508,59 +695,170 @@ export default function StocksDashboard() {
         }
       });
       
-      if (reportSales.length === 0) {
-        setError('No sales data available for the selected criteria');
+      if (!reportSales || reportSales.length === 0) {
+        setError(`No sales data available for ${location === 'all' ? 'all locations' : location} in the selected period`);
         return;
       }
 
       const doc = new jsPDF('portrait');
-      const today = new Date();
+      const pageWidth = doc.internal.pageSize.getWidth();
       
-      // Header
-      doc.setFillColor(20, 83, 45);
-      doc.rect(0, 0, doc.internal.pageSize.getWidth(), 50, 'F');
-      doc.setFontSize(24);
-      doc.setTextColor(255, 255, 255);
+      const startY = addReportHeader(
+        doc, 
+        'SALES TRANSACTIONS REPORT',
+        `${location === 'all' ? 'ALL LOCATIONS' : location.toUpperCase()} • ${salesTimeFilter.toUpperCase()}`,
+        location,
+        salesTimeFilter
+      );
+      
+      doc.setFontSize(PDF_CONFIG.fonts.small);
+      doc.text(`Period: ${salesTimeFilter}`, 15, startY);
+      doc.text(`Date Range: ${formatDate(timeRange.start.toDate())} - ${formatDate(timeRange.end.toDate())}`, pageWidth / 2, startY, { align: 'center' });
+      doc.text(`By: ${user?.fullName || user?.email || 'System'}`, pageWidth - 15, startY, { align: 'right' });
+      
+      const summaryStartY = startY + 10;
+      doc.setFontSize(PDF_CONFIG.fonts.body);
       doc.setFont('helvetica', 'bold');
-      doc.text('KM ELECTRONICS', doc.internal.pageSize.getWidth() / 2, 25, { align: 'center' });
-      doc.setFontSize(16);
-      doc.text('SALES REPORT', doc.internal.pageSize.getWidth() / 2, 35, { align: 'center' });
-      doc.setFontSize(12);
-      doc.text(`${location === 'all' ? 'ALL LOCATIONS' : location.toUpperCase()} - ${salesTimeFilter.toUpperCase()}`, doc.internal.pageSize.getWidth() / 2, 45, { align: 'center' });
-      
-      // Summary
-      const totalSales = reportSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-      const totalProfit = reportSales.reduce((sum, sale) => sum + (sale.totalProfit || 0), 0);
-      
-      doc.setFontSize(10);
-      doc.setTextColor(0, 0, 0);
+      doc.text('SALES SUMMARY', 15, summaryStartY);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Period: ${salesTimeFilter}`, 15, 60);
-      doc.text(`Total Sales: ${formatCurrency(totalSales)}`, 15, 67);
-      doc.text(`Total Profit: ${formatCurrency(totalProfit)}`, 15, 74);
-      doc.text(`Transactions: ${reportSales.length}`, 15, 81);
       
-      // Table Data
-      const tableData = reportSales.map(sale => [
-        sale.invoiceNumber || 'N/A',
-        formatDate(sale.soldAt),
-        sale.customerName || 'Walk-in',
-        sale.location || 'N/A',
-        sale.items?.length || 0,
-        formatCurrency(sale.totalAmount || 0),
-        formatCurrency(sale.totalProfit || 0)
-      ]);
+      const totalSales = reportSales.reduce((sum, sale) => sum + (Number(sale.finalSalePrice) || 0), 0);
+      const totalProfit = reportSales.reduce((sum, sale) => sum + (Number(sale.profit) || 0), 0);
+      const totalCost = reportSales.reduce((sum, sale) => sum + (Number(sale.costPrice) || 0), 0);
+      const totalItemsSold = reportSales.reduce((sum, sale) => sum + (Number(sale.quantity) || 0), 0);
+      const avgSaleValue = reportSales.length > 0 ? totalSales / reportSales.length : 0;
+      const profitMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
       
-      autoTable(doc, {
-        startY: 90,
-        head: [['Invoice', 'Date', 'Customer', 'Location', 'Items', 'Amount', 'Profit']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [20, 83, 45], textColor: 255 },
-        bodyStyles: { fontSize: 8 }
+      const paymentMethods = {
+        cash: 0,
+        mobile_money: 0,
+        bank_transfer: 0,
+        installment: 0
+      };
+      
+      reportSales.forEach(sale => {
+        const method = sale.paymentMethod?.toLowerCase() || 'cash';
+        paymentMethods[method] = (paymentMethods[method] || 0) + 1;
       });
       
-      const filename = `KM_Sales_${location === 'all' ? 'All_Locations' : location}_${salesTimeFilter}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.pdf`;
+      const summaryData = [
+        [`Total Sales: ${formatCurrency(totalSales)}`, `Total Profit: ${formatCurrency(totalProfit)}`],
+        [`Transactions: ${reportSales.length}`, `Items Sold: ${totalItemsSold}`],
+        [`Average Sale: ${formatCurrency(avgSaleValue)}`, `Profit Margin: ${profitMargin.toFixed(1)}%`],
+        [`Total Cost: ${formatCurrency(totalCost)}`, `ROI: ${totalCost > 0 ? ((totalProfit / totalCost) * 100).toFixed(1) + '%' : 'N/A'}`]
+      ];
+      
+      autoTable(doc, {
+        startY: summaryStartY + 5,
+        body: summaryData,
+        theme: 'plain',
+        styles: { 
+          fontSize: 9,
+          cellPadding: 3,
+          lineColor: [220, 220, 220],
+          lineWidth: 0.1
+        },
+        columnStyles: {
+          0: { cellWidth: '50%', fontStyle: 'bold' },
+          1: { cellWidth: '50%', fontStyle: 'bold' }
+        }
+      });
+      
+      const paymentStartY = doc.lastAutoTable.finalY + 10;
+      doc.setFont('helvetica', 'bold');
+      doc.text('PAYMENT METHODS BREAKDOWN', 15, paymentStartY);
+      doc.setFont('helvetica', 'normal');
+      
+      const paymentData = Object.entries(paymentMethods)
+        .filter(([_, count]) => count > 0)
+        .map(([method, count]) => [
+          method.replace('_', ' ').toUpperCase(),
+          count.toString(),
+          `${((count / reportSales.length) * 100).toFixed(1)}%`
+        ]);
+      
+      autoTable(doc, {
+        startY: paymentStartY + 5,
+        head: [['Payment Method', 'Count', 'Percentage']],
+        body: paymentData,
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [59, 130, 246],
+          textColor: 255,
+          fontSize: 9
+        },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 40 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 30 }
+        }
+      });
+      
+      const tableStartY = doc.lastAutoTable.finalY + 10;
+      
+      const tableData = reportSales.map(sale => {
+        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+        const profit = Number(sale.profit) || 0;
+        
+        return [
+          sale.receiptNumber || 'N/A',
+          formatDate(saleDate),
+          sale.customerName?.substring(0, 20) || 'Walk-in',
+          sale.location || 'N/A',
+          sale.quantity || 1,
+          sale.paymentMethod?.toUpperCase().replace('_', ' ') || 'CASH',
+          formatCurrency(sale.finalSalePrice || 0),
+          {
+            content: formatCurrency(profit),
+            styles: { 
+              fontStyle: 'bold',
+              textColor: profit > 0 ? [34, 197, 94] : [220, 38, 38]
+            }
+          }
+        ];
+      });
+      
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [['Receipt #', 'Date', 'Customer', 'Location', 'Qty', 'Payment', 'Amount', 'Profit']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { 
+          fillColor: PDF_CONFIG.header.color,
+          textColor: 255,
+          fontSize: 9,
+          fontStyle: 'bold'
+        },
+        bodyStyles: { 
+          fontSize: 8,
+          cellPadding: 3,
+          overflow: 'linebreak'
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 15 },
+          5: { cellWidth: 25 },
+          6: { cellWidth: 25 },
+          7: { cellWidth: 20 }
+        },
+        margin: { 
+          left: PDF_CONFIG.margins.left, 
+          right: PDF_CONFIG.margins.right 
+        },
+        didDrawPage: function(data) {
+          addReportFooter(doc, user?.fullName, 'Sales Transactions');
+        }
+      });
+      
+      if (!doc.lastAutoTable) {
+        addReportFooter(doc, user?.fullName, 'Sales Transactions');
+      }
+      
+      const filename = `KM_Sales_${location === 'all' ? 'All_Locations' : location}_${salesTimeFilter}_${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(filename);
       
       setSuccess(`Sales report for ${location === 'all' ? 'all locations' : location} generated successfully!`);
@@ -581,24 +879,74 @@ export default function StocksDashboard() {
       const today = new Date();
       
       if (type === 'stock') {
-        data = location === 'all' ? stocks : stocks.filter(s => s.location === location);
+        data = stocks;
+        if (location !== 'all') {
+          data = data.filter(stock => stock.location === location);
+        }
         sheetName = 'Stock Inventory';
         filename = `KM_Stock_${location === 'all' ? 'All_Locations' : location}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.xlsx`;
+        
+        data = data.map(stock => ({
+          'Item Code': stock.itemCode || 'N/A',
+          'Brand': stock.brand || 'N/A',
+          'Model': stock.model || 'N/A',
+          'Category': stock.category || 'N/A',
+          'Location': stock.location || 'N/A',
+          'Quantity': Number(stock.quantity) || 0,
+          'Cost Price': Number(stock.costPrice) || 0,
+          'Retail Price': Number(stock.retailPrice) || 0,
+          'Total Cost': (Number(stock.costPrice) || 0) * (Number(stock.quantity) || 0),
+          'Total Retail': (Number(stock.retailPrice) || 0) * (Number(stock.quantity) || 0),
+          'Profit': ((Number(stock.retailPrice) || 0) - (Number(stock.costPrice) || 0)) * (Number(stock.quantity) || 0),
+          'Min Stock Level': Number(stock.minStockLevel) || 5,
+          'Supplier': stock.supplier || 'N/A',
+          'Warranty (months)': Number(stock.warrantyPeriod) || 0,
+          'Status': (Number(stock.quantity) || 0) <= (Number(stock.minStockLevel) || 5) ? 'Low Stock' : 'In Stock'
+        }));
       } else {
-        let salesData = location === 'all' ? sales : sales.filter(s => s.location === location);
+        data = sales;
+        if (location !== 'all') {
+          data = data.filter(sale => sale.location === location);
+        }
+        
         const timeRange = getTimeFilterRange(salesTimeFilter);
-        salesData = salesData.filter(sale => {
+        data = data.filter(sale => {
           try {
-            const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+            if (!sale.soldAt) return false;
+            const saleDate = sale.soldAt.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
             const saleTimestamp = Timestamp.fromDate(saleDate);
             return saleTimestamp >= timeRange.start && saleTimestamp <= timeRange.end;
           } catch {
             return false;
           }
         });
-        data = salesData;
+        
         sheetName = 'Sales Data';
-        filename = `KM_Sales_${location === 'all' ? 'All_Locations' : location}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.xlsx`;
+        filename = `KM_Sales_${location === 'all' ? 'All_Locations' : location}_${salesTimeFilter}_${today.getFullYear()}${(today.getMonth()+1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}.xlsx`;
+        
+        data = data.map(sale => {
+          const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+          
+          return {
+            'Receipt Number': sale.receiptNumber || 'N/A',
+            'Date': formatDate(saleDate),
+            'Customer Name': sale.customerName || 'Walk-in',
+            'Customer Phone': sale.customerPhone || 'N/A',
+            'Item Code': sale.itemCode || 'N/A',
+            'Brand': sale.brand || 'N/A',
+            'Model': sale.model || 'N/A',
+            'Quantity': Number(sale.quantity) || 1,
+            'Cost Price': Number(sale.costPrice) || 0,
+            'Sale Price': Number(sale.salePrice) || 0,
+            'Discount %': Number(sale.discountPercentage) || 0,
+            'Final Price': Number(sale.finalSalePrice) || 0,
+            'Profit': Number(sale.profit) || 0,
+            'Payment Method': sale.paymentMethod?.toUpperCase() || 'CASH',
+            'Location': sale.location || 'N/A',
+            'Sold By': sale.soldByName || 'N/A',
+            'Notes': sale.notes || ''
+          };
+        });
       }
       
       if (data.length === 0) {
@@ -607,14 +955,143 @@ export default function StocksDashboard() {
       }
       
       const wb = XLSX.utils.book_new();
+      
       const ws = XLSX.utils.json_to_sheet(data);
+      
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const address = XLSX.utils.encode_cell({ r: 0, c: C });
+        if (!ws[address]) continue;
+        ws[address].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "1E293B" } },
+          alignment: { horizontal: "center", vertical: "center" }
+        };
+      }
+      
+      const colWidths = [];
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        let maxLength = 0;
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (cell && cell.v) {
+            const cellLength = cell.v.toString().length;
+            maxLength = Math.max(maxLength, cellLength);
+          }
+        }
+        colWidths.push({ wch: Math.min(Math.max(maxLength, 10), 50) });
+      }
+      ws['!cols'] = colWidths;
+      
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      
+      const summaryData = [
+        ['Report Summary'],
+        [`Report Type: ${type === 'stock' ? 'Stock Inventory' : 'Sales Transactions'}`],
+        [`Location: ${location === 'all' ? 'All Locations' : location}`],
+        type === 'sales' ? [`Time Period: ${salesTimeFilter}`] : [''],
+        [`Total Records: ${data.length}`],
+        [`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`],
+        [`Generated By: ${user?.fullName || user?.email || 'System'}`],
+        [''],
+        ['© KM Electronics - Confidential Report']
+      ];
+      
+      const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, summaryWs, 'Report Info');
+      
       XLSX.writeFile(wb, filename);
       
       setSuccess(`Excel ${type} report generated successfully!`);
     } catch (error) {
       console.error('Excel Generation Error:', error);
       setError('Failed to generate Excel report: ' + error.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const generateComprehensiveReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      const doc = new jsPDF('portrait');
+      
+      // Cover Page
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight(), 'F');
+      
+      doc.setFontSize(36);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.text('KM ELECTRONICS', 105, 100, { align: 'center' });
+      
+      doc.setFontSize(24);
+      doc.text('COMPREHENSIVE BUSINESS REPORT', 105, 120, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.text('Monthly Performance Analysis', 105, 140, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, 105, 180, { align: 'center' });
+      doc.text(`By: ${user?.fullName || user?.email}`, 105, 190, { align: 'center' });
+      
+      // Executive Summary Page
+      doc.addPage();
+      let currentY = addReportHeader(doc, 'EXECUTIVE SUMMARY', 'Monthly Business Overview');
+      
+      doc.setFontSize(PDF_CONFIG.fonts.body);
+      doc.setFont('helvetica', 'bold');
+      doc.text('OVERVIEW', 15, currentY);
+      doc.setFont('helvetica', 'normal');
+      
+      const summaryText = [
+        `This report provides a comprehensive overview of KM Electronics' business performance for the current month.`,
+        `It includes inventory analysis, sales performance, location-wise breakdowns, and key performance indicators.`,
+        `Report generated on: ${new Date().toLocaleDateString()}`,
+        `Generated by: ${user?.fullName || user?.email}`
+      ];
+      
+      summaryText.forEach((text, index) => {
+        doc.text(text, 15, currentY + 10 + (index * 5));
+      });
+      
+      currentY += 40;
+      
+      // Key Metrics
+      doc.setFont('helvetica', 'bold');
+      doc.text('KEY METRICS', 15, currentY);
+      doc.setFont('helvetica', 'normal');
+      
+      const keyMetrics = [
+        [`Total Inventory Value:`, formatCurrency(dashboardStats.totalCostValue)],
+        [`Monthly Sales:`, formatCurrency(salesStats.monthlySales)],
+        [`Monthly Profit:`, formatCurrency(salesStats.monthlyProfit)],
+        [`Total Items in Stock:`, `${dashboardStats.totalItems} items`],
+        [`Low Stock Items:`, `${dashboardStats.lowStockItems} items`],
+        [`Average Transaction:`, formatCurrency(salesStats.avgTransactionValue)]
+      ];
+      
+      autoTable(doc, {
+        startY: currentY + 5,
+        body: keyMetrics,
+        theme: 'grid',
+        headStyles: { fillColor: PDF_CONFIG.header.color, textColor: 255 },
+        bodyStyles: { fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 70, fontStyle: 'bold' },
+          1: { cellWidth: 50 }
+        }
+      });
+      
+      addReportFooter(doc, user?.fullName, 'Comprehensive');
+      
+      const filename = `KM_Comprehensive_Report_${new Date().getFullYear()}_${(new Date().getMonth()+1).toString().padStart(2, '0')}.pdf`;
+      doc.save(filename);
+      
+      setSuccess('Comprehensive report generated successfully!');
+    } catch (error) {
+      console.error('Comprehensive Report Error:', error);
+      setError('Failed to generate comprehensive report: ' + error.message);
     } finally {
       setIsGeneratingReport(false);
     }
@@ -633,14 +1110,12 @@ export default function StocksDashboard() {
             if (['superadmin', 'admin', 'manager', 'dataEntry'].includes(userData.role)) {
               setUser(userData);
               
-              // Fetch initial data
               await Promise.all([
                 fetchLocations(),
                 fetchStocks(),
                 fetchSales()
               ]);
               
-              // Setup real-time listeners
               const stocksUnsubscribe = onSnapshot(
                 query(collection(db, 'stocks'), where('isActive', '==', true)),
                 (snapshot) => {
@@ -675,7 +1150,6 @@ export default function StocksDashboard() {
       } else {
         router.push('/login');
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -692,19 +1166,6 @@ export default function StocksDashboard() {
     }
   }, [error, success]);
 
-  // Loading State
-  // if (loading) {
-  //   return (
-  //     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 flex items-center justify-center">
-  //       <div className="text-center">
-  //         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-  //         <div className="text-white text-xl">Loading Dashboard...</div>
-  //         <p className="text-gray-400 mt-2">Please wait while we authenticate and load your data</p>
-  //       </div>
-  //     </div>
-  //   );
-  // }
-
   // Request Sort Function
   const requestSort = (key) => {
     setSortConfig({
@@ -714,7 +1175,7 @@ export default function StocksDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 text-white">
+    <div className="min-h-screen bg-linear-to-br from-gray-900 to-blue-900 text-white">
       {/* Messages */}
       {error && (
         <div className="fixed top-4 right-4 z-50 max-w-md">
@@ -1468,61 +1929,67 @@ export default function StocksDashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Invoice</TableHead>
+                        <TableHead>Receipt #</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>Location</TableHead>
-                        <TableHead>Items</TableHead>
+                        <TableHead>Item</TableHead>
                         <TableHead>Payment</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Profit</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredSales.slice(0, 20).map((sale, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <div className="font-mono text-sm">{sale.invoiceNumber || 'N/A'}</div>
-                          </TableCell>
-                          <TableCell>
-                            {formatDate(sale.soldAt)}
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-semibold">{sale.customerName || 'Walk-in'}</div>
-                            <div className="text-gray-400 text-xs">
-                              {sale.customerPhone || 'No phone'}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="bg-green-900/30 text-green-300 border-green-700">
-                              {sale.location || 'N/A'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-semibold">{sale.items?.length || 0}</span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={
-                              sale.paymentMethod === 'Cash' ? 'bg-green-900/30 text-green-300 border-green-700' :
-                              sale.paymentMethod === 'Card' ? 'bg-blue-900/30 text-blue-300 border-blue-700' :
-                              'bg-yellow-900/30 text-yellow-300 border-yellow-700'
-                            }>
-                              {sale.paymentMethod || 'Cash'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-green-400 font-semibold">
-                            {formatCurrency(sale.totalAmount || 0)}
-                          </TableCell>
-                          <TableCell>
-                            <span className={`font-bold ${sale.totalProfit > 0 ? 'text-blue-400' : 'text-red-400'}`}>
-                              {formatCurrency(sale.totalProfit || 0)}
-                            </span>
-                            <div className="text-gray-400 text-xs">
-                              {sale.totalAmount > 0 ? `${(((sale.totalProfit || 0) / sale.totalAmount) * 100).toFixed(1)}% margin` : 'N/A'}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {filteredSales.slice(0, 20).map((sale, index) => {
+                        const saleDate = sale.soldAt?.toDate ? sale.soldAt.toDate() : new Date(sale.soldAt);
+                        const profit = Number(sale.profit) || 0;
+                        
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>
+                              <div className="font-mono text-sm">{sale.receiptNumber || 'N/A'}</div>
+                            </TableCell>
+                            <TableCell>
+                              {formatDate(saleDate)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-semibold">{sale.customerName || 'Walk-in'}</div>
+                              <div className="text-gray-400 text-xs">
+                                {sale.customerPhone || 'No phone'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="bg-green-900/30 text-green-300 border-green-700">
+                                {sale.location || 'N/A'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <span className="font-semibold">{sale.itemCode || 'N/A'}</span>
+                              <div className="text-gray-400 text-xs">{sale.brand} {sale.model}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                sale.paymentMethod === 'cash' ? 'bg-green-900/30 text-green-300 border-green-700' :
+                                sale.paymentMethod === 'bank_transfer' ? 'bg-blue-900/30 text-blue-300 border-blue-700' :
+                                'bg-yellow-900/30 text-yellow-300 border-yellow-700'
+                              }>
+                                {sale.paymentMethod?.toUpperCase() || 'CASH'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-green-400 font-semibold">
+                              {formatCurrency(sale.finalSalePrice || 0)}
+                            </TableCell>
+                            <TableCell>
+                              <span className={`font-bold ${profit > 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                                {formatCurrency(profit)}
+                              </span>
+                              <div className="text-gray-400 text-xs">
+                                {sale.finalSalePrice > 0 ? `${((profit / sale.finalSalePrice) * 100).toFixed(1)}% margin` : 'N/A'}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1622,11 +2089,11 @@ export default function StocksDashboard() {
                         <FaArrowRight className="text-gray-400" />
                       </Button>
                       <Button
-                        onClick={() => generateStockReport('all')}
+                        onClick={() => generateComprehensiveReport()}
                         disabled={isGeneratingReport}
-                        className="w-full justify-between bg-gray-700 hover:bg-gray-600"
+                        className="w-full justify-between bg-purple-700 hover:bg-purple-600"
                       >
-                        <span>Location Sales Comparison</span>
+                        <span>Comprehensive Business Report</span>
                         <FaArrowRight className="text-gray-400" />
                       </Button>
                     </CardContent>
@@ -1659,6 +2126,49 @@ export default function StocksDashboard() {
                             </Button>
                           </div>
                         ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Export Options */}
+                  <Card className="md:col-span-2 bg-gray-800/50">
+                    <CardHeader>
+                      <CardTitle className="text-orange-300">Export Options</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <Button
+                          onClick={() => generateExcelReport('stock', 'all')}
+                          disabled={isGeneratingReport}
+                          className="bg-green-700 hover:bg-green-600"
+                        >
+                          <FaFileExcel className="mr-2" />
+                          Export All Stock (Excel)
+                        </Button>
+                        <Button
+                          onClick={() => generateExcelReport('sales', 'all')}
+                          disabled={isGeneratingReport}
+                          className="bg-green-700 hover:bg-green-600"
+                        >
+                          <FaFileExcel className="mr-2" />
+                          Export All Sales (Excel)
+                        </Button>
+                        <Button
+                          onClick={() => generateStockReport('all')}
+                          disabled={isGeneratingReport}
+                          className="bg-red-700 hover:bg-red-600"
+                        >
+                          <FaFilePdf className="mr-2" />
+                          Export All Stock (PDF)
+                        </Button>
+                        <Button
+                          onClick={() => generateSalesReport('all')}
+                          disabled={isGeneratingReport}
+                          className="bg-red-700 hover:bg-red-600"
+                        >
+                          <FaFilePdf className="mr-2" />
+                          Export All Sales (PDF)
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

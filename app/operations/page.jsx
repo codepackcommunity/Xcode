@@ -106,7 +106,6 @@ const CATEGORIES = ['Smartphone', 'Tablet', 'Laptop', 'Accessory', 'TV', 'Audio'
 
 export default function InstallmentSuperAdminDashboard() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
@@ -240,13 +239,13 @@ export default function InstallmentSuperAdminDashboard() {
   });
 
   // UI State
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [viewMode, setViewMode] = useState('grid');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
+const [error, setError] = useState(null);
+const [success, setSuccess] = useState(null); 
+const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+const [viewMode, setViewMode] = useState('grid');
+const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
+const [searchQuery, setSearchQuery] = useState('');
 
   // Form Validation State
   const [formErrors, setFormErrors] = useState({
@@ -1721,6 +1720,7 @@ export default function InstallmentSuperAdminDashboard() {
   useEffect(() => {
     if (error || success) {
       const timer = setTimeout(() => {
+        // clear out states
         setError(null);
         setSuccess(null);
       }, 5000);
@@ -1756,7 +1756,6 @@ export default function InstallmentSuperAdminDashboard() {
       } else {
         router.push('/login');
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -1951,18 +1950,6 @@ export default function InstallmentSuperAdminDashboard() {
     </Sheet>
   );
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="text-gray-400">Loading Installment Dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <TooltipProvider>
@@ -1974,7 +1961,7 @@ export default function InstallmentSuperAdminDashboard() {
           {/* Desktop Sidebar */}
           <div className="hidden lg:flex lg:w-64 lg:flex-col">
             <div className="flex flex-col flex-1 min-h-0 bg-gray-900 border-r border-gray-800">
-              <div className="flex items-center h-16 flex-shrink-0 px-4 border-b border-gray-800">
+              <div className="flex items-center h-16 shrink-0 px-4 border-b border-gray-800">
                 <div className="flex items-center flex-1">
                   <div className="bg-blue-600 w-8 h-8 rounded-lg flex items-center justify-center mr-3">
                     <span className="text-white font-bold">KM</span>
@@ -2009,7 +1996,7 @@ export default function InstallmentSuperAdminDashboard() {
                   ))}
                 </nav>
               </ScrollArea>
-              <div className="flex-shrink-0 flex border-t border-gray-800 p-4">
+              <div className="shrink-0 flex border-t border-gray-800 p-4">
                 <div className="flex items-center w-full">
                   <Avatar>
                     <AvatarFallback className="bg-blue-600 text-white">
@@ -2032,7 +2019,7 @@ export default function InstallmentSuperAdminDashboard() {
           {/* Main Content */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Header */}
-            <header className="sticky top-0 z-10 flex h-16 flex-shrink-0 bg-gray-900/95 backdrop-blur-lg border-b border-gray-800">
+            <header className="sticky top-0 z-10 flex h-16 shrink-0 bg-gray-900/95 backdrop-blur-lg border-b border-gray-800">
               <div className="flex flex-1 justify-between px-4 md:px-6">
                 <div className="flex items-center">
                   <Button
@@ -2161,14 +2148,7 @@ export default function InstallmentSuperAdminDashboard() {
                         <div className="text-sm text-gray-400">Low Stock</div>
                       </CardContent>
                     </Card>
-                    <Card className="bg-gray-800/50 border-gray-700">
-                      <CardContent className="p-4 text-center">
-                        <div className="text-2xl font-bold text-emerald-400">
-                          {formatCurrency(dashboardStats.monthlyRevenue)}
-                        </div>
-                        <div className="text-sm text-gray-400">Monthly Revenue</div>
-                      </CardContent>
-                    </Card>
+                    
                   </div>
 
                   {/* Main Content Area */}
@@ -3548,7 +3528,7 @@ export default function InstallmentSuperAdminDashboard() {
                         <CardDescription>Latest payment transactions</CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <ScrollArea className="h-[400px]">
+                        <ScrollArea className="h-400px">
                           {installmentPayments.slice(0, 20).map((payment, index) => (
                             <div key={index} className="flex items-center justify-between py-3 border-b border-gray-700/50 last:border-0">
                               <div className="flex items-center space-x-3">
