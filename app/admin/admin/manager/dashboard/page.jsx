@@ -901,8 +901,7 @@ export default function ManagerDashboard() {
     throw lastError;
   };
 
-  // Generate Professional Sales Receipt with QR Code
-  // Generate Professional Sales Receipt with QR Code
+// Generate Professional Sales Receipt with QR Code
 const generateSalesReceipt = async (saleData) => {
   try {
     if (!saleData || !saleData.receiptNumber) {
@@ -924,9 +923,28 @@ const generateSalesReceipt = async (saleData) => {
     const contentWidth = pageWidth - (margin * 2);
     
     // Handle sale date
-    const saleDate = saleData.soldAt ? 
-      (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
-      new Date();
+    let saleDate;
+    try {
+      if (saleData.soldAt) {
+        if (typeof saleData.soldAt === 'object' && saleData.soldAt.toDate) {
+          // Firestore Timestamp
+          saleDate = saleData.soldAt.toDate();
+        } else if (typeof saleData.soldAt === 'string') {
+          // ISO string
+          saleDate = new Date(saleData.soldAt);
+        } else if (saleData.soldAt.seconds) {
+          // Firestore timestamp object with seconds
+          saleDate = new Date(saleData.soldAt.seconds * 1000);
+        } else {
+          saleDate = new Date();
+        }
+      } else {
+        saleDate = new Date();
+      }
+    } catch (dateError) {
+      console.warn('Date parsing error, using current date:', dateError);
+      saleDate = new Date();
+    }
     
     // Format dates
     const formattedDate = saleDate.toLocaleDateString('en-US', {
@@ -1010,7 +1028,7 @@ const generateSalesReceipt = async (saleData) => {
     doc.setTextColor(75, 85, 99);
     doc.text('LOCATION:', margin + 10, yPos + 16);
     doc.setTextColor(30, 58, 138);
-    doc.text(saleData.location || user?.location, margin + 35, yPos + 16);
+    doc.text(saleData.location || user?.location || 'Unknown', margin + 35, yPos + 16);
     
     yPos += 35;
     
@@ -1073,7 +1091,7 @@ const generateSalesReceipt = async (saleData) => {
     doc.setTextColor(55, 65, 81);
     doc.setFont('helvetica', 'normal');
     
-    // Build item description - FIXED THIS SECTION
+    // Build item description
     let itemDescription = `${saleData.brand || ''} ${saleData.model || ''}`;
     if (saleData.color) itemDescription += ` • ${saleData.color}`;
     if (saleData.storage) itemDescription += ` • ${saleData.storage}`;
@@ -1239,51 +1257,7 @@ const generateSalesReceipt = async (saleData) => {
     
   } catch (error) {
     console.error('❌ Receipt generation error:', error);
-    
-    // Fallback to simple receipt
-    try {
-      const fallbackDoc = new jsPDF();
-      const fallbackDate = saleData.soldAt ? 
-        (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
-        new Date();
-      
-      // Simple styled fallback
-      fallbackDoc.setFontSize(20);
-      fallbackDoc.setTextColor(30, 58, 138);
-      fallbackDoc.setFont('helvetica', 'bold');
-      fallbackDoc.text('KM ELECTRONICS', 20, 20);
-      
-      fallbackDoc.setFontSize(14);
-      fallbackDoc.setTextColor(75, 85, 99);
-      fallbackDoc.setFont('helvetica', 'normal');
-      fallbackDoc.text('Official Sales Receipt', 20, 30);
-      
-      fallbackDoc.setFontSize(12);
-      fallbackDoc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 45);
-      fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 55);
-      fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 65);
-      fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 75);
-      fallbackDoc.text(`Amount: MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, 20, 85);
-      
-      // Add warranty note
-      fallbackDoc.setFontSize(10);
-      fallbackDoc.setTextColor(21, 128, 61);
-      fallbackDoc.text('✅ 7-Day Warranty Included', 20, 100);
-      
-      fallbackDoc.save(`Receipt_${saleData.receiptNumber}.pdf`);
-      
-      console.log('✅ Fallback receipt generated');
-      
-      return { 
-        success: true, 
-        filename: `Receipt_${saleData.receiptNumber}.pdf`,
-        isFallback: true
-      };
-      
-    } catch (fallbackError) {
-      console.error('❌ Fallback also failed:', fallbackError);
-      throw new Error('Receipt generation failed: ' + error.message);
-    }
+    throw new Error('Receipt generation failed: ' + error.message);
   }
 };
 
