@@ -11,8 +11,9 @@ import {
 } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
+import { sendSaleEmail } from '@/app/lib/email';
 
-// React Icons (same as before)
+// React Icons
 import {
   FiHome,
   FiBarChart2,
@@ -75,10 +76,11 @@ import {
   FiTarget,
   FiFlag,
   FiMessageSquare,
-  FiUserCheck
+  FiUserCheck,
+  FiMail
 } from 'react-icons/fi';
 
-// shadcn/ui components (same as before)
+// shadcn/ui components
 import {
   Card,
   CardContent,
@@ -172,9 +174,10 @@ export default function ManagerDashboard() {
   const [isMobile, setIsMobile] = useState(false);
   const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const router = useRouter();
 
-  // State Management (same as before)
+  // State Management
   const [stocks, setStocks] = useState([]);
   const [sales, setSales] = useState([]);
   const [faultyPhones, setFaultyPhones] = useState([]);
@@ -254,7 +257,7 @@ export default function ManagerDashboard() {
   const [installmentModalOpen, setInstallmentModalOpen] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
 
-  // Format currency (same as before)
+  // Format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-MW', {
       style: 'currency',
@@ -263,7 +266,7 @@ export default function ManagerDashboard() {
     }).format(amount || 0);
   };
 
-  // Check if mobile (same as before)
+  // Check if mobile
   useEffect(() => {
     const checkIfMobile = () => {
       const mobile = window.innerWidth < 1024;
@@ -280,7 +283,7 @@ export default function ManagerDashboard() {
     return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
-  // Prevent body scrolling (same as before)
+  // Prevent body scrolling
   useEffect(() => {
     if (isMobile && isSidebarOpen) {
       document.body.style.overflow = 'hidden';
@@ -293,7 +296,7 @@ export default function ManagerDashboard() {
     };
   }, [isMobile, isSidebarOpen]);
 
-  // Clear messages (same as before)
+  // Clear messages
   useEffect(() => {
     if (error || success) {
       const timer = setTimeout(() => {
@@ -304,7 +307,7 @@ export default function ManagerDashboard() {
     }
   }, [error, success]);
 
-  // Authentication (same as before)
+  // Authentication
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
       if (authUser) {
@@ -328,7 +331,7 @@ export default function ManagerDashboard() {
             router.push('/login');
           }
         } catch (error) {
-          setError('Auth error:', error);
+          console.error('Auth error:', error);
           setError('Authentication error');
           router.push('/login');
         }
@@ -341,7 +344,7 @@ export default function ManagerDashboard() {
     return () => unsubscribe();
   }, [router]);
 
-  // Initialize Dashboard - UPDATED to handle index errors gracefully
+  // Initialize Dashboard
   const initializeDashboard = async (userData) => {
     try {
       setLoading(true);
@@ -355,7 +358,7 @@ export default function ManagerDashboard() {
       ]);
       calculateSalesAnalysisData();
     } catch (error) {
-      setError('Dashboard init error:', error);
+      console.error('Dashboard init error:', error);
       
       // Check if error is about missing indexes
       if (error.code === 'failed-precondition' && error.message.includes('requires an index')) {
@@ -368,7 +371,7 @@ export default function ManagerDashboard() {
     }
   };
 
-  // Data Fetching Functions - UPDATED with better error handling
+  // Data Fetching Functions
   const fetchLocationStocks = async (location) => {
     try {
       const q = query(
@@ -382,7 +385,7 @@ export default function ManagerDashboard() {
       }));
       setStocks(stocksData);
     } catch (error) {
-      setError('Fetch stocks error:', error);
+      console.error('Fetch stocks error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create stocks index in Firestore.');
       } else {
@@ -405,7 +408,7 @@ export default function ManagerDashboard() {
       }));
       setSales(salesData);
     } catch (error) {
-      setError('Fetch sales error:', error);
+      console.error('Fetch sales error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create sales index in Firestore.');
       } else {
@@ -414,10 +417,8 @@ export default function ManagerDashboard() {
     }
   };
 
-  // FIXED: Faulty phones with proper error handling
   const fetchFaultyPhones = async (location) => {
     try {
-      // First try without orderBy to avoid index error
       const q = query(
         collection(db, 'faultyPhones'),
         where('location', '==', location)
@@ -428,19 +429,17 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       
-      // Sort manually if needed
       faultyData.sort((a, b) => {
         const dateA = a.reportedAt?.toDate() || new Date(0);
         const dateB = b.reportedAt?.toDate() || new Date(0);
-        return dateB - dateA; // Descending
+        return dateB - dateA;
       });
       
       setFaultyPhones(faultyData);
     } catch (error) {
-      setError('Fetch faulty phones error:', error);
+      console.error('Fetch faulty phones error:', error);
       if (error.code === 'failed-precondition') {
-        setError('Faulty phones index required. Please create index for location and reportedAt.');
-        // Set empty array to avoid breaking the UI
+        console.warn('Faulty phones index required. Please create index for location and reportedAt.');
         setFaultyPhones([]);
       } else {
         setError('Failed to fetch faulty phones');
@@ -448,10 +447,8 @@ export default function ManagerDashboard() {
     }
   };
 
-  // FIXED: Installments with proper error handling
   const fetchInstallments = async (location) => {
     try {
-      // First try without orderBy to avoid index error
       const q = query(
         collection(db, 'installments'),
         where('location', '==', location)
@@ -462,19 +459,17 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       
-      // Sort manually if needed
       installmentData.sort((a, b) => {
         const dateA = a.createdAt?.toDate() || new Date(0);
         const dateB = b.createdAt?.toDate() || new Date(0);
-        return dateB - dateA; // Descending
+        return dateB - dateA;
       });
       
       setInstallments(installmentData);
     } catch (error) {
-      setError('Fetch installments error:', error);
+      console.error('Fetch installments error:', error);
       if (error.code === 'failed-precondition') {
-        setError('Installments index required. Please create index for location and createdAt.');
-        // Set empty array to avoid breaking the UI
+        console.warn('Installments index required. Please create index for location and createdAt.');
         setInstallments([]);
       } else {
         setError('Failed to fetch installments');
@@ -482,10 +477,8 @@ export default function ManagerDashboard() {
     }
   };
 
-  // FIXED: Stock requests with proper error handling
   const fetchStockRequests = async (location) => {
     try {
-      // Simplified query to avoid index error
       const q = query(
         collection(db, 'stockRequests'),
         where('toLocation', '==', location)
@@ -496,21 +489,19 @@ export default function ManagerDashboard() {
         ...doc.data()
       }));
       
-      // Filter and sort manually
       const filteredRequests = requestsData
         .filter(request => request.status === 'pending')
         .sort((a, b) => {
           const dateA = a.requestedAt?.toDate() || new Date(0);
           const dateB = b.requestedAt?.toDate() || new Date(0);
-          return dateB - dateA; // Descending
+          return dateB - dateA;
         });
       
       setStockRequests(filteredRequests);
     } catch (error) {
-      setError('Fetch stock requests error:', error);
+      console.error('Fetch stock requests error:', error);
       if (error.code === 'failed-precondition') {
-        setError('Stock requests index required. Please create composite index.');
-        // Set empty array to avoid breaking the UI
+        console.warn('Stock requests index required. Please create composite index.');
         setStockRequests([]);
       } else {
         setError('Failed to fetch stock requests');
@@ -532,11 +523,12 @@ export default function ManagerDashboard() {
       }));
       setPersonnel(personnelData);
     } catch (error) {
+      console.error('Fetch personnel error:', error);
       setError('Failed to fetch personnel');
     }
   };
 
-  // Real-time Listeners - UPDATED with better error handling
+  // Real-time Listeners
   const setupRealtimeListeners = useCallback((location) => {
     const cleanupFunctions = [];
 
@@ -556,6 +548,7 @@ export default function ManagerDashboard() {
           setStocks(stocksData);
         }, 
         (error) => {
+          console.error('Stocks listener error:', error);
           setError('Failed to listen to stock updates');
         }
       );
@@ -565,7 +558,6 @@ export default function ManagerDashboard() {
       const salesQuery = query(
         collection(db, 'sales'),
         where('location', '==', location)
-        // Removed orderBy to avoid index error in listener
       );
 
       const unsubscribeSales = onSnapshot(salesQuery, 
@@ -575,7 +567,6 @@ export default function ManagerDashboard() {
             ...doc.data()
           }));
           
-          // Sort manually
           salesData.sort((a, b) => {
             const dateA = a.soldAt?.toDate() || new Date(0);
             const dateB = b.soldAt?.toDate() || new Date(0);
@@ -585,12 +576,13 @@ export default function ManagerDashboard() {
           setSales(salesData);
         }, 
         (error) => {
+          console.error('Sales listener error:', error);
           setError('Failed to listen to sales updates');
         }
       );
       cleanupFunctions.push(unsubscribeSales);
 
-      // Faulty phones listener - simplified to avoid index error
+      // Faulty phones listener
       const faultyQuery = query(
         collection(db, 'faultyPhones'),
         where('location', '==', location)
@@ -603,7 +595,6 @@ export default function ManagerDashboard() {
             ...doc.data()
           }));
           
-          // Sort manually
           faultyData.sort((a, b) => {
             const dateA = a.reportedAt?.toDate() || new Date(0);
             const dateB = b.reportedAt?.toDate() || new Date(0);
@@ -613,8 +604,7 @@ export default function ManagerDashboard() {
           setFaultyPhones(faultyData);
         },
         (error) => {
-          setError('Faulty phones listener error:', error);
-          // Don't show error if it's just an index issue
+          console.error('Faulty phones listener error:', error);
           if (error.code !== 'failed-precondition') {
             setError('Failed to listen to faulty phones updates');
           }
@@ -623,7 +613,7 @@ export default function ManagerDashboard() {
       cleanupFunctions.push(unsubscribeFaulty);
 
     } catch (error) {
-      setError('Listener setup error:', error);
+      console.error('Listener setup error:', error);
     }
 
     return () => {
@@ -631,7 +621,7 @@ export default function ManagerDashboard() {
         try {
           unsubscribe();
         } catch (error) {
-          setError('Cleanup error:', error);
+          console.error('Cleanup error:', error);
         }
       });
     };
@@ -648,7 +638,7 @@ export default function ManagerDashboard() {
     };
   }, [location, setupRealtimeListeners]);
 
-  // Calculate sales analysis (same as before)
+  // Calculate sales analysis
   const calculateSalesAnalysisData = useCallback(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -720,7 +710,7 @@ export default function ManagerDashboard() {
     }
   }, [sales, calculateSalesAnalysisData]);
 
-  // Handle tab change (same as before)
+  // Handle tab change
   const handleTabChange = async (tabId) => {
     if (tabId === activeTab) return;
     
@@ -742,7 +732,7 @@ export default function ManagerDashboard() {
     setTimeout(() => setTabLoading(false), 300);
   };
 
-  // Refresh all data (same as before)
+  // Refresh all data
   const handleRefreshData = async () => {
     try {
       setLoading(true);
@@ -755,14 +745,14 @@ export default function ManagerDashboard() {
       ]);
       setSuccess('Data refreshed successfully');
     } catch (error) {
-      setError('Refresh error:', error);
+      console.error('Refresh error:', error);
       setError('Failed to refresh data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Database Validation Functions (same as before)
+  // Database Validation Functions
   const validateStockBeforeOperation = async (itemCode, location, requiredQuantity = 1) => {
     try {
       const stockQuery = query(
@@ -822,7 +812,7 @@ export default function ManagerDashboard() {
         .map(result => result.reason.message);
       
       if (errors.length > 0) {
-        setError('Database consistency warnings:', errors);
+        console.warn('Database consistency warnings:', errors);
         return { consistent: false, errors };
       }
       
@@ -895,7 +885,7 @@ export default function ManagerDashboard() {
     }
   };
 
-  // Execute with retry (same as before)
+  // Execute with retry
   const executeWithRetry = async (operation, maxRetries = 3) => {
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
@@ -905,7 +895,7 @@ export default function ManagerDashboard() {
         lastError = error;
         if (error.code === 'failed-precondition' || error.code === 'aborted') {
           await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
-          alert(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
+          console.log(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
         } else {
           break;
         }
@@ -914,32 +904,43 @@ export default function ManagerDashboard() {
     throw lastError;
   };
 
-// Generate Sales Receipt with QR Code
+  // Generate Sales Receipt with QR Code
+  // Generate Professional Sales Receipt with QR Code
 const generateSalesReceipt = async (saleData) => {
   try {
     if (!saleData || !saleData.receiptNumber) {
       throw new Error('Invalid sale data for receipt generation');
     }
 
-    setSuccess('Generating receipt with QR code for:', saleData.receiptNumber);
+    console.log('Generating professional receipt for:', saleData.receiptNumber);
     
+    // Create PDF with custom dimensions for receipt
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
-      format: 'a4'
+      format: [210, 297] // A4 size
     });
     
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
     
-    // FIX: Properly handle sale date - use current time as fallback
+    // Handle sale date
     const saleDate = saleData.soldAt ? 
       (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
       new Date();
     
-    // FIX: Format dates safely
-    const formattedDate = saleDate.toLocaleDateString();
-    const formattedTime = saleDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    // Format dates
+    const formattedDate = saleDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const formattedTime = saleDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
     
     // Generate QR code data
     const qrData = JSON.stringify({
@@ -949,229 +950,370 @@ const generateSalesReceipt = async (saleData) => {
       model: saleData.model,
       customerName: saleData.customerName,
       finalSalePrice: saleData.finalSalePrice,
-      date: saleDate.toISOString(),  // FIX: Use actual sale date
+      date: saleDate.toISOString(),
       location: saleData.location || user?.location,
       warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`
     });
 
     // Create QR code
     const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-      width: 100,
+      width: 80,
       margin: 1,
       color: {
-        dark: '#1e293b', // slate-800
+        dark: '#1e40af', // Blue color
         light: '#ffffff'
-      }
+      },
+      errorCorrectionLevel: 'H'
     });
 
-    // Header with blue background
-    doc.setFillColor(15, 23, 42); // slate-900
-    doc.rect(0, 0, pageWidth, 40, 'F');
+    // ============ HEADER SECTION ============
+    // Company logo/header with gradient
+    doc.setFillColor(30, 58, 138); // Dark blue
+    doc.rect(margin, margin, contentWidth, 25, 'F');
     
-    // Company Logo/Name
+    // Company name
     doc.setFontSize(28);
-    doc.setTextColor(96, 165, 250); // blue-400
+    doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+    doc.text('KM ELECTRONICS', pageWidth / 2, margin + 12, { align: 'center' });
     
-    doc.setFontSize(14);
-    doc.setTextColor(226, 232, 240); // slate-200
-    doc.setFont('helvetica', 'normal');
-    doc.text('OFFICIAL SALES RECEIPT', pageWidth / 2, 30, { align: 'center' });
-    
-    // Receipt details - FIX: Use actual sale date/time
+    // Tagline
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 50);
-    doc.text(`Date: ${formattedDate}`, pageWidth - 20, 50, { align: 'right' });
-    doc.text(`Time: ${formattedTime}`, pageWidth - 20, 56, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.text('Official Sales Receipt • Quality Electronics Since 2010', pageWidth / 2, margin + 18, { align: 'center' });
     
-    // Customer Information
-    doc.setFontSize(14);
-    doc.setTextColor(30, 41, 59); // slate-800
-    doc.setFont('helvetica', 'bold');
-    doc.text('CUSTOMER INFORMATION', 20, 70);
+    let yPos = margin + 35;
     
-    doc.setDrawColor(203, 213, 225); // slate-300
-    doc.setLineWidth(0.5);
-    doc.line(20, 73, pageWidth - 20, 73);
+    // ============ RECEIPT INFO SECTION ============
+    // Receipt details box
+    doc.setFillColor(249, 250, 251); // Light gray background
+    doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'F');
     
     doc.setFontSize(11);
-    doc.setTextColor(71, 85, 105); // slate-600
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 25, 80);
+    doc.setTextColor(75, 85, 99); // Gray text
     
+    // Receipt number
+    doc.setFont('helvetica', 'bold');
+    doc.text('RECEIPT NO:', margin + 10, yPos + 8);
+    doc.setTextColor(30, 58, 138);
+    doc.text(saleData.receiptNumber, margin + 35, yPos + 8);
+    
+    // Date and time
+    doc.setTextColor(75, 85, 99);
+    doc.text('DATE:', margin + contentWidth - 70, yPos + 8);
+    doc.setTextColor(30, 58, 138);
+    doc.text(formattedDate, margin + contentWidth - 45, yPos + 8);
+    
+    doc.setTextColor(75, 85, 99);
+    doc.text('TIME:', margin + contentWidth - 70, yPos + 16);
+    doc.setTextColor(30, 58, 138);
+    doc.text(formattedTime, margin + contentWidth - 45, yPos + 16);
+    
+    // Location
+    doc.setTextColor(75, 85, 99);
+    doc.text('LOCATION:', margin + 10, yPos + 16);
+    doc.setTextColor(30, 58, 138);
+    doc.text(saleData.location || user?.location, margin + 35, yPos + 16);
+    
+    yPos += 35;
+    
+    // ============ CUSTOMER SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CUSTOMER INFORMATION', margin, yPos);
+    
+    yPos += 5;
+    doc.setDrawColor(209, 213, 219);
+    doc.setLineWidth(0.5);
+    doc.line(margin, yPos, margin + contentWidth, yPos);
+    
+    yPos += 10;
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Name: ${saleData.customerName || 'Walk-in Customer'}`, margin, yPos);
     if (saleData.customerPhone) {
-      doc.text(`Contact: ${saleData.customerPhone}`, 25, 87);
+      doc.text(`Phone: ${saleData.customerPhone}`, margin + contentWidth / 2, yPos);
+    }
+    yPos += 20;
+    
+    // ============ ITEM DETAILS SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ITEM DETAILS', margin, yPos);
+    
+    yPos += 5;
+    doc.line(margin, yPos, margin + contentWidth, yPos);
+    
+    yPos += 10;
+    
+    // Table headers with background
+    doc.setFillColor(30, 58, 138);
+    doc.rect(margin, yPos, contentWidth, 8, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    
+    const colWidths = [contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2];
+    
+    // Headers
+    doc.text('DESCRIPTION', margin + 5, yPos + 6);
+    doc.text('QTY', margin + colWidths[0] + 5, yPos + 6);
+    doc.text('UNIT PRICE', margin + colWidths[0] + colWidths[1] + 5, yPos + 6);
+    doc.text('TOTAL', margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 6);
+    
+    yPos += 12;
+    
+    // Item row
+    doc.setFillColor(249, 250, 251);
+    doc.rect(margin, yPos - 4, contentWidth, 16, 'F');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    const itemDescription = `${saleData.brand || ''} ${saleData.model || ''}`;
+    if (saleData.color) itemDescription += ` • ${saleData.color}`;
+    if (saleData.storage) itemDescription += ` • ${saleData.storage}`;
+    
+    doc.text(itemDescription, margin + 5, yPos + 4);
+    doc.text(saleData.quantity.toString(), margin + colWidths[0] + 5, yPos + 4);
+    doc.text(`MWK ${(saleData.retailPrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + 5, yPos + 4);
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 4);
+    
+    yPos += 25;
+    
+    // ============ PRICE SUMMARY SECTION ============
+    // Price summary box
+    doc.setFillColor(249, 250, 251);
+    doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'F');
+    doc.setDrawColor(209, 213, 219);
+    doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'S');
+    
+    const summaryX = margin + contentWidth * 0.5 + 10;
+    
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PRICE SUMMARY', summaryX, yPos + 10);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    // Subtotal
+    doc.text('Subtotal:', summaryX, yPos + 25);
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + 25, { align: 'right' });
+    
+    // Discount
+    const discount = saleData.discountPercentage || 0;
+    if (discount > 0) {
+      doc.text(`Discount (${discount}%):`, summaryX, yPos + 35);
+      const discountAmount = (saleData.finalSalePrice || 0) * (discount / 100);
+      doc.text(`- MWK ${discountAmount.toLocaleString()}`, margin + contentWidth - 20, yPos + 35, { align: 'right' });
     }
     
-    // Sale Details Section with QR Code
-    doc.setFontSize(14);
-    doc.setTextColor(30, 41, 59);
+    // Total
     doc.setFont('helvetica', 'bold');
-    doc.text('SALE DETAILS', 20, 100);
+    doc.setTextColor(30, 58, 138);
+    doc.text('TOTAL AMOUNT:', summaryX, yPos + (discount > 0 ? 45 : 35));
+    doc.setTextColor(21, 128, 61); // Green for total
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + (discount > 0 ? 45 : 35), { align: 'right' });
     
+    yPos += 60;
+    
+    // ============ QR CODE SECTION ============
     // Add QR code on the right
-    doc.addImage(qrCodeDataUrl, 'PNG', pageWidth - 90, 95, 70, 70);
+    const qrSize = 50;
+    const qrX = margin + contentWidth - qrSize - 10;
+    const qrY = yPos - 40;
+    
+    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
     
     // QR code border and label
-    doc.setDrawColor(59, 130, 246); // blue-500
+    doc.setDrawColor(30, 58, 138);
     doc.setLineWidth(1);
-    doc.rect(pageWidth - 92, 93, 74, 74);
+    doc.rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4);
     
-    doc.setFontSize(9);
-    doc.setTextColor(59, 130, 246);
-    doc.text('WARRANTY VERIFICATION', pageWidth - 55, 170, { align: 'center' });
-    doc.text('SCAN THIS QR CODE', pageWidth - 55, 175, { align: 'center' });
-    
-    // Product details table on left
-    const startY = 110;
-    const colWidth = (pageWidth - 100) / 4;
-    
-    // Table headers
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(59, 130, 246);
-    
-    const headers = ['Item Description', 'Qty', 'Unit Price', 'Total'];
-    headers.forEach((header, i) => {
-      const x = 20 + (i * colWidth);
-      doc.text(header, x, startY);
-    });
-    
-    // Table data - FIX: Add null checks
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(30, 41, 59);
-    
-    const rowData = [
-      `${saleData.brand || ''} ${saleData.model || ''}`,
-      (saleData.quantity || 1).toString(),
-      `MK ${(saleData.retailPrice || 0).toLocaleString()}`,
-      `MK ${(saleData.finalSalePrice || 0).toLocaleString()}`
-    ];
-    
-    rowData.forEach((data, i) => {
-      const x = 20 + (i * colWidth);
-      doc.text(data, x, startY + 8);
-    });
-    
-    // Table lines
-    doc.setDrawColor(203, 213, 225);
-    doc.line(20, startY + 2, pageWidth - 100, startY + 2);
-    doc.line(20, startY + 10, pageWidth - 100, startY + 10);
-    
-    // Summary Section
-    const summaryY = startY + 20;
-    doc.setFillColor(241, 245, 249); // slate-100
-    doc.rect(20, summaryY, pageWidth - 100, 35, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(20, summaryY, pageWidth - 100, 35);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(71, 85, 105);
-    
-    // Summary items - FIX: Handle missing discountPercentage
-    const discountPercentage = saleData.discountPercentage || 0;
-    const summaryItems = [
-      { label: 'Subtotal:', value: `MK ${(saleData.finalSalePrice || 0).toLocaleString()}` },
-      { label: 'Discount:', value: `${discountPercentage}%` },
-      { label: 'Total Amount:', value: `MK ${(saleData.finalSalePrice || 0).toLocaleString()}` }
-    ];
-    
-    summaryItems.forEach((item, index) => {
-      const y = summaryY + 12 + (index * 10);
-      doc.text(item.label, 25, y);
-      doc.text(item.value, pageWidth - 120, y, { align: 'right' });
-    });
-    
-    // Payment Information
-    const paymentY = summaryY + 45;
-    doc.setFontSize(14);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PAYMENT INFORMATION', 20, paymentY);
-    
-    doc.setFillColor(241, 245, 249);
-    doc.rect(20, paymentY + 5, pageWidth - 100, 20, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(20, paymentY + 5, pageWidth - 100, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, 25, paymentY + 13);
-    doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'Unknown'}`, 25, paymentY + 19);
-    doc.text(`Location: ${saleData.location || user?.location || 'Unknown'}`, 
-      pageWidth - 120, paymentY + 13, { align: 'right' });
-    
-    // Warranty Information
-    const warrantyY = paymentY + 30;
-    doc.setFillColor(239, 246, 255); // blue-50
-    doc.setDrawColor(59, 130, 246);
-    doc.rect(20, warrantyY, pageWidth - 100, 25, 'FD');
-    
-    doc.setFontSize(11);
-    doc.setTextColor(59, 130, 246);
-    doc.setFont('helvetica', 'bold');
-    doc.text('🔒 7-DAY WARRANTY INCLUDED', pageWidth / 2 - 50, warrantyY + 8, { align: 'center' });
-    
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Valid for 7 days from purchase date | Manufacturing defects only', 
-      pageWidth / 2 - 50, warrantyY + 16, { align: 'center' });
-    
-    // Footer
-    const footerY = pageHeight - 25;
     doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Thank you for choosing KM Electronics!', 
-      pageWidth / 2, footerY, { align: 'center' });
-    doc.text('For warranty claims, scan QR code or present this receipt', 
-      pageWidth / 2, footerY + 5, { align: 'center' });
-    doc.text('Contact: +86 187 1117 7003 | +265 995 181 454', 
-      pageWidth / 2, footerY + 10, { align: 'center' });
-    doc.text('© 2024 KM Electronics. All rights reserved.', 
-      pageWidth / 2, footerY + 15, { align: 'center' });
+    doc.setTextColor(30, 58, 138);
+    doc.text('SCAN FOR WARRANTY', qrX + qrSize / 2, qrY + qrSize + 8, { align: 'center' });
     
-    // Generate filename and save
-    const filename = `KM_Receipt_${saleData.receiptNumber}.pdf`;
+    // ============ PAYMENT INFO SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENT INFORMATION', margin, yPos);
+    
+    yPos += 10;
+    
+    doc.setFillColor(249, 250, 251);
+    doc.roundedRect(margin, yPos, contentWidth * 0.5, 30, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, margin + 10, yPos + 10);
+    doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'KM Staff'}`, margin + 10, yPos + 18);
+    
+    yPos += 40;
+    
+    // ============ WARRANTY SECTION ============
+    doc.setFillColor(239, 246, 255); // Light blue background
+    doc.setDrawColor(59, 130, 246); // Blue border
+    doc.roundedRect(margin, yPos, contentWidth, 25, 5, 5, 'FD');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🔒 7-DAY WARRANTY INCLUDED', margin + contentWidth / 2, yPos + 10, { align: 'center' });
+    
+    doc.setFontSize(9);
+    doc.setTextColor(75, 85, 99);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Valid for 7 days from purchase date • Manufacturing defects only', 
+      margin + contentWidth / 2, yPos + 18, { align: 'center' });
+    
+    yPos += 35;
+    
+    // ============ TERMS AND CONDITIONS ============
+    doc.setFontSize(8);
+    doc.setTextColor(107, 114, 128);
+    doc.text('Terms & Conditions:', margin, yPos);
+    doc.setFont('helvetica', 'normal');
+    
+    const terms = [
+      '1. Warranty covers manufacturing defects only',
+      '2. Warranty is void if device shows signs of physical damage or liquid exposure',
+      '3. Original receipt must be presented for warranty claims',
+      '4. Accessories (chargers, cables) have 30-day warranty',
+      '5. Software issues are not covered under warranty'
+    ];
+    
+    terms.forEach((term, index) => {
+      doc.text(term, margin + 5, yPos + 8 + (index * 4));
+    });
+    
+    yPos += 35;
+    
+    // ============ FOOTER ============
+    doc.setFontSize(9);
+    doc.setTextColor(107, 114, 128);
+    doc.setFont('helvetica', 'italic');
+    
+    // Company contact info
+    doc.text('KM ELECTRONICS • Your Trusted Electronics Partner', margin + contentWidth / 2, yPos, { align: 'center' });
+    doc.text('China Contact: +86 187 1117 7003 | Malawi Contact: +265 995 181 454', margin + contentWidth / 2, yPos + 5, { align: 'center' });
+    doc.text('Email: sales@kmelectronics.com | Website: www.kmelectronics.com', margin + contentWidth / 2, yPos + 10, { align: 'center' });
+    
+    // Thank you message
+    doc.setFontSize(10);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Thank you for your business!', margin + contentWidth / 2, yPos + 20, { align: 'center' });
+    
+    // Final footer
+    doc.setFontSize(7);
+    doc.setTextColor(156, 163, 175);
+    doc.setFont('helvetica', 'normal');
+    doc.text('© 2026 KM Electronics. All rights reserved. This is an official receipt.', 
+      margin + contentWidth / 2, pageHeight - margin + 5, { align: 'center' });
+    doc.text(`Document ID: ${saleData.receiptNumber} • Generated on ${new Date().toLocaleString()}`, 
+      margin + contentWidth / 2, pageHeight - margin + 10, { align: 'center' });
+    
+    // Generate filename
+    const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
+    
+    // Get PDF as buffer for email attachment
+    const pdfBuffer = doc.output('arraybuffer');
+    
+    // Save PDF locally for user download
     doc.save(filename);
     
-    setSuccess(`Receipt generated successfully: ${filename}`);
-    return true;
+    console.log(`✅ Professional receipt generated successfully: ${filename}`);
+    
+    // Return both success and PDF buffer
+    return { 
+      success: true, 
+      filename, 
+      pdfBuffer: Buffer.from(pdfBuffer) 
+    };
     
   } catch (error) {
-    setError('Receipt generation error:', error);
-    // Fallback: Simple receipt without QR code
+    console.error('❌ Receipt generation error:', error);
+    
+    // Fallback to simple receipt
     try {
-      setSuccess('Attempting fallback receipt generation...');
-      
-      // Use safe date formatting for fallback
+      const fallbackDoc = new jsPDF();
       const fallbackDate = saleData.soldAt ? 
         (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
         new Date();
       
-      const fallbackDoc = new jsPDF();
-      fallbackDoc.setFontSize(16);
+      // Simple styled fallback
+      fallbackDoc.setFontSize(20);
+      fallbackDoc.setTextColor(30, 58, 138);
+      fallbackDoc.setFont('helvetica', 'bold');
       fallbackDoc.text('KM ELECTRONICS', 20, 20);
-      fallbackDoc.setFontSize(12);
-      fallbackDoc.text(`Receipt: ${saleData.receiptNumber}`, 20, 30);
-      fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 40);
-      fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 50);
-      fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 60);
-      fallbackDoc.text(`Amount: MK ${saleData.finalSalePrice || 0}`, 20, 70);
-      fallbackDoc.text(`Warranty ID: ${saleData.receiptNumber}`, 20, 80);
-      fallbackDoc.text('7-DAY WARRANTY INCLUDED', 20, 90);
       
+      fallbackDoc.setFontSize(14);
+      fallbackDoc.setTextColor(75, 85, 99);
+      fallbackDoc.setFont('helvetica', 'normal');
+      fallbackDoc.text('Official Sales Receipt', 20, 30);
+      
+      fallbackDoc.setFontSize(12);
+      fallbackDoc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 45);
+      fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 55);
+      fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 65);
+      fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 75);
+      fallbackDoc.text(`Amount: MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, 20, 85);
+      
+      // Add warranty note
+      fallbackDoc.setFontSize(10);
+      fallbackDoc.setTextColor(21, 128, 61);
+      fallbackDoc.text('✅ 7-Day Warranty Included', 20, 100);
+      
+      const fallbackBuffer = fallbackDoc.output('arraybuffer');
       fallbackDoc.save(`Receipt_${saleData.receiptNumber}.pdf`);
-      setSuccess('Fallback receipt generated');
-      return true;
+      
+      console.log('✅ Fallback receipt generated');
+      
+      return { 
+        success: true, 
+        filename: `Receipt_${saleData.receiptNumber}.pdf`,
+        pdfBuffer: Buffer.from(fallbackBuffer),
+        isFallback: true
+      };
+      
     } catch (fallbackError) {
-      setError('Fallback also failed:', fallbackError);
+      console.error('❌ Fallback also failed:', fallbackError);
       throw new Error('Receipt generation failed: ' + error.message);
     }
   }
 };
+
+  // Test Email Connection
+  const testEmailConnection = async () => {
+    try {
+      setIsSendingEmail(true);
+      const response = await fetch('/api/test-email');
+      const data = await response.json();
+      
+      if (data.success) {
+        setSuccess('✅ Email connection test successful! System is ready to send notifications.');
+      } else {
+        setError('❌ Email test failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (error) {
+      setError('❌ Email test error: ' + error.message);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   // ACID-Compliant Quick Sale
   const handleQuickSale = async () => {
@@ -1187,12 +1329,13 @@ const generateSalesReceipt = async (saleData) => {
 
     setIsProcessingSale(true);
     setIsGeneratingReceipt(false);
+    setIsSendingEmail(false);
 
     try {
       // First, validate database consistency
       const consistencyCheck = await validateDatabaseConsistency();
       if (!consistencyCheck.consistent) {
-        setError('Database consistency issues:', consistencyCheck.errors);
+        console.warn('Database consistency issues:', consistencyCheck.errors);
       }
 
       // Pre-validate stock before transaction
@@ -1333,40 +1476,66 @@ const generateSalesReceipt = async (saleData) => {
         });
       });
 
-      alert('Transaction successful, generating receipt...');
+      console.log('✅ Transaction successful, generating receipt...');
       setIsGeneratingReceipt(true);
-      
-      // Generate receipt with QR code
+
+      // Generate receipt and get PDF buffer
+      let receiptResult;
       try {
-        await generateSalesReceipt(transactionResult.saleData);
+        receiptResult = await generateSalesReceipt(transactionResult.saleData);
         
-        setQuickSale({ 
-          itemCode: '', 
-          quantity: 1, 
-          customPrice: '', 
-          customerName: '',
-          customerPhone: ''
-        });
-        
-        setSuccess('Sale completed successfully! Receipt with QR code downloaded.');
-        
-        // Refresh data
-        await Promise.all([
-          fetchLocationStocks(user.location),
-          fetchLocationSales(user.location)
-        ]);
-        
+        if (receiptResult.success) {
+          // Send email notification with PDF attachment
+          setIsSendingEmail(true);
+          try {
+            const emailResult = await sendSaleEmail(transactionResult.saleData, receiptResult.pdfBuffer);
+            
+            if (emailResult.success) {
+              console.log(`✅ Email sent to ${emailResult.recipients} recipient(s)`);
+              setSuccess(`✅ Sale completed! Receipt downloaded and email sent to ${emailResult.recipients} recipient(s).`);
+            } else {
+              console.warn('⚠️ Email sending failed (but sale completed):', emailResult.error);
+              setSuccess('✅ Sale completed! Receipt downloaded. (Email notification failed)');
+            }
+          } catch (emailError) {
+            console.warn('⚠️ Email sending error (but sale completed):', emailError.message);
+            setSuccess('✅ Sale completed! Receipt downloaded. (Email notification failed)');
+          } finally {
+            setIsSendingEmail(false);
+          }
+        }
       } catch (receiptError) {
-        setSuccess('Sale completed! (Receipt error: ' + receiptError.message + ')');
-        // Still refresh data even if receipt failed
-        await Promise.all([
-          fetchLocationStocks(user.location),
-          fetchLocationSales(user.location)
-        ]);
+        console.error('❌ Receipt generation failed:', receiptError);
+        // Still try to send email without attachment
+        try {
+          setIsSendingEmail(true);
+          await sendSaleEmail(transactionResult.saleData);
+          setSuccess('✅ Sale completed! Email sent. (Receipt generation failed)');
+        } catch (emailError) {
+          console.warn('⚠️ Email sending also failed:', emailError.message);
+          setSuccess('✅ Sale completed! (Receipt and email failed)');
+        } finally {
+          setIsSendingEmail(false);
+        }
       }
 
+      // Clear form
+      setQuickSale({ 
+        itemCode: '', 
+        quantity: 1, 
+        customPrice: '', 
+        customerName: '',
+        customerPhone: ''
+      });
+
+      // Refresh data
+      await Promise.all([
+        fetchLocationStocks(user.location),
+        fetchLocationSales(user.location)
+      ]);
+      
     } catch (error) {
-      setError('Quick sale error');  
+      console.error('❌ Quick sale error:', error);
       
       // Log error to audit
       const errorAuditLog = {
@@ -1385,18 +1554,19 @@ const generateSalesReceipt = async (saleData) => {
       try {
         await addDoc(collection(db, 'auditLogs'), errorAuditLog);
       } catch (auditError) {
-        setError('Failed to log error to audit:', auditError);
+        console.error('Failed to log error to audit:', auditError);
       }
       
-      setError(`Sale failed: ${error.message}`);
+      setError(`❌ Sale failed: ${error.message}`);
       
     } finally {
       setIsProcessingSale(false);
       setIsGeneratingReceipt(false);
+      setIsSendingEmail(false);
     }
   };
 
-  // ACID-Compliant Stock Request (same as before)
+  // ACID-Compliant Stock Request
   const handleRequestStock = async () => {
     try {
       if (!transferStock.itemCode || !transferStock.quantity || !transferStock.toLocation) {
@@ -1495,14 +1665,14 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      setError('Stock request error:', error);
+      console.error('Stock request error:', error);
       if (!error.message.includes('Error submitting request:')) {
         setError('Error submitting request: ' + error.message);
       }
     }
   };
 
-  // ACID-Compliant Installment Creation (same as before)
+  // ACID-Compliant Installment Creation
   const handleCreateInstallment = async () => {
     try {
       if (!installmentData.customerName || !installmentData.totalAmount) {
@@ -1622,14 +1792,14 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      setError('Create installment error:', error);
+      console.error('Create installment error:', error);
       if (!error.message.includes('Error creating installment plan:')) {
         setError('Error creating installment plan: ' + error.message);
       }
     }
   };
 
-  // ACID-Compliant Faulty Phone Report (same as before)
+  // ACID-Compliant Faulty Phone Report
   const handleReportFaultyPhone = async () => {
     try {
       if (!faultyReport.itemCode || !faultyReport.faultDescription) {
@@ -1742,7 +1912,7 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      setError('Report faulty phone error:', error);
+      console.error('Report faulty phone error:', error);
       if (!error.message.includes('Error reporting faulty phone:')) {
         setError('Error reporting faulty phone: ' + error.message);
       }
@@ -1853,7 +2023,7 @@ const generateSalesReceipt = async (saleData) => {
       )}
       
       <div className="flex h-screen">
-        {/* Desktop Sidebar (same as before) */}
+        {/* Desktop Sidebar */}
         {!isMobile && isSidebarOpen && (
           <div className="hidden lg:flex lg:shrink-0 transition-all duration-300 w-64">
             <div className="flex flex-col w-64">
@@ -1921,7 +2091,7 @@ const generateSalesReceipt = async (saleData) => {
         
         {/* Main Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Mobile Header (same as before) */}
+          {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 z-40 bg-slate-900 border-b border-slate-800">
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center">
@@ -2008,6 +2178,17 @@ const generateSalesReceipt = async (saleData) => {
                   <FiDatabase className="w-4 h-4 mr-2" />
                   Validate DB
                 </Button>
+
+                <Button
+                  onClick={testEmailConnection}
+                  variant="outline"
+                  size="sm"
+                  className="text-slate-300 hover:text-white"
+                  disabled={isSendingEmail}
+                >
+                  <FiMail className={`w-4 h-4 mr-2 ${isSendingEmail ? 'animate-pulse' : ''}`} />
+                  {isSendingEmail ? 'Testing...' : 'Test Email'}
+                </Button>
                 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2039,7 +2220,7 @@ const generateSalesReceipt = async (saleData) => {
             </div>
           </div>
 
-          {/* Mobile Sidebar (same as before) */}
+          {/* Mobile Sidebar */}
           {isMobile && (
             <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
               <SheetContent side="left" className="w-64 bg-slate-900 border-r border-slate-800 p-0">
@@ -2112,7 +2293,7 @@ const generateSalesReceipt = async (saleData) => {
               </div>
             ) : (
               <>
-                {/* Dashboard Tab (same as before) */}
+                {/* Dashboard Tab */}
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
                     {/* Analytics Cards */}
@@ -2283,7 +2464,7 @@ const generateSalesReceipt = async (saleData) => {
                   </div>
                 )}
 
-                {/* My Stocks Tab - FIXED Select Error */}
+                {/* My Stocks Tab */}
                 {activeTab === 'myStocks' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -2302,7 +2483,7 @@ const generateSalesReceipt = async (saleData) => {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      {/* Search and Filter - FIXED Select Error */}
+                      {/* Search and Filter */}
                       <div className="flex flex-col lg:flex-row gap-4 mb-6">
                         <div className="relative flex-1">
                           <FiSearch className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" />
@@ -2321,7 +2502,6 @@ const generateSalesReceipt = async (saleData) => {
                               <SelectValue placeholder="All Brands" />
                             </SelectTrigger>
                             <SelectContent>
-                              {/* FIXED: Changed empty string value to "all" */}
                               <SelectItem value="all">All Brands</SelectItem>
                               {[...new Set(stocks.map(stock => stock.brand).filter(Boolean))].map(brand => (
                                 <SelectItem key={brand} value={brand}>{brand}</SelectItem>
@@ -2556,7 +2736,8 @@ const generateSalesReceipt = async (saleData) => {
                                     <>
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                                       <span>
-                                        {isGeneratingReceipt ? 'Generating Receipt...' : 'Processing Sale...'}
+                                        {isGeneratingReceipt ? 'Generating Receipt...' : 
+                                         isSendingEmail ? 'Sending Email...' : 'Processing Sale...'}
                                       </span>
                                     </>
                                   ) : (
@@ -2571,6 +2752,7 @@ const generateSalesReceipt = async (saleData) => {
                                   <div className="text-center text-slate-400 text-sm">
                                     <p>Processing transaction and generating receipt with QR code...</p>
                                     <p className="text-xs mt-1">Receipt includes warranty QR code for verification</p>
+                                    <p className="text-xs mt-1">Email will be sent to configured recipients</p>
                                   </div>
                                 )}
                               </div>
@@ -2722,7 +2904,7 @@ const generateSalesReceipt = async (saleData) => {
                   </Card>
                 )}
 
-                {/* Faulty Phones Tab - Working without indexes */}
+                {/* Faulty Phones Tab */}
                 {activeTab === 'faultyPhones' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -2808,7 +2990,7 @@ const generateSalesReceipt = async (saleData) => {
                   </Card>
                 )}
 
-                {/* Installments Tab - Working without indexes */}
+                {/* Installments Tab */}
                 {activeTab === 'installments' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -2899,7 +3081,7 @@ const generateSalesReceipt = async (saleData) => {
                   </Card>
                 )}
 
-                {/* Stock Transfer Tab - FIXED Select Error */}
+                {/* Stock Transfer Tab */}
                 {activeTab === 'transfer' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -2955,7 +3137,6 @@ const generateSalesReceipt = async (saleData) => {
                                   <SelectValue placeholder="Select destination" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {/* FIXED: Removed empty string SelectItem */}
                                   {LOCATIONS.filter(loc => loc !== user?.location).map((location) => (
                                     <SelectItem key={location} value={location}>{location}</SelectItem>
                                   ))}
@@ -3034,7 +3215,7 @@ const generateSalesReceipt = async (saleData) => {
                   </Card>
                 )}
 
-                {/* Sales Analysis Tab (same as before) */}
+                {/* Sales Analysis Tab */}
                 {activeTab === 'salesAnalysis' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -3150,7 +3331,7 @@ const generateSalesReceipt = async (saleData) => {
                   </Card>
                 )}
 
-                {/* Requests Tab - Working without indexes */}
+                {/* Requests Tab */}
                 {activeTab === 'requests' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -3231,7 +3412,7 @@ const generateSalesReceipt = async (saleData) => {
             )}
           </main>
 
-          {/* Footer (same as before) */}
+          {/* Footer */}
           <footer className="w-full py-6 mt-8 border-t border-slate-800 bg-slate-900/30">
             <div className="max-w-full mx-auto px-8">
               <div className="flex flex-col lg:flex-row justify-between items-center">
@@ -3240,7 +3421,7 @@ const generateSalesReceipt = async (saleData) => {
                     © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
                   </p>
                   <p className="text-slate-500 text-sm mt-1">
-                    Manager Dashboard v2.0 • QR Code Receipts • 7 Days Warranty Included
+                    Manager Dashboard v2.0 • QR Code Receipts • Email Notifications • 7 Days Warranty Included
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -3253,7 +3434,7 @@ const generateSalesReceipt = async (saleData) => {
         </div>
       </div>
 
-      {/* Report Faulty Phone Modal (same as before) */}
+      {/* Report Faulty Phone Modal */}
       <Dialog open={reportModalOpen} onOpenChange={setReportModalOpen}>
         <DialogContent className="bg-slate-900 border-slate-700 max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -3373,7 +3554,7 @@ const generateSalesReceipt = async (saleData) => {
         </DialogContent>
       </Dialog>
 
-      {/* Installment Modal (same as before) */}
+      {/* Installment Modal */}
       <Dialog open={installmentModalOpen} onOpenChange={setInstallmentModalOpen}>
         <DialogContent className="bg-slate-900 border-slate-700">
           <DialogHeader>
