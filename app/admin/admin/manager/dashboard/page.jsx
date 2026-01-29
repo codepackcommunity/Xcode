@@ -902,388 +902,390 @@ export default function ManagerDashboard() {
   };
 
   // Generate Professional Sales Receipt with QR Code
-  const generateSalesReceipt = async (saleData) => {
-    try {
-      if (!saleData || !saleData.receiptNumber) {
-        throw new Error('Invalid sale data for receipt generation');
-      }
+  // Generate Professional Sales Receipt with QR Code
+const generateSalesReceipt = async (saleData) => {
+  try {
+    if (!saleData || !saleData.receiptNumber) {
+      throw new Error('Invalid sale data for receipt generation');
+    }
 
-      console.log('Generating professional receipt for:', saleData.receiptNumber);
-      
-      // Create PDF with custom dimensions for receipt
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [210, 297] // A4 size
-      });
-      
-      const pageWidth = doc.internal.pageSize.width;
-      const pageHeight = doc.internal.pageSize.height;
-      const margin = 15;
-      const contentWidth = pageWidth - (margin * 2);
-      
-      // Handle sale date
-      const saleDate = saleData.soldAt ? 
+    console.log('Generating professional receipt for:', saleData.receiptNumber);
+    
+    // Create PDF with custom dimensions for receipt
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: [210, 297] // A4 size
+    });
+    
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+    
+    // Handle sale date
+    const saleDate = saleData.soldAt ? 
+      (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
+      new Date();
+    
+    // Format dates
+    const formattedDate = saleDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const formattedTime = saleDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    // Generate QR code data
+    const qrData = JSON.stringify({
+      receiptNumber: saleData.receiptNumber,
+      itemCode: saleData.itemCode,
+      brand: saleData.brand,
+      model: saleData.model,
+      customerName: saleData.customerName,
+      finalSalePrice: saleData.finalSalePrice,
+      date: saleDate.toISOString(),
+      location: saleData.location || user?.location,
+      warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`
+    });
+
+    // Create QR code
+    const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
+      width: 80,
+      margin: 1,
+      color: {
+        dark: '#1e40af', // Blue color
+        light: '#ffffff'
+      },
+      errorCorrectionLevel: 'H'
+    });
+
+    // ============ HEADER SECTION ============
+    // Company logo/header with gradient
+    doc.setFillColor(30, 58, 138); // Dark blue
+    doc.rect(margin, margin, contentWidth, 25, 'F');
+    
+    // Company name
+    doc.setFontSize(28);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, margin + 12, { align: 'center' });
+    
+    // Tagline
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Official Sales Receipt • Quality Electronics Since 2010', pageWidth / 2, margin + 18, { align: 'center' });
+    
+    let yPos = margin + 35;
+    
+    // ============ RECEIPT INFO SECTION ============
+    // Receipt details box
+    doc.setFillColor(249, 250, 251); // Light gray background
+    doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'F');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(75, 85, 99); // Gray text
+    
+    // Receipt number
+    doc.setFont('helvetica', 'bold');
+    doc.text('RECEIPT NO:', margin + 10, yPos + 8);
+    doc.setTextColor(30, 58, 138);
+    doc.text(saleData.receiptNumber, margin + 35, yPos + 8);
+    
+    // Date and time
+    doc.setTextColor(75, 85, 99);
+    doc.text('DATE:', margin + contentWidth - 70, yPos + 8);
+    doc.setTextColor(30, 58, 138);
+    doc.text(formattedDate, margin + contentWidth - 45, yPos + 8);
+    
+    doc.setTextColor(75, 85, 99);
+    doc.text('TIME:', margin + contentWidth - 70, yPos + 16);
+    doc.setTextColor(30, 58, 138);
+    doc.text(formattedTime, margin + contentWidth - 45, yPos + 16);
+    
+    // Location
+    doc.setTextColor(75, 85, 99);
+    doc.text('LOCATION:', margin + 10, yPos + 16);
+    doc.setTextColor(30, 58, 138);
+    doc.text(saleData.location || user?.location, margin + 35, yPos + 16);
+    
+    yPos += 35;
+    
+    // ============ CUSTOMER SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CUSTOMER INFORMATION', margin, yPos);
+    
+    yPos += 5;
+    doc.setDrawColor(209, 213, 219);
+    doc.setLineWidth(0.5);
+    doc.line(margin, yPos, margin + contentWidth, yPos);
+    
+    yPos += 10;
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Name: ${saleData.customerName || 'Walk-in Customer'}`, margin, yPos);
+    if (saleData.customerPhone) {
+      doc.text(`Phone: ${saleData.customerPhone}`, margin + contentWidth / 2, yPos);
+    }
+    yPos += 20;
+    
+    // ============ ITEM DETAILS SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ITEM DETAILS', margin, yPos);
+    
+    yPos += 5;
+    doc.line(margin, yPos, margin + contentWidth, yPos);
+    
+    yPos += 10;
+    
+    // Table headers with background
+    doc.setFillColor(30, 58, 138);
+    doc.rect(margin, yPos, contentWidth, 8, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    
+    const colWidths = [contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2];
+    
+    // Headers
+    doc.text('DESCRIPTION', margin + 5, yPos + 6);
+    doc.text('QTY', margin + colWidths[0] + 5, yPos + 6);
+    doc.text('UNIT PRICE', margin + colWidths[0] + colWidths[1] + 5, yPos + 6);
+    doc.text('TOTAL', margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 6);
+    
+    yPos += 12;
+    
+    // Item row
+    doc.setFillColor(249, 250, 251);
+    doc.rect(margin, yPos - 4, contentWidth, 16, 'F');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    // Build item description - FIXED THIS SECTION
+    let itemDescription = `${saleData.brand || ''} ${saleData.model || ''}`;
+    if (saleData.color) itemDescription += ` • ${saleData.color}`;
+    if (saleData.storage) itemDescription += ` • ${saleData.storage}`;
+    
+    doc.text(itemDescription, margin + 5, yPos + 4);
+    doc.text(saleData.quantity.toString(), margin + colWidths[0] + 5, yPos + 4);
+    doc.text(`MWK ${(saleData.retailPrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + 5, yPos + 4);
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 4);
+    
+    yPos += 25;
+    
+    // ============ PRICE SUMMARY SECTION ============
+    // Price summary box
+    doc.setFillColor(249, 250, 251);
+    doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'F');
+    doc.setDrawColor(209, 213, 219);
+    doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'S');
+    
+    const summaryX = margin + contentWidth * 0.5 + 10;
+    
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PRICE SUMMARY', summaryX, yPos + 10);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    // Subtotal
+    doc.text('Subtotal:', summaryX, yPos + 25);
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + 25, { align: 'right' });
+    
+    // Discount
+    const discount = saleData.discountPercentage || 0;
+    if (discount > 0) {
+      doc.text(`Discount (${discount}%):`, summaryX, yPos + 35);
+      const discountAmount = (saleData.finalSalePrice || 0) * (discount / 100);
+      doc.text(`- MWK ${discountAmount.toLocaleString()}`, margin + contentWidth - 20, yPos + 35, { align: 'right' });
+    }
+    
+    // Total
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 58, 138);
+    doc.text('TOTAL AMOUNT:', summaryX, yPos + (discount > 0 ? 45 : 35));
+    doc.setTextColor(21, 128, 61); // Green for total
+    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + (discount > 0 ? 45 : 35), { align: 'right' });
+    
+    yPos += 60;
+    
+    // ============ QR CODE SECTION ============
+    // Add QR code on the right
+    const qrSize = 50;
+    const qrX = margin + contentWidth - qrSize - 10;
+    const qrY = yPos - 40;
+    
+    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+    
+    // QR code border and label
+    doc.setDrawColor(30, 58, 138);
+    doc.setLineWidth(1);
+    doc.rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4);
+    
+    doc.setFontSize(8);
+    doc.setTextColor(30, 58, 138);
+    doc.text('SCAN FOR WARRANTY', qrX + qrSize / 2, qrY + qrSize + 8, { align: 'center' });
+    
+    // ============ PAYMENT INFO SECTION ============
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENT INFORMATION', margin, yPos);
+    
+    yPos += 10;
+    
+    doc.setFillColor(249, 250, 251);
+    doc.roundedRect(margin, yPos, contentWidth * 0.5, 30, 3, 3, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(55, 65, 81);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, margin + 10, yPos + 10);
+    doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'KM Staff'}`, margin + 10, yPos + 18);
+    
+    yPos += 40;
+    
+    // ============ WARRANTY SECTION ============
+    doc.setFillColor(239, 246, 255); // Light blue background
+    doc.setDrawColor(59, 130, 246); // Blue border
+    doc.roundedRect(margin, yPos, contentWidth, 25, 5, 5, 'FD');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🔒 7-DAY WARRANTY INCLUDED', margin + contentWidth / 2, yPos + 10, { align: 'center' });
+    
+    doc.setFontSize(9);
+    doc.setTextColor(75, 85, 99);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Valid for 7 days from purchase date • Manufacturing defects only', 
+      margin + contentWidth / 2, yPos + 18, { align: 'center' });
+    
+    yPos += 35;
+    
+    // ============ TERMS AND CONDITIONS ============
+    doc.setFontSize(8);
+    doc.setTextColor(107, 114, 128);
+    doc.text('Terms & Conditions:', margin, yPos);
+    doc.setFont('helvetica', 'normal');
+    
+    const terms = [
+      '1. Warranty covers manufacturing defects only',
+      '2. Warranty is void if device shows signs of physical damage or liquid exposure',
+      '3. Original receipt must be presented for warranty claims',
+      '4. Accessories (chargers, cables) have 30-day warranty',
+      '5. Software issues are not covered under warranty'
+    ];
+    
+    terms.forEach((term, index) => {
+      doc.text(term, margin + 5, yPos + 8 + (index * 4));
+    });
+    
+    yPos += 35;
+    
+    // ============ FOOTER ============
+    doc.setFontSize(9);
+    doc.setTextColor(107, 114, 128);
+    doc.setFont('helvetica', 'italic');
+    
+    // Company contact info
+    doc.text('KM ELECTRONICS • Your Trusted Electronics Partner', margin + contentWidth / 2, yPos, { align: 'center' });
+    doc.text('China Contact: +86 187 1117 7003 | Malawi Contact: +265 995 181 454', margin + contentWidth / 2, yPos + 5, { align: 'center' });
+    doc.text('Email: sales@kmelectronics.com | Website: www.kmelectronics.com', margin + contentWidth / 2, yPos + 10, { align: 'center' });
+    
+    // Thank you message
+    doc.setFontSize(10);
+    doc.setTextColor(30, 58, 138);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Thank you for your business!', margin + contentWidth / 2, yPos + 20, { align: 'center' });
+    
+    // Final footer
+    doc.setFontSize(7);
+    doc.setTextColor(156, 163, 175);
+    doc.setFont('helvetica', 'normal');
+    doc.text('© 2026 KM Electronics. All rights reserved. This is an official receipt.', 
+      margin + contentWidth / 2, pageHeight - margin + 5, { align: 'center' });
+    doc.text(`Document ID: ${saleData.receiptNumber} • Generated on ${new Date().toLocaleString()}`, 
+      margin + contentWidth / 2, pageHeight - margin + 10, { align: 'center' });
+    
+    // Generate filename
+    const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
+    
+    // Save PDF locally for user download
+    doc.save(filename);
+    
+    console.log(`✅ Professional receipt generated successfully: ${filename}`);
+    
+    return { 
+      success: true, 
+      filename
+    };
+    
+  } catch (error) {
+    console.error('❌ Receipt generation error:', error);
+    
+    // Fallback to simple receipt
+    try {
+      const fallbackDoc = new jsPDF();
+      const fallbackDate = saleData.soldAt ? 
         (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
         new Date();
       
-      // Format dates
-      const formattedDate = saleDate.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-      const formattedTime = saleDate.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      // Simple styled fallback
+      fallbackDoc.setFontSize(20);
+      fallbackDoc.setTextColor(30, 58, 138);
+      fallbackDoc.setFont('helvetica', 'bold');
+      fallbackDoc.text('KM ELECTRONICS', 20, 20);
       
-      // Generate QR code data
-      const qrData = JSON.stringify({
-        receiptNumber: saleData.receiptNumber,
-        itemCode: saleData.itemCode,
-        brand: saleData.brand,
-        model: saleData.model,
-        customerName: saleData.customerName,
-        finalSalePrice: saleData.finalSalePrice,
-        date: saleDate.toISOString(),
-        location: saleData.location || user?.location,
-        warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`
-      });
-
-      // Create QR code
-      const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-        width: 80,
-        margin: 1,
-        color: {
-          dark: '#1e40af', // Blue color
-          light: '#ffffff'
-        },
-        errorCorrectionLevel: 'H'
-      });
-
-      // ============ HEADER SECTION ============
-      // Company logo/header with gradient
-      doc.setFillColor(30, 58, 138); // Dark blue
-      doc.rect(margin, margin, contentWidth, 25, 'F');
+      fallbackDoc.setFontSize(14);
+      fallbackDoc.setTextColor(75, 85, 99);
+      fallbackDoc.setFont('helvetica', 'normal');
+      fallbackDoc.text('Official Sales Receipt', 20, 30);
       
-      // Company name
-      doc.setFontSize(28);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.text('KM ELECTRONICS', pageWidth / 2, margin + 12, { align: 'center' });
+      fallbackDoc.setFontSize(12);
+      fallbackDoc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 45);
+      fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 55);
+      fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 65);
+      fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 75);
+      fallbackDoc.text(`Amount: MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, 20, 85);
       
-      // Tagline
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Official Sales Receipt • Quality Electronics Since 2010', pageWidth / 2, margin + 18, { align: 'center' });
+      // Add warranty note
+      fallbackDoc.setFontSize(10);
+      fallbackDoc.setTextColor(21, 128, 61);
+      fallbackDoc.text('✅ 7-Day Warranty Included', 20, 100);
       
-      let yPos = margin + 35;
+      fallbackDoc.save(`Receipt_${saleData.receiptNumber}.pdf`);
       
-      // ============ RECEIPT INFO SECTION ============
-      // Receipt details box
-      doc.setFillColor(249, 250, 251); // Light gray background
-      doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'F');
-      
-      doc.setFontSize(11);
-      doc.setTextColor(75, 85, 99); // Gray text
-      
-      // Receipt number
-      doc.setFont('helvetica', 'bold');
-      doc.text('RECEIPT NO:', margin + 10, yPos + 8);
-      doc.setTextColor(30, 58, 138);
-      doc.text(saleData.receiptNumber, margin + 35, yPos + 8);
-      
-      // Date and time
-      doc.setTextColor(75, 85, 99);
-      doc.text('DATE:', margin + contentWidth - 70, yPos + 8);
-      doc.setTextColor(30, 58, 138);
-      doc.text(formattedDate, margin + contentWidth - 45, yPos + 8);
-      
-      doc.setTextColor(75, 85, 99);
-      doc.text('TIME:', margin + contentWidth - 70, yPos + 16);
-      doc.setTextColor(30, 58, 138);
-      doc.text(formattedTime, margin + contentWidth - 45, yPos + 16);
-      
-      // Location
-      doc.setTextColor(75, 85, 99);
-      doc.text('LOCATION:', margin + 10, yPos + 16);
-      doc.setTextColor(30, 58, 138);
-      doc.text(saleData.location || user?.location, margin + 35, yPos + 16);
-      
-      yPos += 35;
-      
-      // ============ CUSTOMER SECTION ============
-      doc.setFontSize(12);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('CUSTOMER INFORMATION', margin, yPos);
-      
-      yPos += 5;
-      doc.setDrawColor(209, 213, 219);
-      doc.setLineWidth(0.5);
-      doc.line(margin, yPos, margin + contentWidth, yPos);
-      
-      yPos += 10;
-      doc.setFontSize(11);
-      doc.setTextColor(55, 65, 81);
-      doc.setFont('helvetica', 'normal');
-      
-      doc.text(`Name: ${saleData.customerName || 'Walk-in Customer'}`, margin, yPos);
-      if (saleData.customerPhone) {
-        doc.text(`Phone: ${saleData.customerPhone}`, margin + contentWidth / 2, yPos);
-      }
-      yPos += 20;
-      
-      // ============ ITEM DETAILS SECTION ============
-      doc.setFontSize(12);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('ITEM DETAILS', margin, yPos);
-      
-      yPos += 5;
-      doc.line(margin, yPos, margin + contentWidth, yPos);
-      
-      yPos += 10;
-      
-      // Table headers with background
-      doc.setFillColor(30, 58, 138);
-      doc.rect(margin, yPos, contentWidth, 8, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      
-      const colWidths = [contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2];
-      
-      // Headers
-      doc.text('DESCRIPTION', margin + 5, yPos + 6);
-      doc.text('QTY', margin + colWidths[0] + 5, yPos + 6);
-      doc.text('UNIT PRICE', margin + colWidths[0] + colWidths[1] + 5, yPos + 6);
-      doc.text('TOTAL', margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 6);
-      
-      yPos += 12;
-      
-      // Item row
-      doc.setFillColor(249, 250, 251);
-      doc.rect(margin, yPos - 4, contentWidth, 16, 'F');
-      
-      doc.setFontSize(11);
-      doc.setTextColor(55, 65, 81);
-      doc.setFont('helvetica', 'normal');
-      
-      const itemDescription = `${saleData.brand || ''} ${saleData.model || ''}`;
-      if (saleData.color) itemDescription += ` • ${saleData.color}`;
-      if (saleData.storage) itemDescription += ` • ${saleData.storage}`;
-      
-      doc.text(itemDescription, margin + 5, yPos + 4);
-      doc.text(saleData.quantity.toString(), margin + colWidths[0] + 5, yPos + 4);
-      doc.text(`MWK ${(saleData.retailPrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + 5, yPos + 4);
-      doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPos + 4);
-      
-      yPos += 25;
-      
-      // ============ PRICE SUMMARY SECTION ============
-      // Price summary box
-      doc.setFillColor(249, 250, 251);
-      doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'F');
-      doc.setDrawColor(209, 213, 219);
-      doc.roundedRect(margin + contentWidth * 0.5, yPos, contentWidth * 0.5, 50, 5, 5, 'S');
-      
-      const summaryX = margin + contentWidth * 0.5 + 10;
-      
-      doc.setFontSize(12);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PRICE SUMMARY', summaryX, yPos + 10);
-      
-      doc.setFontSize(11);
-      doc.setTextColor(55, 65, 81);
-      doc.setFont('helvetica', 'normal');
-      
-      // Subtotal
-      doc.text('Subtotal:', summaryX, yPos + 25);
-      doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + 25, { align: 'right' });
-      
-      // Discount
-      const discount = saleData.discountPercentage || 0;
-      if (discount > 0) {
-        doc.text(`Discount (${discount}%):`, summaryX, yPos + 35);
-        const discountAmount = (saleData.finalSalePrice || 0) * (discount / 100);
-        doc.text(`- MWK ${discountAmount.toLocaleString()}`, margin + contentWidth - 20, yPos + 35, { align: 'right' });
-      }
-      
-      // Total
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 58, 138);
-      doc.text('TOTAL AMOUNT:', summaryX, yPos + (discount > 0 ? 45 : 35));
-      doc.setTextColor(21, 128, 61); // Green for total
-      doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, margin + contentWidth - 20, yPos + (discount > 0 ? 45 : 35), { align: 'right' });
-      
-      yPos += 60;
-      
-      // ============ QR CODE SECTION ============
-      // Add QR code on the right
-      const qrSize = 50;
-      const qrX = margin + contentWidth - qrSize - 10;
-      const qrY = yPos - 40;
-      
-      doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
-      
-      // QR code border and label
-      doc.setDrawColor(30, 58, 138);
-      doc.setLineWidth(1);
-      doc.rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4);
-      
-      doc.setFontSize(8);
-      doc.setTextColor(30, 58, 138);
-      doc.text('SCAN FOR WARRANTY', qrX + qrSize / 2, qrY + qrSize + 8, { align: 'center' });
-      
-      // ============ PAYMENT INFO SECTION ============
-      doc.setFontSize(12);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PAYMENT INFORMATION', margin, yPos);
-      
-      yPos += 10;
-      
-      doc.setFillColor(249, 250, 251);
-      doc.roundedRect(margin, yPos, contentWidth * 0.5, 30, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(55, 65, 81);
-      doc.setFont('helvetica', 'normal');
-      
-      doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, margin + 10, yPos + 10);
-      doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'KM Staff'}`, margin + 10, yPos + 18);
-      
-      yPos += 40;
-      
-      // ============ WARRANTY SECTION ============
-      doc.setFillColor(239, 246, 255); // Light blue background
-      doc.setDrawColor(59, 130, 246); // Blue border
-      doc.roundedRect(margin, yPos, contentWidth, 25, 5, 5, 'FD');
-      
-      doc.setFontSize(11);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('🔒 7-DAY WARRANTY INCLUDED', margin + contentWidth / 2, yPos + 10, { align: 'center' });
-      
-      doc.setFontSize(9);
-      doc.setTextColor(75, 85, 99);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Valid for 7 days from purchase date • Manufacturing defects only', 
-        margin + contentWidth / 2, yPos + 18, { align: 'center' });
-      
-      yPos += 35;
-      
-      // ============ TERMS AND CONDITIONS ============
-      doc.setFontSize(8);
-      doc.setTextColor(107, 114, 128);
-      doc.text('Terms & Conditions:', margin, yPos);
-      doc.setFont('helvetica', 'normal');
-      
-      const terms = [
-        '1. Warranty covers manufacturing defects only',
-        '2. Warranty is void if device shows signs of physical damage or liquid exposure',
-        '3. Original receipt must be presented for warranty claims',
-        '4. Accessories (chargers, cables) have 30-day warranty',
-        '5. Software issues are not covered under warranty'
-      ];
-      
-      terms.forEach((term, index) => {
-        doc.text(term, margin + 5, yPos + 8 + (index * 4));
-      });
-      
-      yPos += 35;
-      
-      // ============ FOOTER ============
-      doc.setFontSize(9);
-      doc.setTextColor(107, 114, 128);
-      doc.setFont('helvetica', 'italic');
-      
-      // Company contact info
-      doc.text('KM ELECTRONICS • Your Trusted Electronics Partner', margin + contentWidth / 2, yPos, { align: 'center' });
-      doc.text('China Contact: +86 187 1117 7003 | Malawi Contact: +265 995 181 454', margin + contentWidth / 2, yPos + 5, { align: 'center' });
-      doc.text('Email: sales@kmelectronics.com | Website: www.kmelectronics.com', margin + contentWidth / 2, yPos + 10, { align: 'center' });
-      
-      // Thank you message
-      doc.setFontSize(10);
-      doc.setTextColor(30, 58, 138);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Thank you for your business!', margin + contentWidth / 2, yPos + 20, { align: 'center' });
-      
-      // Final footer
-      doc.setFontSize(7);
-      doc.setTextColor(156, 163, 175);
-      doc.setFont('helvetica', 'normal');
-      doc.text('© 2026 KM Electronics. All rights reserved. This is an official receipt.', 
-        margin + contentWidth / 2, pageHeight - margin + 5, { align: 'center' });
-      doc.text(`Document ID: ${saleData.receiptNumber} • Generated on ${new Date().toLocaleString()}`, 
-        margin + contentWidth / 2, pageHeight - margin + 10, { align: 'center' });
-      
-      // Generate filename
-      const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
-      
-      // Save PDF locally for user download
-      doc.save(filename);
-      
-      console.log(`✅ Professional receipt generated successfully: ${filename}`);
+      console.log('✅ Fallback receipt generated');
       
       return { 
         success: true, 
-        filename
+        filename: `Receipt_${saleData.receiptNumber}.pdf`,
+        isFallback: true
       };
       
-    } catch (error) {
-      console.error('❌ Receipt generation error:', error);
-      
-      // Fallback to simple receipt
-      try {
-        const fallbackDoc = new jsPDF();
-        const fallbackDate = saleData.soldAt ? 
-          (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
-          new Date();
-        
-        // Simple styled fallback
-        fallbackDoc.setFontSize(20);
-        fallbackDoc.setTextColor(30, 58, 138);
-        fallbackDoc.setFont('helvetica', 'bold');
-        fallbackDoc.text('KM ELECTRONICS', 20, 20);
-        
-        fallbackDoc.setFontSize(14);
-        fallbackDoc.setTextColor(75, 85, 99);
-        fallbackDoc.setFont('helvetica', 'normal');
-        fallbackDoc.text('Official Sales Receipt', 20, 30);
-        
-        fallbackDoc.setFontSize(12);
-        fallbackDoc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 45);
-        fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 55);
-        fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 65);
-        fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 75);
-        fallbackDoc.text(`Amount: MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, 20, 85);
-        
-        // Add warranty note
-        fallbackDoc.setFontSize(10);
-        fallbackDoc.setTextColor(21, 128, 61);
-        fallbackDoc.text('✅ 7-Day Warranty Included', 20, 100);
-        
-        fallbackDoc.save(`Receipt_${saleData.receiptNumber}.pdf`);
-        
-        console.log('✅ Fallback receipt generated');
-        
-        return { 
-          success: true, 
-          filename: `Receipt_${saleData.receiptNumber}.pdf`,
-          isFallback: true
-        };
-        
-      } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
-        throw new Error('Receipt generation failed: ' + error.message);
-      }
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError);
+      throw new Error('Receipt generation failed: ' + error.message);
     }
-  };
+  }
+};
 
   // ACID-Compliant Quick Sale
   const handleQuickSale = async () => {
