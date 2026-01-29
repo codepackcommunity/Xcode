@@ -10,7 +10,7 @@ import {
   runTransaction, increment
 } from 'firebase/firestore';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import QRCode from 'qrcode';
 
 // React Icons (same as before)
 import {
@@ -171,6 +171,7 @@ export default function ManagerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isProcessingSale, setIsProcessingSale] = useState(false);
+  const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
   const router = useRouter();
 
   // State Management (same as before)
@@ -327,7 +328,7 @@ export default function ManagerDashboard() {
             router.push('/login');
           }
         } catch (error) {
-          console.error('Auth error:', error);
+          setError('Auth error:', error);
           setError('Authentication error');
           router.push('/login');
         }
@@ -354,7 +355,7 @@ export default function ManagerDashboard() {
       ]);
       calculateSalesAnalysisData();
     } catch (error) {
-      console.error('Dashboard init error:', error);
+      setError('Dashboard init error:', error);
       
       // Check if error is about missing indexes
       if (error.code === 'failed-precondition' && error.message.includes('requires an index')) {
@@ -381,7 +382,7 @@ export default function ManagerDashboard() {
       }));
       setStocks(stocksData);
     } catch (error) {
-      console.error('Fetch stocks error:', error);
+      setError('Fetch stocks error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create stocks index in Firestore.');
       } else {
@@ -404,7 +405,7 @@ export default function ManagerDashboard() {
       }));
       setSales(salesData);
     } catch (error) {
-      console.error('Fetch sales error:', error);
+      setError('Fetch sales error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create sales index in Firestore.');
       } else {
@@ -436,9 +437,9 @@ export default function ManagerDashboard() {
       
       setFaultyPhones(faultyData);
     } catch (error) {
-      console.error('Fetch faulty phones error:', error);
+      setError('Fetch faulty phones error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Faulty phones index required. Please create index for location and reportedAt.');
+        setError('Faulty phones index required. Please create index for location and reportedAt.');
         // Set empty array to avoid breaking the UI
         setFaultyPhones([]);
       } else {
@@ -470,9 +471,9 @@ export default function ManagerDashboard() {
       
       setInstallments(installmentData);
     } catch (error) {
-      console.error('Fetch installments error:', error);
+      setError('Fetch installments error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Installments index required. Please create index for location and createdAt.');
+        setError('Installments index required. Please create index for location and createdAt.');
         // Set empty array to avoid breaking the UI
         setInstallments([]);
       } else {
@@ -506,9 +507,9 @@ export default function ManagerDashboard() {
       
       setStockRequests(filteredRequests);
     } catch (error) {
-      console.error('Fetch stock requests error:', error);
+      setError('Fetch stock requests error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Stock requests index required. Please create composite index.');
+        setError('Stock requests index required. Please create composite index.');
         // Set empty array to avoid breaking the UI
         setStockRequests([]);
       } else {
@@ -531,7 +532,6 @@ export default function ManagerDashboard() {
       }));
       setPersonnel(personnelData);
     } catch (error) {
-      console.error('Fetch personnel error:', error);
       setError('Failed to fetch personnel');
     }
   };
@@ -556,7 +556,6 @@ export default function ManagerDashboard() {
           setStocks(stocksData);
         }, 
         (error) => {
-          console.error('Stocks listener error:', error);
           setError('Failed to listen to stock updates');
         }
       );
@@ -586,7 +585,6 @@ export default function ManagerDashboard() {
           setSales(salesData);
         }, 
         (error) => {
-          console.error('Sales listener error:', error);
           setError('Failed to listen to sales updates');
         }
       );
@@ -615,7 +613,7 @@ export default function ManagerDashboard() {
           setFaultyPhones(faultyData);
         },
         (error) => {
-          console.error('Faulty phones listener error:', error);
+          setError('Faulty phones listener error:', error);
           // Don't show error if it's just an index issue
           if (error.code !== 'failed-precondition') {
             setError('Failed to listen to faulty phones updates');
@@ -625,7 +623,7 @@ export default function ManagerDashboard() {
       cleanupFunctions.push(unsubscribeFaulty);
 
     } catch (error) {
-      console.error('Listener setup error:', error);
+      setError('Listener setup error:', error);
     }
 
     return () => {
@@ -633,7 +631,7 @@ export default function ManagerDashboard() {
         try {
           unsubscribe();
         } catch (error) {
-          console.error('Cleanup error:', error);
+          setError('Cleanup error:', error);
         }
       });
     };
@@ -757,7 +755,7 @@ export default function ManagerDashboard() {
       ]);
       setSuccess('Data refreshed successfully');
     } catch (error) {
-      console.error('Refresh error:', error);
+      setError('Refresh error:', error);
       setError('Failed to refresh data');
     } finally {
       setLoading(false);
@@ -824,7 +822,7 @@ export default function ManagerDashboard() {
         .map(result => result.reason.message);
       
       if (errors.length > 0) {
-        console.warn('Database consistency warnings:', errors);
+        setError('Database consistency warnings:', errors);
         return { consistent: false, errors };
       }
       
@@ -907,7 +905,7 @@ export default function ManagerDashboard() {
         lastError = error;
         if (error.code === 'failed-precondition' || error.code === 'aborted') {
           await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
-          console.log(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
+          alert(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
         } else {
           break;
         }
@@ -916,7 +914,266 @@ export default function ManagerDashboard() {
     throw lastError;
   };
 
-  // ACID-Compliant Quick Sale (same as before)
+// Generate Sales Receipt with QR Code
+const generateSalesReceipt = async (saleData) => {
+  try {
+    if (!saleData || !saleData.receiptNumber) {
+      throw new Error('Invalid sale data for receipt generation');
+    }
+
+    setSuccess('Generating receipt with QR code for:', saleData.receiptNumber);
+    
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    
+    // FIX: Properly handle sale date - use current time as fallback
+    const saleDate = saleData.soldAt ? 
+      (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
+      new Date();
+    
+    // FIX: Format dates safely
+    const formattedDate = saleDate.toLocaleDateString();
+    const formattedTime = saleDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
+    // Generate QR code data
+    const qrData = JSON.stringify({
+      receiptNumber: saleData.receiptNumber,
+      itemCode: saleData.itemCode,
+      brand: saleData.brand,
+      model: saleData.model,
+      customerName: saleData.customerName,
+      finalSalePrice: saleData.finalSalePrice,
+      date: saleDate.toISOString(),  // FIX: Use actual sale date
+      location: saleData.location || user?.location,
+      warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`
+    });
+
+    // Create QR code
+    const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
+      width: 100,
+      margin: 1,
+      color: {
+        dark: '#1e293b', // slate-800
+        light: '#ffffff'
+      }
+    });
+
+    // Header with blue background
+    doc.setFillColor(15, 23, 42); // slate-900
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    
+    // Company Logo/Name
+    doc.setFontSize(28);
+    doc.setTextColor(96, 165, 250); // blue-400
+    doc.setFont('helvetica', 'bold');
+    doc.text('KM ELECTRONICS', pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(14);
+    doc.setTextColor(226, 232, 240); // slate-200
+    doc.setFont('helvetica', 'normal');
+    doc.text('OFFICIAL SALES RECEIPT', pageWidth / 2, 30, { align: 'center' });
+    
+    // Receipt details - FIX: Use actual sale date/time
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 50);
+    doc.text(`Date: ${formattedDate}`, pageWidth - 20, 50, { align: 'right' });
+    doc.text(`Time: ${formattedTime}`, pageWidth - 20, 56, { align: 'right' });
+    
+    // Customer Information
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59); // slate-800
+    doc.setFont('helvetica', 'bold');
+    doc.text('CUSTOMER INFORMATION', 20, 70);
+    
+    doc.setDrawColor(203, 213, 225); // slate-300
+    doc.setLineWidth(0.5);
+    doc.line(20, 73, pageWidth - 20, 73);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(71, 85, 105); // slate-600
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 25, 80);
+    
+    if (saleData.customerPhone) {
+      doc.text(`Contact: ${saleData.customerPhone}`, 25, 87);
+    }
+    
+    // Sale Details Section with QR Code
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SALE DETAILS', 20, 100);
+    
+    // Add QR code on the right
+    doc.addImage(qrCodeDataUrl, 'PNG', pageWidth - 90, 95, 70, 70);
+    
+    // QR code border and label
+    doc.setDrawColor(59, 130, 246); // blue-500
+    doc.setLineWidth(1);
+    doc.rect(pageWidth - 92, 93, 74, 74);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(59, 130, 246);
+    doc.text('WARRANTY VERIFICATION', pageWidth - 55, 170, { align: 'center' });
+    doc.text('SCAN THIS QR CODE', pageWidth - 55, 175, { align: 'center' });
+    
+    // Product details table on left
+    const startY = 110;
+    const colWidth = (pageWidth - 100) / 4;
+    
+    // Table headers
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(59, 130, 246);
+    
+    const headers = ['Item Description', 'Qty', 'Unit Price', 'Total'];
+    headers.forEach((header, i) => {
+      const x = 20 + (i * colWidth);
+      doc.text(header, x, startY);
+    });
+    
+    // Table data - FIX: Add null checks
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(30, 41, 59);
+    
+    const rowData = [
+      `${saleData.brand || ''} ${saleData.model || ''}`,
+      (saleData.quantity || 1).toString(),
+      `MK ${(saleData.retailPrice || 0).toLocaleString()}`,
+      `MK ${(saleData.finalSalePrice || 0).toLocaleString()}`
+    ];
+    
+    rowData.forEach((data, i) => {
+      const x = 20 + (i * colWidth);
+      doc.text(data, x, startY + 8);
+    });
+    
+    // Table lines
+    doc.setDrawColor(203, 213, 225);
+    doc.line(20, startY + 2, pageWidth - 100, startY + 2);
+    doc.line(20, startY + 10, pageWidth - 100, startY + 10);
+    
+    // Summary Section
+    const summaryY = startY + 20;
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.rect(20, summaryY, pageWidth - 100, 35, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(20, summaryY, pageWidth - 100, 35);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(71, 85, 105);
+    
+    // Summary items - FIX: Handle missing discountPercentage
+    const discountPercentage = saleData.discountPercentage || 0;
+    const summaryItems = [
+      { label: 'Subtotal:', value: `MK ${(saleData.finalSalePrice || 0).toLocaleString()}` },
+      { label: 'Discount:', value: `${discountPercentage}%` },
+      { label: 'Total Amount:', value: `MK ${(saleData.finalSalePrice || 0).toLocaleString()}` }
+    ];
+    
+    summaryItems.forEach((item, index) => {
+      const y = summaryY + 12 + (index * 10);
+      doc.text(item.label, 25, y);
+      doc.text(item.value, pageWidth - 120, y, { align: 'right' });
+    });
+    
+    // Payment Information
+    const paymentY = summaryY + 45;
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PAYMENT INFORMATION', 20, paymentY);
+    
+    doc.setFillColor(241, 245, 249);
+    doc.rect(20, paymentY + 5, pageWidth - 100, 20, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(20, paymentY + 5, pageWidth - 100, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, 25, paymentY + 13);
+    doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'Unknown'}`, 25, paymentY + 19);
+    doc.text(`Location: ${saleData.location || user?.location || 'Unknown'}`, 
+      pageWidth - 120, paymentY + 13, { align: 'right' });
+    
+    // Warranty Information
+    const warrantyY = paymentY + 30;
+    doc.setFillColor(239, 246, 255); // blue-50
+    doc.setDrawColor(59, 130, 246);
+    doc.rect(20, warrantyY, pageWidth - 100, 25, 'FD');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(59, 130, 246);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🔒 7-DAY WARRANTY INCLUDED', pageWidth / 2 - 50, warrantyY + 8, { align: 'center' });
+    
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Valid for 7 days from purchase date | Manufacturing defects only', 
+      pageWidth / 2 - 50, warrantyY + 16, { align: 'center' });
+    
+    // Footer
+    const footerY = pageHeight - 25;
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Thank you for choosing KM Electronics!', 
+      pageWidth / 2, footerY, { align: 'center' });
+    doc.text('For warranty claims, scan QR code or present this receipt', 
+      pageWidth / 2, footerY + 5, { align: 'center' });
+    doc.text('Contact: +86 187 1117 7003 | +265 995 181 454', 
+      pageWidth / 2, footerY + 10, { align: 'center' });
+    doc.text('© 2024 KM Electronics. All rights reserved.', 
+      pageWidth / 2, footerY + 15, { align: 'center' });
+    
+    // Generate filename and save
+    const filename = `KM_Receipt_${saleData.receiptNumber}.pdf`;
+    doc.save(filename);
+    
+    setSuccess(`Receipt generated successfully: ${filename}`);
+    return true;
+    
+  } catch (error) {
+    setError('Receipt generation error:', error);
+    // Fallback: Simple receipt without QR code
+    try {
+      setSuccess('Attempting fallback receipt generation...');
+      
+      // Use safe date formatting for fallback
+      const fallbackDate = saleData.soldAt ? 
+        (saleData.soldAt.toDate ? saleData.soldAt.toDate() : new Date(saleData.soldAt)) : 
+        new Date();
+      
+      const fallbackDoc = new jsPDF();
+      fallbackDoc.setFontSize(16);
+      fallbackDoc.text('KM ELECTRONICS', 20, 20);
+      fallbackDoc.setFontSize(12);
+      fallbackDoc.text(`Receipt: ${saleData.receiptNumber}`, 20, 30);
+      fallbackDoc.text(`Date: ${fallbackDate.toLocaleDateString()}`, 20, 40);
+      fallbackDoc.text(`Customer: ${saleData.customerName || 'Walk-in Customer'}`, 20, 50);
+      fallbackDoc.text(`Item: ${saleData.brand || ''} ${saleData.model || ''}`, 20, 60);
+      fallbackDoc.text(`Amount: MK ${saleData.finalSalePrice || 0}`, 20, 70);
+      fallbackDoc.text(`Warranty ID: ${saleData.receiptNumber}`, 20, 80);
+      fallbackDoc.text('7-DAY WARRANTY INCLUDED', 20, 90);
+      
+      fallbackDoc.save(`Receipt_${saleData.receiptNumber}.pdf`);
+      setSuccess('Fallback receipt generated');
+      return true;
+    } catch (fallbackError) {
+      setError('Fallback also failed:', fallbackError);
+      throw new Error('Receipt generation failed: ' + error.message);
+    }
+  }
+};
+
+  // ACID-Compliant Quick Sale
   const handleQuickSale = async () => {
     if (!quickSale.itemCode || !quickSale.customerName) {
       setError('Please enter item code and customer name');
@@ -929,12 +1186,13 @@ export default function ManagerDashboard() {
     }
 
     setIsProcessingSale(true);
+    setIsGeneratingReceipt(false);
 
     try {
       // First, validate database consistency
       const consistencyCheck = await validateDatabaseConsistency();
       if (!consistencyCheck.consistent) {
-        console.warn('Database consistency issues:', consistencyCheck.errors);
+        setError('Database consistency issues:', consistencyCheck.errors);
       }
 
       // Pre-validate stock before transaction
@@ -951,7 +1209,7 @@ export default function ManagerDashboard() {
       }
 
       // Execute transaction with retry logic
-      await executeWithRetry(async () => {
+      const transactionResult = await executeWithRetry(async () => {
         return await runTransaction(db, async (transaction) => {
           // 1. VALIDATION PHASE: Re-validate stock within transaction
           const stockQuery = query(
@@ -1017,7 +1275,7 @@ export default function ManagerDashboard() {
           });
 
           // 4. CREATE PHASE
-          const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
           const transactionId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
           
           const saleData = {
@@ -1064,248 +1322,77 @@ export default function ManagerDashboard() {
             stockBefore: freshStock.quantity,
             stockAfter: freshStock.quantity - quickSale.quantity,
             transactionId: transactionId,
+            receiptNumber: receiptNumber,
             status: 'success'
           };
 
           const auditRef = doc(collection(db, 'auditLogs'));
           transaction.set(auditRef, auditLog);
 
-          return { saleData, receiptNumber };
+          return { saleData, receiptNumber, transactionId };
         });
-      }).then(async (result) => {
-        if (result && result.saleData) {
-          generateSalesReceipt(result.saleData);
-          
-          setQuickSale({ 
-            itemCode: '', 
-            quantity: 1, 
-            customPrice: '', 
-            customerName: '',
-            customerPhone: ''
-          });
-          
-          setSuccess('Sale completed successfully! Receipt downloaded.');
-          
-          await Promise.all([
-            fetchLocationStocks(user.location),
-            fetchLocationSales(user.location)
-          ]);
-        }
-      }).catch((error) => {
-        const errorAuditLog = {
-          action: 'quick_sale_error',
-          itemCode: quickSale.itemCode,
-          quantity: quickSale.quantity,
-          customer: quickSale.customerName,
-          location: user.location,
-          user: user.uid,
-          userName: user.fullName,
-          timestamp: serverTimestamp(),
-          error: error.message,
-          status: 'failed'
-        };
-
-        addDoc(collection(db, 'auditLogs'), errorAuditLog);
-        
-        console.error('Transaction failed:', error);
-        setError(`Sale failed: ${error.message}`);
-        throw error;
       });
 
-    } catch (error) {
-      console.error('Quick sale error:', error);
-      if (!error.message.includes('Sale failed:')) {
-        setError('Error processing sale: ' + error.message);
+      alert('Transaction successful, generating receipt...');
+      setIsGeneratingReceipt(true);
+      
+      // Generate receipt with QR code
+      try {
+        await generateSalesReceipt(transactionResult.saleData);
+        
+        setQuickSale({ 
+          itemCode: '', 
+          quantity: 1, 
+          customPrice: '', 
+          customerName: '',
+          customerPhone: ''
+        });
+        
+        setSuccess('Sale completed successfully! Receipt with QR code downloaded.');
+        
+        // Refresh data
+        await Promise.all([
+          fetchLocationStocks(user.location),
+          fetchLocationSales(user.location)
+        ]);
+        
+      } catch (receiptError) {
+        setSuccess('Sale completed! (Receipt error: ' + receiptError.message + ')');
+        // Still refresh data even if receipt failed
+        await Promise.all([
+          fetchLocationStocks(user.location),
+          fetchLocationSales(user.location)
+        ]);
       }
+
+    } catch (error) {
+      setError('Quick sale error');  
+      
+      // Log error to audit
+      const errorAuditLog = {
+        action: 'quick_sale_error',
+        itemCode: quickSale.itemCode,
+        quantity: quickSale.quantity,
+        customer: quickSale.customerName,
+        location: user?.location,
+        user: user?.uid,
+        userName: user?.fullName,
+        timestamp: serverTimestamp(),
+        error: error.message,
+        status: 'failed'
+      };
+
+      try {
+        await addDoc(collection(db, 'auditLogs'), errorAuditLog);
+      } catch (auditError) {
+        setError('Failed to log error to audit:', auditError);
+      }
+      
+      setError(`Sale failed: ${error.message}`);
+      
     } finally {
       setIsProcessingSale(false);
-    }
-  };
-
-  // Generate Sales Receipt (same as before)
-  const generateSalesReceipt = (saleData) => {
-    try {
-      if (!saleData || !saleData.receiptNumber) {
-        throw new Error('Invalid sale data for receipt generation');
-      }
-
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.width;
-      const pageHeight = doc.internal.pageSize.height;
-      
-      // Set background color
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, pageWidth, pageHeight, 'F');
-      
-      // Add watermark
-      doc.setFontSize(50);
-      doc.setTextColor(30, 41, 59, 20);
-      doc.setFont('helvetica', 'bold');
-      
-      const watermarkText = "7 DAYS WARRANTY";
-      const textWidth = doc.getTextWidth(watermarkText);
-      const angle = 45;
-      
-      doc.saveGraphicsState();
-      doc.setGState(new jsPDF.GState({opacity: 0.08}));
-      
-      for (let i = -1; i < 2; i++) {
-        for (let j = -1; j < 2; j++) {
-          doc.text(watermarkText, 
-            pageWidth/2 + (i * 100), 
-            pageHeight/2 + (j * 80), 
-            { align: 'center', angle: angle }
-          );
-        }
-      }
-      
-      doc.restoreGraphicsState();
-      doc.setGState(new jsPDF.GState({opacity: 1}));
-      
-      // Header
-      doc.setFontSize(28);
-      doc.setTextColor(96, 165, 250);
-      doc.setFont('helvetica', 'bold');
-      doc.text('KM ELECTRONICS', pageWidth / 2, 25, { align: 'center' });
-      
-      // Warranty badge
-      doc.setFontSize(11);
-      doc.setFillColor(59, 130, 246, 20);
-      doc.roundedRect(pageWidth/2 - 45, 30, 90, 8, 4, 4, 'F');
-      doc.setTextColor(96, 165, 250);
-      doc.setFont('helvetica', 'bold');
-      doc.text('✅ 7 DAYS WARRANTY GUARANTEE', pageWidth / 2, 35, { align: 'center' });
-      
-      doc.setFontSize(14);
-      doc.setTextColor(226, 232, 240);
-      doc.setFont('helvetica', 'normal');
-      doc.text('OFFICIAL SALES RECEIPT', pageWidth / 2, 45, { align: 'center' });
-      
-      // Receipt details
-      doc.setFontSize(10);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`Receipt No: ${saleData.receiptNumber}`, 20, 55);
-      doc.text(`Date: ${new Date().toLocaleDateString()}`, pageWidth - 20, 55, { align: 'right' });
-      doc.text(`Time: ${new Date().toLocaleTimeString()}`, pageWidth - 20, 61, { align: 'right' });
-      
-      // Customer Information
-      doc.setFontSize(14);
-      doc.setTextColor(96, 165, 250);
-      doc.text('CUSTOMER INFORMATION', 20, 72);
-      
-      doc.setFillColor(30, 41, 59);
-      doc.roundedRect(20, 77, pageWidth - 40, 20, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(226, 232, 240);
-      doc.text(`Customer Name: ${saleData.customerName}`, 25, 85);
-      doc.text(`Contact: ${saleData.customerPhone || 'Not Provided'}`, pageWidth - 25, 85, { align: 'right' });
-      
-      // Sale Details
-      doc.setFontSize(14);
-      doc.setTextColor(96, 165, 250);
-      doc.text('SALE DETAILS', 20, 102);
-      
-      const saleDetails = [
-        ['Item Description', 'Qty', 'Unit Price', 'Total'],
-        [
-          `${saleData.brand} ${saleData.model}`,
-          saleData.quantity.toString(),
-          `MK ${saleData.retailPrice?.toLocaleString() || '0'}`,
-          `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}`
-        ]
-      ];
-      
-      autoTable(doc, {
-        startY: 107,
-        head: [saleDetails[0]],
-        body: saleDetails.slice(1),
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [30, 41, 59],
-          textColor: [96, 165, 250],
-          fontSize: 10,
-          fontStyle: 'bold',
-          lineWidth: 0.5,
-          lineColor: [51, 65, 85]
-        },
-        bodyStyles: { 
-          textColor: [226, 232, 240],
-          fontSize: 10,
-          lineWidth: 0.5,
-          lineColor: [51, 65, 85]
-        },
-        alternateRowStyles: { fillColor: [15, 23, 42] },
-        margin: { left: 20, right: 20 }
-      });
-      
-      const finalY = doc.lastAutoTable.finalY + 10;
-      
-      // Summary
-      doc.setFillColor(30, 41, 59);
-      doc.roundedRect(20, finalY, pageWidth - 40, 40, 3, 3, 'F');
-      
-      doc.setFontSize(11);
-      doc.setTextColor(226, 232, 240);
-      
-      const summaryItems = [
-        { label: 'Subtotal:', value: `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}` },
-        { label: 'Discount:', value: `${saleData.discountPercentage || 0}%` },
-        { label: 'Total Amount:', value: `MK ${saleData.finalSalePrice?.toLocaleString() || '0'}` }
-      ];
-      
-      let yPos = finalY + 15;
-      summaryItems.forEach(item => {
-        doc.text(item.label, 25, yPos);
-        doc.text(item.value, pageWidth - 25, yPos, { align: 'right' });
-        yPos += 10;
-      });
-      
-      // Payment Information
-      doc.setFontSize(14);
-      doc.setTextColor(96, 165, 250);
-      doc.text('PAYMENT INFORMATION', 20, yPos + 10);
-      
-      doc.setFillColor(30, 41, 59);
-      doc.roundedRect(20, yPos + 15, pageWidth - 40, 25, 3, 3, 'F');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(226, 232, 240);
-      doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, 25, yPos + 25);
-      doc.text(`Sold By: ${saleData.soldByName || user?.fullName}`, 25, yPos + 32);
-      doc.text(`Location: ${saleData.location || user?.location}`, pageWidth - 25, yPos + 25, { align: 'right' });
-      
-      // Warranty Information
-      doc.setFillColor(15, 23, 42);
-      doc.setDrawColor(59, 130, 246);
-      doc.setLineWidth(0.5);
-      doc.roundedRect(20, yPos + 45, pageWidth - 40, 25, 3, 3, 'DF');
-      
-      doc.setFontSize(11);
-      doc.setTextColor(96, 165, 250);
-      doc.text('🔒 WARRANTY INFORMATION', pageWidth / 2, yPos + 55, { align: 'center' });
-      
-      doc.setFontSize(9);
-      doc.setTextColor(148, 163, 184);
-      doc.text('This product comes with a 7-day warranty from date of purchase', pageWidth / 2, yPos + 61, { align: 'center' });
-      doc.text('Warranty covers manufacturing defects only', pageWidth / 2, yPos + 67, { align: 'center' });
-      
-      // Footer
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text('Thank you for choosing KM Electronics!', pageWidth / 2, pageHeight - 25, { align: 'center' });
-      doc.text('For warranty claims, bring this receipt and the product to our store', pageWidth / 2, pageHeight - 20, { align: 'center' });
-      doc.text('Contact: +86 187 1117 7003 | +265 995 181 454', pageWidth / 2, pageHeight - 15, { align: 'center' });
-      doc.text('© 2024 KM Electronics. All rights reserved.', pageWidth / 2, pageHeight - 10, { align: 'center' });
-      
-      const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
-      doc.save(filename);
-      
-      console.log(`Receipt generated: ${filename}`);
-      
-    } catch (error) {
-      console.error('Receipt generation error:', error);
-      setError('Sale completed but receipt generation failed. Please contact support.');
+      setIsGeneratingReceipt(false);
     }
   };
 
@@ -1408,7 +1495,7 @@ export default function ManagerDashboard() {
       });
       
     } catch (error) {
-      console.error('Stock request error:', error);
+      setError('Stock request error:', error);
       if (!error.message.includes('Error submitting request:')) {
         setError('Error submitting request: ' + error.message);
       }
@@ -1535,7 +1622,7 @@ export default function ManagerDashboard() {
       });
       
     } catch (error) {
-      console.error('Create installment error:', error);
+      setError('Create installment error:', error);
       if (!error.message.includes('Error creating installment plan:')) {
         setError('Error creating installment plan: ' + error.message);
       }
@@ -1655,7 +1742,7 @@ export default function ManagerDashboard() {
       });
       
     } catch (error) {
-      console.error('Report faulty phone error:', error);
+      setError('Report faulty phone error:', error);
       if (!error.message.includes('Error reporting faulty phone:')) {
         setError('Error reporting faulty phone: ' + error.message);
       }
@@ -2369,7 +2456,7 @@ export default function ManagerDashboard() {
                   </Card>
                 )}
 
-                {/* Quick Sale Tab (same as before) */}
+                {/* Quick Sale Tab */}
                 {activeTab === 'quickSale' && (
                   <div className="space-y-6">
                     <Card className="bg-slate-800/50 border-slate-700">
@@ -2468,20 +2555,22 @@ export default function ManagerDashboard() {
                                   {isProcessingSale ? (
                                     <>
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                      <span>Processing Sale...</span>
+                                      <span>
+                                        {isGeneratingReceipt ? 'Generating Receipt...' : 'Processing Sale...'}
+                                      </span>
                                     </>
                                   ) : (
                                     <>
                                       <FiShoppingCart className="w-5 h-5 mr-2" />
-                                      <span>Process Sale & Download Receipt</span>
+                                      <span>Process Sale & Generate Receipt with QR</span>
                                     </>
                                   )}
                                 </Button>
 
                                 {isProcessingSale && (
                                   <div className="text-center text-slate-400 text-sm">
-                                    <p>Validating database and processing transaction...</p>
-                                    <p className="text-xs mt-1">This ensures data consistency and prevents errors</p>
+                                    <p>Processing transaction and generating receipt with QR code...</p>
+                                    <p className="text-xs mt-1">Receipt includes warranty QR code for verification</p>
                                   </div>
                                 )}
                               </div>
@@ -2534,7 +2623,7 @@ export default function ManagerDashboard() {
                   </div>
                 )}
 
-                {/* Sales History Tab (same as before) */}
+                {/* Sales History Tab */}
                 {activeTab === 'salesHistory' && (
                   <Card className="bg-slate-800/50 border-slate-700">
                     <CardHeader>
@@ -2595,17 +2684,32 @@ export default function ManagerDashboard() {
                                   </TableCell>
                                   <TableCell className="text-white">{sale.soldByName}</TableCell>
                                   <TableCell>
-                                    <div className="font-mono text-xs text-slate-400">{sale.receiptNumber}</div>
+                                    <div className="font-mono text-xs text-blue-300">{sale.receiptNumber}</div>
+                                    <div className="text-slate-500 text-xs">QR Code Receipt</div>
                                   </TableCell>
                                   <TableCell>
                                     <Button
-                                      onClick={() => generateSalesReceipt(sale)}
+                                      onClick={async () => {
+                                        try {
+                                          setIsGeneratingReceipt(true);
+                                          await generateSalesReceipt(sale);
+                                        } catch (error) {
+                                          setError('Failed to generate receipt: ' + error.message);
+                                        } finally {
+                                          setIsGeneratingReceipt(false);
+                                        }
+                                      }}
                                       variant="outline"
                                       size="sm"
                                       className="border-blue-500/30 hover:bg-blue-500/20"
+                                      disabled={isGeneratingReceipt}
                                     >
-                                      <FiDownload className="w-4 h-4 mr-2" />
-                                      Receipt
+                                      {isGeneratingReceipt ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+                                      ) : (
+                                        <FiDownload className="w-4 h-4 mr-2" />
+                                      )}
+                                      {isGeneratingReceipt ? 'Generating...' : 'Download'}
                                     </Button>
                                   </TableCell>
                                 </TableRow>
@@ -3136,12 +3240,12 @@ export default function ManagerDashboard() {
                     © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
                   </p>
                   <p className="text-slate-500 text-sm mt-1">
-                    Manager Dashboard v2.0 • ACID-Compliant Transactions • All receipts include 7 Days Warranty
+                    Manager Dashboard v2.0 • QR Code Receipts • 7 Days Warranty Included
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <FiShield className="text-green-400" />
-                  <span className="text-slate-400 text-sm">Secure • ACID • Professional</span>
+                  <span className="text-slate-400 text-sm">Secure • QR Code • Professional</span>
                 </div>
               </div>
             </div>
