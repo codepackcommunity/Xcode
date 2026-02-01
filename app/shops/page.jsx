@@ -169,7 +169,7 @@ export default function StocksDashboard() {
         minute: '2-digit'
       });
     } catch (error) {
-      console.error('Date formatting error:', error);
+      alert('Date formatting error:', error);
       return 'N/A';
     }
   };
@@ -276,7 +276,7 @@ export default function StocksDashboard() {
         setLocations(locationsData);
       }
     } catch (error) {
-      console.error('Failed to fetch locations:', error);
+      alert('Failed to fetch locations:', error);
     }
   }, []);
 
@@ -309,10 +309,9 @@ export default function StocksDashboard() {
       setStocks(stocksData);
       
       if (stocksData.length === 0) {
-        console.warn('No stock data found in database');
+        alert('No stock data found in database');
       }
     } catch (error) {
-      console.error('Failed to fetch stocks:', error);
       setError('Failed to fetch stocks: ' + error.message);
     }
   }, []);
@@ -344,10 +343,9 @@ export default function StocksDashboard() {
       setSales(salesData);
       
       if (salesData.length === 0) {
-        console.warn('No sales data found in database');
+        alert('No sales data found in database');
       }
     } catch (error) {
-      console.error('Failed to fetch sales:', error);
       setError('Failed to fetch sales data: ' + error.message);
     }
   }, []);
@@ -667,7 +665,6 @@ export default function StocksDashboard() {
       
       setSuccess(`Stock report for ${location === 'all' ? 'all locations' : location} generated successfully!`);
     } catch (error) {
-      console.error('PDF Generation Error:', error);
       setError('Failed to generate PDF report: ' + error.message);
     } finally {
       setIsGeneratingReport(false);
@@ -863,7 +860,6 @@ export default function StocksDashboard() {
       
       setSuccess(`Sales report for ${location === 'all' ? 'all locations' : location} generated successfully!`);
     } catch (error) {
-      console.error('Sales Report Error:', error);
       setError('Failed to generate sales report: ' + error.message);
     } finally {
       setIsGeneratingReport(false);
@@ -1004,7 +1000,6 @@ export default function StocksDashboard() {
       
       setSuccess(`Excel ${type} report generated successfully!`);
     } catch (error) {
-      console.error('Excel Generation Error:', error);
       setError('Failed to generate Excel report: ' + error.message);
     } finally {
       setIsGeneratingReport(false);
@@ -1090,7 +1085,6 @@ export default function StocksDashboard() {
       
       setSuccess('Comprehensive report generated successfully!');
     } catch (error) {
-      console.error('Comprehensive Report Error:', error);
       setError('Failed to generate comprehensive report: ' + error.message);
     } finally {
       setIsGeneratingReport(false);

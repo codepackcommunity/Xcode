@@ -215,7 +215,6 @@ const initializeDatabaseCollections = async (user) => {
 
     return true;
   } catch (error) {
-    console.error('Database initialization error:', error);
     return false;
   }
 };
@@ -1158,7 +1157,6 @@ export default function SuperAdminDashboard() {
           notes: 'User approved by superadmin'
         });
       } catch (historyError) {
-        console.error('Failed to record approval history:', historyError);
       }
 
       setSuccess('User approved successfully!');
@@ -1213,7 +1211,6 @@ export default function SuperAdminDashboard() {
           processedAt: serverTimestamp()
         });
       } catch (historyError) {
-        console.error('Failed to record rejection history:', historyError);
       }
 
       setSuccess('User rejected successfully!');
@@ -1392,7 +1389,6 @@ export default function SuperAdminDashboard() {
 
       setSuccess('Stock request approved and quantities updated successfully!');
     } catch (error) {
-      console.error('Stock approval error:', error);
       setError('Failed to approve stock request: ' + error.message);
       
       try {
@@ -1402,7 +1398,6 @@ export default function SuperAdminDashboard() {
           failedAt: serverTimestamp()
         });
       } catch (updateError) {
-        console.error('Failed to update request status:', updateError);
       }
     } finally {
       setProcessingRequest(null);

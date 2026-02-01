@@ -420,7 +420,7 @@ const [searchQuery, setSearchQuery] = useState('');
 
       return true;
     } catch (error) {
-      console.error('Database initialization error:', error);
+      alert('Database initialization error:', error);
       return false;
     }
   };
@@ -568,7 +568,7 @@ const [searchQuery, setSearchQuery] = useState('');
         monthlySales
       });
     } catch (error) {
-      console.error('Error calculating dashboard stats:', error);
+      alert('Error calculating dashboard stats:', error);
     }
   };
 

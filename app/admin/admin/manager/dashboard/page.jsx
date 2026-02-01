@@ -9,7 +9,6 @@ import {
   writeBatch, getDoc, Timestamp, deleteDoc,
   runTransaction, increment
 } from 'firebase/firestore';
-import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
 
 // React Icons
@@ -171,7 +170,7 @@ export default function ManagerDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isProcessingSale, setIsProcessingSale] = useState(false);
-  const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
+  const [isGeneratingQRCode, setIsGeneratingQRCode] = useState(false);
   const router = useRouter();
 
   // State Management
@@ -263,6 +262,186 @@ export default function ManagerDashboard() {
     }).format(amount || 0);
   };
 
+  // Generate and Download QR Code with Purchase Details
+  const generatePurchaseQRCode = async (saleData) => {
+    try {
+      if (!saleData || !saleData.receiptNumber) {
+        throw new Error('Invalid sale data for QR code generation');
+      }
+
+      // Prepare QR code data structure
+      const qrData = {
+        merchant: 'KM Electronics',
+        receiptNumber: saleData.receiptNumber,
+        date: saleData.soldAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        location: saleData.location || user?.location || 'KM Electronics Store',
+        
+        // Customer information
+        customer: {
+          name: saleData.customerName || 'Walk-in Customer',
+          phone: saleData.customerPhone || 'Not provided'
+        },
+        
+        // Item details
+        item: {
+          code: saleData.itemCode,
+          brand: saleData.brand,
+          model: saleData.model,
+          category: saleData.category || 'Smartphone',
+          color: saleData.color || 'N/A',
+          storage: saleData.storage || 'N/A',
+          quantity: saleData.quantity
+        },
+        
+        // Payment information
+        payment: {
+          costPrice: saleData.costPrice || 0,
+          retailPrice: saleData.retailPrice || 0,
+          discountPercentage: saleData.discountPercentage || 0,
+          finalSalePrice: saleData.finalSalePrice || 0,
+          paymentMethod: saleData.paymentMethod || 'cash',
+          profit: saleData.profit || 0
+        },
+        
+        // Warranty information
+        warranty: {
+          included: true,
+          duration: '7 days',
+          warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`,
+          terms: 'Manufacturing defects only. Original receipt required for claims.'
+        },
+        
+        // Transaction details
+        transaction: {
+          id: saleData.transactionId || Date.now().toString(),
+          soldBy: saleData.soldByName || user?.fullName || 'KM Staff',
+          soldById: saleData.soldBy || user?.uid,
+          status: 'completed'
+        },
+        
+        // Contact information
+        contact: {
+          china: '+86 187 1117 7003',
+          malawi: '+265 995 181 454',
+          email: 'sales@kmelectronics.com',
+          website: 'www.kmelectronics.com'
+        },
+        
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          version: '1.0',
+          format: 'KM Electronics Digital Receipt'
+        }
+      };
+
+      // Create QR code with the data
+      const qrCodeDataUrl = await QRCode.toDataURL(JSON.stringify(qrData, null, 2), {
+        width: 400,
+        margin: 2,
+        color: {
+          dark: '#1e40af', // KM Electronics blue
+          light: '#ffffff'
+        },
+        errorCorrectionLevel: 'H'
+      });
+
+      // Create download link
+      const downloadLink = document.createElement('a');
+      downloadLink.href = qrCodeDataUrl;
+      downloadLink.download = `KM_Purchase_${saleData.receiptNumber}_${Date.now()}.png`;
+      
+      // Trigger download
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+      
+      return { 
+        success: true, 
+        filename: downloadLink.download,
+        qrData: qrData
+      };
+      
+    } catch (error) {
+      throw new Error('QR Code generation failed: ' + error.message);
+    }
+  };
+
+  // Generate Human-Readable Text Summary for QR Code (optional backup)
+  const generatePurchaseSummaryText = (saleData) => {
+    const saleDate = saleData.soldAt?.toDate?.() || new Date();
+    const formattedDate = saleDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const formattedTime = saleDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    return `
+KM ELECTRONICS - DIGITAL PURCHASE RECORD
+=========================================
+
+RECEIPT INFORMATION
+-------------------
+Receipt No: ${saleData.receiptNumber}
+Date: ${formattedDate}
+Time: ${formattedTime}
+Location: ${saleData.location || user?.location || 'KM Electronics Store'}
+Transaction ID: ${saleData.transactionId || 'N/A'}
+
+CUSTOMER INFORMATION
+--------------------
+Name: ${saleData.customerName || 'Walk-in Customer'}
+Phone: ${saleData.customerPhone || 'Not provided'}
+
+ITEM DETAILS
+------------
+Item Code: ${saleData.itemCode}
+Product: ${saleData.brand || ''} ${saleData.model || ''}
+Color: ${saleData.color || 'N/A'}
+Storage: ${saleData.storage || 'N/A'}
+Quantity: ${saleData.quantity || 1}
+Category: ${saleData.category || 'Smartphone'}
+
+PAYMENT SUMMARY
+---------------
+Retail Price: MWK ${(saleData.retailPrice || 0).toLocaleString()}
+Discount: ${saleData.discountPercentage || 0}%
+Final Price: MWK ${(saleData.finalSalePrice || 0).toLocaleString()}
+Payment Method: ${saleData.paymentMethod || 'cash'}
+
+WARRANTY INFORMATION
+--------------------
+Warranty: 7 Days Included
+Warranty ID: WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}
+Valid for manufacturing defects only
+
+TRANSACTION DETAILS
+-------------------
+Sold By: ${saleData.soldByName || user?.fullName || 'KM Staff'}
+Sold At: ${saleData.location || user?.location}
+
+CONTACT INFORMATION
+-------------------
+China: +86 187 1117 7003
+Malawi: +265 995 181 454
+Email: sales@kmelectronics.com
+Website: www.kmelectronics.com
+
+IMPORTANT NOTES
+---------------
+1. Keep this QR code for warranty claims
+2. Original purchase verification required
+3. Warranty covers manufacturing defects only
+4. Contact us within 7 days for any issues
+
+© ${new Date().getFullYear()} KM Electronics. All rights reserved.
+Generated: ${new Date().toLocaleString()}
+    `;
+  };
+
   // Check if mobile
   useEffect(() => {
     const checkIfMobile = () => {
@@ -328,7 +507,6 @@ export default function ManagerDashboard() {
             router.push('/login');
           }
         } catch (error) {
-          console.error('Auth error:', error);
           setError('Authentication error');
           router.push('/login');
         }
@@ -355,8 +533,6 @@ export default function ManagerDashboard() {
       ]);
       calculateSalesAnalysisData();
     } catch (error) {
-      console.error('Dashboard init error:', error);
-      
       // Check if error is about missing indexes
       if (error.code === 'failed-precondition' && error.message.includes('requires an index')) {
         setError('Please create Firestore indexes. Check console for links.');
@@ -382,7 +558,6 @@ export default function ManagerDashboard() {
       }));
       setStocks(stocksData);
     } catch (error) {
-      console.error('Fetch stocks error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create stocks index in Firestore.');
       } else {
@@ -405,7 +580,6 @@ export default function ManagerDashboard() {
       }));
       setSales(salesData);
     } catch (error) {
-      console.error('Fetch sales error:', error);
       if (error.code === 'failed-precondition') {
         setError('Please create sales index in Firestore.');
       } else {
@@ -434,9 +608,7 @@ export default function ManagerDashboard() {
       
       setFaultyPhones(faultyData);
     } catch (error) {
-      console.error('Fetch faulty phones error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Faulty phones index required. Please create index for location and reportedAt.');
         setFaultyPhones([]);
       } else {
         setError('Failed to fetch faulty phones');
@@ -464,9 +636,7 @@ export default function ManagerDashboard() {
       
       setInstallments(installmentData);
     } catch (error) {
-      console.error('Fetch installments error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Installments index required. Please create index for location and createdAt.');
         setInstallments([]);
       } else {
         setError('Failed to fetch installments');
@@ -496,9 +666,7 @@ export default function ManagerDashboard() {
       
       setStockRequests(filteredRequests);
     } catch (error) {
-      console.error('Fetch stock requests error:', error);
       if (error.code === 'failed-precondition') {
-        console.warn('Stock requests index required. Please create composite index.');
         setStockRequests([]);
       } else {
         setError('Failed to fetch stock requests');
@@ -520,7 +688,6 @@ export default function ManagerDashboard() {
       }));
       setPersonnel(personnelData);
     } catch (error) {
-      console.error('Fetch personnel error:', error);
       setError('Failed to fetch personnel');
     }
   };
@@ -545,7 +712,6 @@ export default function ManagerDashboard() {
           setStocks(stocksData);
         }, 
         (error) => {
-          console.error('Stocks listener error:', error);
           setError('Failed to listen to stock updates');
         }
       );
@@ -573,7 +739,6 @@ export default function ManagerDashboard() {
           setSales(salesData);
         }, 
         (error) => {
-          console.error('Sales listener error:', error);
           setError('Failed to listen to sales updates');
         }
       );
@@ -601,7 +766,6 @@ export default function ManagerDashboard() {
           setFaultyPhones(faultyData);
         },
         (error) => {
-          console.error('Faulty phones listener error:', error);
           if (error.code !== 'failed-precondition') {
             setError('Failed to listen to faulty phones updates');
           }
@@ -610,7 +774,7 @@ export default function ManagerDashboard() {
       cleanupFunctions.push(unsubscribeFaulty);
 
     } catch (error) {
-      console.error('Listener setup error:', error);
+      // Listener setup error handled silently
     }
 
     return () => {
@@ -618,7 +782,7 @@ export default function ManagerDashboard() {
         try {
           unsubscribe();
         } catch (error) {
-          console.error('Cleanup error:', error);
+          // Cleanup error handled silently
         }
       });
     };
@@ -742,7 +906,6 @@ export default function ManagerDashboard() {
       ]);
       setSuccess('Data refreshed successfully');
     } catch (error) {
-      console.error('Refresh error:', error);
       setError('Failed to refresh data');
     } finally {
       setLoading(false);
@@ -809,7 +972,6 @@ export default function ManagerDashboard() {
         .map(result => result.reason.message);
       
       if (errors.length > 0) {
-        console.warn('Database consistency warnings:', errors);
         return { consistent: false, errors };
       }
       
@@ -892,7 +1054,6 @@ export default function ManagerDashboard() {
         lastError = error;
         if (error.code === 'failed-precondition' || error.code === 'aborted') {
           await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
-          console.log(`Retrying operation (attempt ${i + 1}/${maxRetries})...`);
         } else {
           break;
         }
@@ -901,520 +1062,7 @@ export default function ManagerDashboard() {
     throw lastError;
   };
 
-// Generate Professional Sales Receipt with QR Code
-// Generate Professional Sales Receipt with QR Code
-const generateSalesReceipt = async (saleData) => {
-  try {
-    if (!saleData || !saleData.receiptNumber) {
-      throw new Error('Invalid sale data for receipt generation');
-    }
-
-    console.log('Generating professional receipt for:', saleData.receiptNumber);
-    
-    // Create PDF with custom dimensions for receipt
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: [210, 297] // A4 size
-    });
-    
-    const pageWidth = doc.internal.pageSize.width;
-    const pageHeight = doc.internal.pageSize.height;
-    const margin = 15;
-    const contentWidth = pageWidth - (margin * 2);
-    
-    // Handle sale date
-    let saleDate;
-    try {
-      if (saleData.soldAt) {
-        if (typeof saleData.soldAt === 'object' && saleData.soldAt.toDate) {
-          // Firestore Timestamp
-          saleDate = saleData.soldAt.toDate();
-        } else if (typeof saleData.soldAt === 'string') {
-          // ISO string
-          saleDate = new Date(saleData.soldAt);
-        } else if (saleData.soldAt.seconds) {
-          // Firestore timestamp object with seconds
-          saleDate = new Date(saleData.soldAt.seconds * 1000);
-        } else {
-          saleDate = new Date();
-        }
-      } else {
-        saleDate = new Date();
-      }
-    } catch (dateError) {
-      console.warn('Date parsing error, using current date:', dateError);
-      saleDate = new Date();
-    }
-    
-    // Format dates
-    const formattedDate = saleDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    const formattedTime = saleDate.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    
-    // Calculate warranty end date
-    const warrantyEndDate = new Date(saleDate);
-    warrantyEndDate.setDate(warrantyEndDate.getDate() + 7);
-    const formattedWarrantyDate = warrantyEndDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    
-    // Generate QR code data
-    const qrData = JSON.stringify({
-      receiptNumber: saleData.receiptNumber,
-      itemCode: saleData.itemCode,
-      brand: saleData.brand,
-      model: saleData.model,
-      customerName: saleData.customerName,
-      finalSalePrice: saleData.finalSalePrice,
-      date: saleDate.toISOString(),
-      location: saleData.location || user?.location,
-      warrantyId: `WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`
-    });
-
-    // Create QR code
-    const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-      width: 80,
-      margin: 1,
-      color: {
-        dark: '#1e40af', // Blue color
-        light: '#ffffff'
-      },
-      errorCorrectionLevel: 'H'
-    });
-
-    // ============ HEADER SECTION ============
-    // Top border line
-    doc.setDrawColor(30, 64, 175); // Primary blue
-    doc.setLineWidth(0.8);
-    doc.line(margin, margin, margin + contentWidth, margin);
-    
-    // Company name with double underline effect
-    doc.setFontSize(24);
-    doc.setTextColor(30, 64, 175); // Primary blue
-    doc.setFont('helvetica', 'bold');
-    doc.text('KM ELECTRONICS', pageWidth / 2, margin + 10, { align: 'center' });
-    
-    // Underline
-    doc.setDrawColor(30, 64, 175);
-    doc.setLineWidth(0.3);
-    const textWidth = doc.getTextWidth('KM ELECTRONICS');
-    doc.line(pageWidth / 2 - textWidth / 2, margin + 11.5, pageWidth / 2 + textWidth / 2, margin + 11.5);
-    
-    // Tagline
-    doc.setFontSize(10);
-    doc.setTextColor(75, 85, 99); // Gray
-    doc.setFont('helvetica', 'normal');
-    doc.text('Official Sales Receipt • Quality Electronics Since 2010', pageWidth / 2, margin + 16, { align: 'center' });
-    
-    // Bottom border line
-    doc.setDrawColor(30, 64, 175);
-    doc.setLineWidth(0.8);
-    doc.line(margin, margin + 20, margin + contentWidth, margin + 20);
-    
-    let yPos = margin + 28;
-
-    // ============ RECEIPT INFO SECTION ============
-    // Section header
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138); // Dark blue
-    doc.setFont('helvetica', 'bold');
-    doc.text('RECEIPT INFORMATION', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219); // Light gray
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Receipt info box with border
-    doc.setDrawColor(30, 58, 138);
-    doc.setFillColor(249, 250, 251); // Light gray
-    doc.roundedRect(margin, yPos, contentWidth, 18, 3, 3, 'FD');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(75, 85, 99); // Gray text
-    
-    // Receipt number (left)
-    doc.setFont('helvetica', 'bold');
-    doc.text('RECEIPT NO:', margin + 8, yPos + 7);
-    doc.setTextColor(30, 58, 138);
-    doc.text(saleData.receiptNumber, margin + 28, yPos + 7);
-    
-    // Location (left second row)
-    doc.setTextColor(75, 85, 99);
-    doc.text('LOCATION:', margin + 8, yPos + 13);
-    doc.setTextColor(30, 58, 138);
-    doc.text(saleData.location || user?.location || 'KM Electronics Store', margin + 28, yPos + 13);
-    
-    // Date (right)
-    doc.setTextColor(75, 85, 99);
-    doc.text('DATE:', margin + contentWidth - 70, yPos + 7);
-    doc.setTextColor(30, 58, 138);
-    doc.text(formattedDate, margin + contentWidth - 45, yPos + 7);
-    
-    // Time (right second row)
-    doc.setTextColor(75, 85, 99);
-    doc.text('TIME:', margin + contentWidth - 70, yPos + 13);
-    doc.setTextColor(30, 58, 138);
-    doc.text(formattedTime, margin + contentWidth - 45, yPos + 13);
-    
-    yPos += 25;
-
-    // ============ CUSTOMER SECTION ============
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CUSTOMER INFORMATION', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219);
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Customer info box
-    doc.setDrawColor(30, 58, 138);
-    doc.setFillColor(249, 250, 251);
-    doc.roundedRect(margin, yPos, contentWidth, 12, 3, 3, 'FD');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(55, 65, 81);
-    doc.setFont('helvetica', 'normal');
-    
-    // Customer name (left)
-    doc.text('NAME:', margin + 8, yPos + 5);
-    doc.setFont('helvetica', 'bold');
-    doc.text(saleData.customerName || 'Walk-in Customer', margin + 25, yPos + 5);
-    
-    // Customer phone (right)
-    if (saleData.customerPhone) {
-      doc.setFont('helvetica', 'normal');
-      doc.text('PHONE:', margin + contentWidth - 60, yPos + 5);
-      doc.setFont('helvetica', 'bold');
-      doc.text(saleData.customerPhone, margin + contentWidth - 40, yPos + 5);
-    }
-    
-    yPos += 20;
-
-    // ============ ITEM DETAILS SECTION ============
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ITEM DETAILS', margin, yPos);
-    
-    yPos += 5;
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Table headers with box border
-    doc.setFillColor(30, 58, 138); // Dark blue background
-    doc.setDrawColor(30, 58, 138);
-    doc.rect(margin, yPos, contentWidth, 8, 'FD');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    
-    const colWidths = [contentWidth * 0.45, contentWidth * 0.15, contentWidth * 0.2, contentWidth * 0.2];
-    
-    // Headers with vertical separators
-    doc.text('DESCRIPTION', margin + 5, yPos + 5.5);
-    
-    // Vertical line after description
-    doc.setDrawColor(255, 255, 255);
-    doc.setLineWidth(0.3);
-    const descEndX = margin + colWidths[0];
-    doc.line(descEndX, yPos + 1, descEndX, yPos + 7);
-    
-    doc.text('QTY', descEndX + 5, yPos + 5.5);
-    
-    // Vertical line after quantity
-    const qtyEndX = descEndX + colWidths[1];
-    doc.line(qtyEndX, yPos + 1, qtyEndX, yPos + 7);
-    
-    doc.text('UNIT PRICE', qtyEndX + 5, yPos + 5.5);
-    
-    // Vertical line after unit price
-    const priceEndX = qtyEndX + colWidths[2];
-    doc.line(priceEndX, yPos + 1, priceEndX, yPos + 7);
-    
-    doc.text('TOTAL', priceEndX + 5, yPos + 5.5);
-    
-    yPos += 12;
-    
-    // Item row with light background
-    doc.setFillColor(249, 250, 251); // Light gray
-    doc.setDrawColor(209, 213, 219); // Border color
-    doc.rect(margin, yPos - 4, contentWidth, 20, 'FD');
-    
-    doc.setFontSize(11);
-    doc.setTextColor(55, 65, 81);
-    doc.setFont('helvetica', 'normal');
-    
-    // Build item description
-    let itemDescription = `${saleData.brand || ''} ${saleData.model || ''}`;
-    if (saleData.color) itemDescription += `\n• ${saleData.color}`;
-    if (saleData.storage) itemDescription += ` • ${saleData.storage} Storage`;
-    
-    // Split description into lines
-    const descriptionLines = doc.splitTextToSize(itemDescription, colWidths[0] - 10);
-    
-    // Draw vertical separators for item row
-    doc.setDrawColor(209, 213, 219);
-    doc.line(descEndX, yPos - 4, descEndX, yPos + 16);
-    doc.line(qtyEndX, yPos - 4, qtyEndX, yPos + 16);
-    doc.line(priceEndX, yPos - 4, priceEndX, yPos + 16);
-    
-    // Item details
-    doc.text(descriptionLines, margin + 5, yPos + 4);
-    doc.text(saleData.quantity.toString(), descEndX + (colWidths[1] / 2), yPos + 4, { align: 'center' });
-    doc.text(`MWK ${(saleData.retailPrice || 0).toLocaleString()}`, qtyEndX + (colWidths[2] / 2), yPos + 4, { align: 'center' });
-    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, priceEndX + (colWidths[3] / 2), yPos + 4, { align: 'center' });
-    
-    yPos += 30;
-
-    // ============ PAYMENT SUMMARY SECTION ============
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PAYMENT SUMMARY', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Payment summary box
-    doc.setFillColor(249, 250, 251);
-    doc.setDrawColor(30, 58, 138);
-    doc.roundedRect(margin, yPos, contentWidth, discount > 0 ? 30 : 22, 3, 3, 'FD');
-    
-    const summaryX = margin + 10;
-    const valueX = margin + contentWidth - 10;
-    
-    doc.setFontSize(11);
-    doc.setTextColor(55, 65, 81);
-    doc.setFont('helvetica', 'normal');
-    
-    // Subtotal
-    doc.text('Subtotal:', summaryX, yPos + 10);
-    doc.text(`MWK ${(saleData.retailPrice || 0).toLocaleString()}`, valueX, yPos + 10, { align: 'right' });
-    
-    // Discount
-    const discount = saleData.discountPercentage || 0;
-    if (discount > 0) {
-      doc.text(`Discount (${discount}%):`, summaryX, yPos + 20);
-      const discountAmount = (saleData.retailPrice || 0) * (discount / 100);
-      doc.setTextColor(220, 38, 38); // Red for discount
-      doc.text(`- MWK ${discountAmount.toLocaleString()}`, valueX, yPos + 20, { align: 'right' });
-      doc.setTextColor(55, 65, 81); // Reset color
-    }
-    
-    // Separator line
-    doc.setDrawColor(209, 213, 219);
-    doc.line(margin + 5, yPos + (discount > 0 ? 26 : 18), margin + contentWidth - 5, yPos + (discount > 0 ? 26 : 18));
-    
-    // Total
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(21, 128, 61); // Green for total
-    doc.text('TOTAL AMOUNT:', summaryX, yPos + (discount > 0 ? 35 : 27));
-    doc.text(`MWK ${(saleData.finalSalePrice || 0).toLocaleString()}`, valueX, yPos + (discount > 0 ? 35 : 27), { align: 'right' });
-    
-    yPos += discount > 0 ? 45 : 35;
-
-    // ============ PAYMENT INFORMATION ============
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PAYMENT INFORMATION', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Payment info box
-    doc.setFillColor(249, 250, 251);
-    doc.setDrawColor(30, 58, 138);
-    doc.roundedRect(margin, yPos, contentWidth * 0.5, 12, 3, 3, 'FD');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(55, 65, 81);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text(`Payment Method: ${saleData.paymentMethod || 'Cash'}`, margin + 8, yPos + 5);
-    doc.text(`Sold By: ${saleData.soldByName || user?.fullName || 'KM Staff'}`, margin + contentWidth - 120, yPos + 5);
-    
-    yPos += 20;
-
-    // ============ WARRANTY SECTION ============
-    doc.setFontSize(12);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('WARRANTY SECTION', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    // Warranty box with light blue background
-    doc.setFillColor(239, 246, 255); // Light blue
-    doc.setDrawColor(59, 130, 246); // Blue border
-    doc.roundedRect(margin, yPos, contentWidth, 25, 3, 3, 'FD');
-    
-    // Lock icon and title
-    doc.setFontSize(11);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('🔒 WARRANTY INCLUDED: 7 Days', margin + 10, yPos + 8);
-    
-    // Warranty details
-    doc.setFontSize(9);
-    doc.setTextColor(75, 85, 99);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Warranty ID: WARR-${Date.now().toString(36).toUpperCase()}-${saleData.receiptNumber}`, margin + 10, yPos + 14);
-    doc.text(`Valid until: ${formattedWarrantyDate}`, margin + 10, yPos + 19);
-    
-    // Warranty terms
-    doc.text('Terms: Manufacturing defects only. Original receipt required for claims.', 
-      margin + 10, yPos + 24);
-    
-    yPos += 35;
-
-    // ============ QR CODE SECTION (Right side) ============
-    const qrSize = 45;
-    const qrX = margin + contentWidth - qrSize - 5;
-    const qrY = yPos - 65; // Position above warranty terms
-    
-    // QR code box
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(30, 58, 138);
-    doc.setLineWidth(1);
-    doc.roundedRect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4, 3, 3, 'FD');
-    
-    // Add QR code image
-    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
-    
-    // QR code label
-    doc.setFontSize(8);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('SCAN FOR WARRANTY', qrX + qrSize / 2, qrY + qrSize + 5, { align: 'center' });
-
-    // ============ TERMS AND CONDITIONS ============
-    doc.setFontSize(10);
-    doc.setTextColor(30, 58, 138);
-    doc.setFont('helvetica', 'bold');
-    doc.text('TERMS AND CONDITIONS', margin, yPos);
-    
-    yPos += 5;
-    doc.setDrawColor(209, 213, 219);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 8;
-    
-    doc.setFontSize(8);
-    doc.setTextColor(107, 114, 128);
-    doc.setFont('helvetica', 'normal');
-    
-    const terms = [
-      '1. Warranty covers manufacturing defects only',
-      '2. Void if physical damage or liquid exposure present',
-      '3. Original receipt must be presented',
-      '4. Accessories: 30-day warranty',
-      '5. Software issues not covered'
-    ];
-    
-    terms.forEach((term, index) => {
-      doc.text(term, margin + 5, yPos + (index * 4));
-    });
-    
-    yPos += 30;
-
-    // ============ CONTACT INFO ============
-    // Top border
-    doc.setDrawColor(30, 64, 175);
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    yPos += 5;
-    
-    doc.setFontSize(9);
-    doc.setTextColor(75, 85, 99);
-    doc.setFont('helvetica', 'normal');
-    
-    // Contact info in two lines
-    doc.text('China: +86 187 1117 7003', margin + contentWidth / 4, yPos, { align: 'center' });
-    doc.text('Malawi: +265 995 181 454', margin + contentWidth * 3/4, yPos, { align: 'center' });
-    
-    yPos += 5;
-    doc.text('Email: sales@kmelectronics.com', margin + contentWidth / 4, yPos, { align: 'center' });
-    doc.text('Website: www.kmelectronics.com', margin + contentWidth * 3/4, yPos, { align: 'center' });
-    
-    yPos += 10;
-
-    // ============ THANK YOU MESSAGE ============
-    doc.setDrawColor(30, 64, 175);
-    doc.setLineWidth(0.8);
-    doc.line(margin, yPos, margin + contentWidth, yPos);
-    
-    doc.setFontSize(14);
-    doc.setTextColor(30, 64, 175);
-    doc.setFont('helvetica', 'bold');
-    doc.text('THANK YOU FOR YOUR BUSINESS!', pageWidth / 2, yPos + 8, { align: 'center' });
-    
-    doc.setDrawColor(30, 64, 175);
-    doc.setLineWidth(0.8);
-    doc.line(margin, yPos + 12, margin + contentWidth, yPos + 12);
-    
-    yPos += 20;
-
-    // ============ FOOTER ============
-    doc.setFontSize(7);
-    doc.setTextColor(156, 163, 175);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text(`© 2026 KM Electronics. All rights reserved. • Receipt ID: ${saleData.receiptNumber}`, 
-      pageWidth / 2, pageHeight - margin - 10, { align: 'center' });
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 
-      pageWidth / 2, pageHeight - margin - 5, { align: 'center' });
-    
-    // Generate filename
-    const filename = `KM_Receipt_${saleData.receiptNumber}_${Date.now()}.pdf`;
-    
-    // Save PDF locally for user download
-    doc.save(filename);
-    
-    console.log(`✅ Professional receipt generated successfully: ${filename}`);
-    
-    return { 
-      success: true, 
-      filename
-    };
-    
-  } catch (error) {
-    console.error('❌ Receipt generation error:', error);
-    throw new Error('Receipt generation failed: ' + error.message);
-  }
-};
-
-  // ACID-Compliant Quick Sale
+  // ACID-Compliant Quick Sale with QR Code Generation
   const handleQuickSale = async () => {
     if (!quickSale.itemCode || !quickSale.customerName) {
       setError('Please enter item code and customer name');
@@ -1427,13 +1075,13 @@ const generateSalesReceipt = async (saleData) => {
     }
 
     setIsProcessingSale(true);
-    setIsGeneratingReceipt(false);
+    setIsGeneratingQRCode(false);
 
     try {
       // First, validate database consistency
       const consistencyCheck = await validateDatabaseConsistency();
       if (!consistencyCheck.consistent) {
-        console.warn('Database consistency issues:', consistencyCheck.errors);
+        // Silently handle consistency issues
       }
 
       // Pre-validate stock before transaction
@@ -1574,16 +1222,14 @@ const generateSalesReceipt = async (saleData) => {
         });
       });
 
-      console.log('✅ Transaction successful, generating receipt...');
-      setIsGeneratingReceipt(true);
+      setIsGeneratingQRCode(true);
 
-      // Generate receipt
+      // Generate and download QR code
       try {
-        await generateSalesReceipt(transactionResult.saleData);
-        setSuccess('✅ Sale completed! Receipt downloaded successfully.');
-      } catch (receiptError) {
-        console.error('❌ Receipt generation failed:', receiptError);
-        setSuccess('✅ Sale completed! (Receipt generation failed)');
+        await generatePurchaseQRCode(transactionResult.saleData);
+        setSuccess('Sale completed! QR Code downloaded successfully.');
+      } catch (qrError) {
+        setSuccess('Sale completed! (QR Code generation failed)');
       }
 
       // Clear form
@@ -1602,8 +1248,6 @@ const generateSalesReceipt = async (saleData) => {
       ]);
       
     } catch (error) {
-      console.error('❌ Quick sale error:', error);
-      
       // Log error to audit
       const errorAuditLog = {
         action: 'quick_sale_error',
@@ -1621,14 +1265,14 @@ const generateSalesReceipt = async (saleData) => {
       try {
         await addDoc(collection(db, 'auditLogs'), errorAuditLog);
       } catch (auditError) {
-        console.error('Failed to log error to audit:', auditError);
+        // Silently handle audit error
       }
       
-      setError(`❌ Sale failed: ${error.message}`);
+      setError(`Sale failed: ${error.message}`);
       
     } finally {
       setIsProcessingSale(false);
-      setIsGeneratingReceipt(false);
+      setIsGeneratingQRCode(false);
     }
   };
 
@@ -1731,7 +1375,6 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      console.error('Stock request error:', error);
       if (!error.message.includes('Error submitting request:')) {
         setError('Error submitting request: ' + error.message);
       }
@@ -1858,7 +1501,6 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      console.error('Create installment error:', error);
       if (!error.message.includes('Error creating installment plan:')) {
         setError('Error creating installment plan: ' + error.message);
       }
@@ -1978,7 +1620,6 @@ const generateSalesReceipt = async (saleData) => {
       });
       
     } catch (error) {
-      console.error('Report faulty phone error:', error);
       if (!error.message.includes('Error reporting faulty phone:')) {
         setError('Error reporting faulty phone: ' + error.message);
       }
@@ -2791,20 +2432,20 @@ const generateSalesReceipt = async (saleData) => {
                                     <>
                                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                                       <span>
-                                        {isGeneratingReceipt ? 'Generating Receipt...' : 'Processing Sale...'}
+                                        {isGeneratingQRCode ? 'Generating QR Code...' : 'Processing Sale...'}
                                       </span>
                                     </>
                                   ) : (
                                     <>
                                       <FiShoppingCart className="w-5 h-5 mr-2" />
-                                      <span>Process Sale & Generate Receipt with QR</span>
+                                      <span>Process Sale & Download QR Code</span>
                                     </>
                                   )}
                                 </Button>
 
                                 {isProcessingSale && (
                                   <div className="text-center text-slate-400 text-sm">
-                                    <p>Processing transaction and generating receipt with QR code...</p>
+                                    <p>Processing transaction and generating QR code with purchase details...</p>
                                   </div>
                                 )}
                               </div>
@@ -2925,25 +2566,25 @@ const generateSalesReceipt = async (saleData) => {
                                     <Button
                                       onClick={async () => {
                                         try {
-                                          setIsGeneratingReceipt(true);
-                                          await generateSalesReceipt(sale);
+                                          setIsGeneratingQRCode(true);
+                                          await generatePurchaseQRCode(sale);
                                         } catch (error) {
-                                          setError('Failed to generate receipt: ' + error.message);
+                                          setError('Failed to generate QR code: ' + error.message);
                                         } finally {
-                                          setIsGeneratingReceipt(false);
+                                          setIsGeneratingQRCode(false);
                                         }
                                       }}
                                       variant="outline"
                                       size="sm"
                                       className="border-blue-500/30 hover:bg-blue-500/20"
-                                      disabled={isGeneratingReceipt}
+                                      disabled={isGeneratingQRCode}
                                     >
-                                      {isGeneratingReceipt ? (
+                                      {isGeneratingQRCode ? (
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
                                       ) : (
                                         <FiDownload className="w-4 h-4 mr-2" />
                                       )}
-                                      {isGeneratingReceipt ? 'Generating...' : 'Download'}
+                                      {isGeneratingQRCode ? 'Generating...' : 'QR Code'}
                                     </Button>
                                   </TableCell>
                                 </TableRow>
@@ -3473,12 +3114,12 @@ const generateSalesReceipt = async (saleData) => {
                     © {new Date().getFullYear()} KM ELECTRONICS | DESIGNED BY COD3PACK
                   </p>
                   <p className="text-slate-500 text-sm mt-1">
-                    Manager Dashboard v2.0 • QR Code Receipts • 7 Days Warranty Included
+                    Manager Dashboard v2.0 • QR Code Digital Receipts • 7 Days Warranty Included
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <FiShield className="text-green-400" />
-                  <span className="text-slate-400 text-sm">Secure • QR Code • Professional</span>
+                  <span className="text-slate-400 text-sm">Secure • QR Code • Digital Receipts</span>
                 </div>
               </div>
             </div>

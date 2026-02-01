@@ -293,7 +293,7 @@ export default function DeletionManagementDashboard() {
         monthlySales
       });
     } catch (error) {
-      console.error('Error calculating dashboard stats:', error);
+      alert('Error calculating dashboard stats');
     }
   };
 
